@@ -185,23 +185,23 @@ DEFENTRY "ub@", _fetchubyte, FLAG_INLINE
     ret
 _fetchubyte_END:
 
-DEFENTRY "w@", _fetchword, FLAG_INLINE
+DEFENTRY "h@", _fetchhalf, FLAG_INLINE
     movsx eax, WORD [eax]
     ret
-_fetchword_END:
+_fetchhalf_END:
 
-DEFENTRY "w!", _storeword, FLAG_INLINE
+DEFENTRY "h!", _storehalf, FLAG_INLINE
     mov ecx, [ebp]
     mov WORD [eax], cx
     add ebp, 8
     mov eax, [ebp-4]
     ret
-_storeword_END:
+_storehalf_END:
 
-DEFENTRY "uw@", _fetchuword, FLAG_INLINE
+DEFENTRY "uh@", _fetchuhalf, FLAG_INLINE
     movzx eax, WORD [eax]
     ret
-_fetchuword_END:
+_fetchuhalf_END:
 
 DEFENTRY ",", _write, FLAG_INLINE
     mov edx, [VAR_SYSALLOC]
@@ -221,14 +221,14 @@ DEFENTRY "b,", _writebyte, FLAG_INLINE
     ret
 _writebyte_END:
 
-DEFENTRY "w,", _writeword, FLAG_INLINE
+DEFENTRY "h,", _writehalf, FLAG_INLINE
     mov edx, [VAR_SYSALLOC]
     mov edi, [edx]
     mov WORD [edi], ax
     add edi, 2
     mov [edx], edi
     ret
-_writeword_END:
+_writehalf_END:
 
 DEFENTRY "+", _add, FLAG_INLINE
     add eax, [ebp]
@@ -472,7 +472,22 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     test ecx, ecx
     jz .interpret
 
+    ; assume base 10
+    mov ebx, 10
     movzx edx, BYTE [edi]
+
+    ; test for base prefix
+    cmp edx, '$'
+    jne .try_base2
+    mov ebx, 16
+    jmp .next_char
+.try_base2:
+    cmp edx, '%'
+    jne .test_digits
+    mov ebx, 2
+    jmp .next_char
+
+.test_digits:
     mov esi, DIGITS
 .next_digit:
     cmp esi, DIGITSEND
@@ -484,7 +499,8 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
 
 .accum_digit:
     sub esi, DIGITS
-    shl eax, 4
+    xor edx, edx
+    mul ebx
     add eax, esi
 
 .next_char:
