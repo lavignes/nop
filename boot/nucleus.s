@@ -468,12 +468,11 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     inc edi
     xor eax, eax
 
+    ; assume base 10
+    mov ebx, 10
 .parse_digit:
     test ecx, ecx
     jz .interpret
-
-    ; assume base 10
-    mov ebx, 10
     movzx edx, BYTE [edi]
 
     ; test for base prefix
@@ -483,9 +482,13 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     jmp .next_char
 .try_base2:
     cmp edx, '%'
-    jne .test_digits
+    jne .try_underscore
     mov ebx, 2
     jmp .next_char
+    ; ignore underscores in numbers
+.try_underscore:
+    cmp edx, '_'
+    je .next_char
 
 .test_digits:
     mov esi, DIGITS
