@@ -38,7 +38,7 @@ bin/boot.elf: $(OBJS) boot/link.ld
 %.o: %.s
 	$(NASM) $(AFLAGS) -o $@ $<
 
-nucleus.o: nucleus.s nucleus.nop
+boot/nucleus.o: boot/nucleus.nop
 
 clean:
 	rm -f bin/*

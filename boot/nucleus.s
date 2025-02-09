@@ -12,6 +12,9 @@ FLAG_IMMEDIATE    EQU 0x01
 FLAG_COMPILE_ONLY EQU 0x02
 FLAG_INLINE       EQU 0x04
 
+STATE_INTERPRETING EQU 0
+STATE_COMPILING    EQU 1
+
 %define _LINK 0x00000000
 
 %macro DEFENTRY 3
@@ -54,28 +57,32 @@ DEFENTRY "SYSSTATE", _SYSSTATE, FLAG_INLINE
     ret
 _SYSSTATE_END:
 
-DEFENTRY "SYSDICT", _SYSDICT, FLAG_INLINE
+DEFENTRY "'SYSDICT", _SYSDICT, FLAG_INLINE
     PSPUSH VAR_SYSDICT
     ret
 _SYSDICT_END:
 
-DEFENTRY "SYSALLOC", _SYSALLOC, FLAG_INLINE
-    PSPUSH VAR_SYSDICT
+DEFENTRY "'SYSALLOC", _SYSALLOC, FLAG_INLINE
+    PSPUSH VAR_SYSALLOC
     ret
 _SYSALLOC_END:
 
 DEFENTRY "SYSHERE", _SYSHERE, FLAG_INLINE
-    mov edx, [VAR_SYSALLOC]
-    PSPUSH [edx]
+    PSPUSH [VAR_SYSALLOC]
     ret
 _SYSHERE_END:
 
-DEFENTRY "SYSIN", _SYSIN, FLAG_INLINE
+DEFENTRY "'SYSIN", _SYSIN, FLAG_INLINE
     PSPUSH VAR_SYSIN
     ret
 _SYSIN_END:
 
-DEFENTRY "SYSBUF", _SYSBUF, FLAG_INLINE
+DEFENTRY "'SYSSTR", _SYSSTR, FLAG_INLINE
+    PSPUSH VAR_SYSSTR
+    ret
+_SYSSTR_END:
+
+DEFENTRY "'SYSBUF", _SYSBUF, FLAG_INLINE
     PSPUSH VAR_SYSBUF
     ret
 _SYSBUF_END:
@@ -92,14 +99,14 @@ DEFENTRY "<SYSIN", _from_SYSIN, FLAG_NONE
     ret
 _from_SYSIN_END:
 
-DEFENTRY "SYSTOK", _SYSTOK, FLAG_NONE
+DEFENTRY "(SYSTOK)", _ll_SYSTOK, FLAG_NONE
 .next_space:
     call _from_SYSIN
     PSPOP ecx
     cmp ecx, ' '
     jbe .next_space
 
-    mov edi, [VAR_SYSBUF]
+    mov edi, [VAR_SYSSTR]
     inc edi
 .next_char:
     mov BYTE [edi], cl
@@ -111,15 +118,28 @@ DEFENTRY "SYSTOK", _SYSTOK, FLAG_NONE
 
     ; Store string length
     mov ecx, edi
-    mov edi, [VAR_SYSBUF]
+    mov edi, [VAR_SYSSTR]
     sub ecx, edi
     dec ecx
     mov BYTE [edi], cl
+
+    PSPUSH [VAR_SYSSTR]
+    ret
+_ll_SYSTOK_END:
+
+DEFENTRY "SYSTOK", _SYSTOK, FLAG_NONE
+    call _ll_SYSTOK
+    mov esi, eax
+    movzx ecx, BYTE [esi]
+    inc ecx
+    mov edi, [VAR_SYSBUF]
+    mov eax, edi
+    repe movsb
     ret
 _SYSTOK_END:
 
 DEFENTRY "SYSFIND", _SYSFIND, FLAG_NONE
-    mov edi, [VAR_SYSBUF]
+    mov edi, eax
     movzx ecx, BYTE [edi]
     inc edi
     mov edx, VAR_SYSDICT
@@ -150,7 +170,7 @@ DEFENTRY "SYSFIND", _SYSFIND, FLAG_NONE
     jne .next_link
 
 .entry_in_edx:
-    PSPUSH edx
+    mov eax, edx
     ret
 _SYSFIND_END:
 
@@ -209,6 +229,7 @@ DEFENTRY ",", _write, FLAG_INLINE
     mov [edi], eax
     add edi, 4
     mov [edx], edi
+    DROP
     ret
 _write_END:
 
@@ -218,6 +239,7 @@ DEFENTRY "b,", _writebyte, FLAG_INLINE
     mov BYTE [edi], al
     inc edi
     mov [edx], edi
+    DROP
     ret
 _writebyte_END:
 
@@ -227,8 +249,63 @@ DEFENTRY "h,", _writehalf, FLAG_INLINE
     mov WORD [edi], ax
     add edi, 2
     mov [edx], edi
+    DROP
     ret
 _writehalf_END:
+
+DEFENTRY "mov", _move, FLAG_INLINE
+    mov ecx, eax
+    mov edi, [ebp]
+    mov esi, [ebp+4]
+    repe movsd
+    mov eax, [ebp+8]
+    add ebp, 12
+    ret
+_move_END:
+
+DEFENTRY "bmov", _bmove, FLAG_INLINE
+    mov ecx, eax
+    mov edi, [ebp]
+    mov esi, [ebp+4]
+    repe movsb
+    mov eax, [ebp+8]
+    add ebp, 12
+    ret
+_bmove_END:
+
+DEFENTRY "hmov", _hmove, FLAG_INLINE
+    mov ecx, eax
+    mov edi, [ebp]
+    mov esi, [ebp+4]
+    repe movsw
+    mov eax, [ebp+8]
+    add ebp, 12
+    ret
+_hmove_END:
+
+DEFENTRY "bmov,", _bmovewrite, FLAG_INLINE
+    mov ecx, eax
+    mov edx, [VAR_SYSALLOC]
+    mov edi, [edx]
+    mov esi, [ebp]
+    repe movsb
+    mov [edx], edi
+    mov eax, [ebp+4]
+    add ebp, 8
+    ret
+_bmovewrite_END:
+
+DEFENTRY "align", _align, FLAG_INLINE
+    add eax, 3
+    and eax, 0xFFFFFFFC
+    ret
+_align_END:
+
+DEFENTRY "halign", _halign, FLAG_INLINE
+    inc eax
+    and eax, 0xFFFFFFFE
+    ret
+_halign_END:
 
 DEFENTRY "+", _add, FLAG_INLINE
     add eax, [ebp]
@@ -417,6 +494,13 @@ DEFENTRY "dup", _dup, FLAG_INLINE
     ret
 _dup_END:
 
+DEFENTRY "over", _over, FLAG_INLINE
+    sub ebp, 4
+    mov [ebp], eax
+    mov eax, [ebp+8]
+    ret
+_over_END:
+
 DEFENTRY ">R", _to_return, FLAG_INLINE
     push eax
     DROP
@@ -430,49 +514,127 @@ DEFENTRY "<R", _from_return, FLAG_INLINE
     ret
 _from_return_END:
 
+DEFENTRY "[exit]", _exit, FLAG_COMPILE_ONLY | FLAG_IMMEDIATE
+    mov ecx, [VAR_SYSALLOC]
+    mov edi, [ecx]
+    mov BYTE [edi], 0xC3   ; retn
+    inc edi
+    mov [ecx], edi
+    ret
+_exit_END:
+
+DEFENTRY "[call]", _call, FLAG_COMPILE_ONLY | FLAG_IMMEDIATE
+    call _ll_SYSTOK
+    call _SYSFIND
+    PSPOP edx
+
+    ; get POINTER
+    add edx, 4
+
+    mov ecx, [VAR_SYSALLOC]
+    mov edi, [ecx]
+    mov BYTE [edi], 0xBA   ; mov edx,
+    inc edi
+    mov [edi], edx         ;          POINTER
+    add edi, 4
+    mov WORD [edi], 0xD2FF ; call edx
+    add edi, 2
+    mov [ecx], edi
+    ret
+_call_END:
+
+DEFENTRY "[", _start_compile, FLAG_INLINE | FLAG_IMMEDIATE
+    mov DWORD [VAR_SYSSTATE], STATE_COMPILING
+    ret
+_start_compile_END:
+
+DEFENTRY "]", _end_compile, FLAG_INLINE | FLAG_IMMEDIATE
+    mov DWORD [VAR_SYSSTATE], STATE_INTERPRETING
+    ret
+_end_compile_END:
+
+DEFENTRY "\", _line_comment, FLAG_IMMEDIATE
+.loop:
+    call _from_SYSIN
+    PSPOP ecx
+    cmp ecx, 10 ; '\n' why NASM!?
+    jne .loop
+    ret
+_line_comment_END:
+
+DEFENTRY "\debug", _debug, FLAG_IMMEDIATE
+    ret
+_debug_END:
+
 GLOBAL _SYSQUIT
 DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     cli
     mov esp, RSBASE
-    mov ebp, PSBASE-4
+    mov ebp, PSBASE+4
 
     mov DWORD [SYSIN+0], NUCLEUSSRC-1
     mov DWORD [SYSIN+4], NUCLEUSSIZE+1
+    mov DWORD [SYSIN+8], 0
 
     mov DWORD [SYSALLOC+0], HEAPBASE
     mov DWORD [SYSALLOC+4], HEAPMAX
+    mov DWORD [SYSALLOC+8], 0
 
-    mov DWORD [VAR_SYSSTATE], 0
+    mov DWORD [VAR_SYSSTATE], STATE_INTERPRETING
     mov DWORD [VAR_SYSDICT], _LINK
     mov DWORD [VAR_SYSALLOC], SYSALLOC
     mov DWORD [VAR_SYSIN], SYSIN
+    mov DWORD [VAR_SYSSTR], SYSSTR
     mov DWORD [VAR_SYSBUF], SYSBUF
 
     ; TODO: setup basic hardware stuff like the IDT
     ; and enable interrupts
 
 .interpret:
-    call _SYSTOK
+    call _ll_SYSTOK
     call _SYSFIND
     PSPOP edx
     test edx, edx
     jz .not_found
 
+    ; get POINTER
     add edx, 4
+
+    test DWORD [VAR_SYSSTATE], STATE_COMPILING
+    jz .execute
+
+    ; check flags
+    test BYTE [edx-6], FLAG_IMMEDIATE
+    jnz .execute
+
+    ; compile absolute call
+    mov ecx, [VAR_SYSALLOC]
+    mov edi, [ecx]
+    mov BYTE [edi], 0xBA   ; mov edx,
+    inc edi
+    mov [edi], edx         ;          POINTER
+    add edi, 4
+    mov WORD [edi], 0xD2FF ; call edx
+    add edi, 2
+    mov [ecx], edi
+    jmp .interpret
+
+.execute:
     call edx
     jmp .interpret
 
 .not_found:
-    mov edi, [VAR_SYSBUF]
+    ; FIXME: we're assuming the LL tokenizer always uses the SYSSTR
+    mov edi, [VAR_SYSSTR]
     movzx ecx, BYTE [edi]
     inc edi
-    xor eax, eax
+    PSPUSH 0
 
     ; assume base 10
     mov ebx, 10
 .parse_digit:
     test ecx, ecx
-    jz .interpret
+    jz .try_literal
     movzx edx, BYTE [edi]
 
     ; test for base prefix
@@ -510,6 +672,30 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     dec ecx
     inc edi
     jmp .parse_digit
+
+.try_literal:
+    test DWORD [VAR_SYSSTATE], STATE_COMPILING
+    jz .interpret
+
+    ; compile literal
+    mov ecx, [VAR_SYSALLOC]
+    mov edi, [ecx]
+    mov WORD [edi], 0xED83 ; sub ebp,
+    add edi, 2
+    mov BYTE [edi], 0x04   ;          4
+    inc edi
+    mov WORD [edi], 0x4589 ; mov [ebp+ ], eax
+    add edi, 2
+    mov BYTE [edi], 0x00   ;          0
+    inc edi
+    mov BYTE [edi], 0xB8   ; mov eax,
+    inc edi
+    mov DWORD [edi], eax   ;          LITERAL
+    add edi, 4
+    mov [ecx], edi
+
+    DROP
+    jmp .interpret
 _SYSQUIT_END:
 
 ; Do not place more entries below because we want _LINK
@@ -517,6 +703,12 @@ _SYSQUIT_END:
 
 SECTION .data
 
+ALIGN 4
+SYSSTR:
+    DB 0
+    TIMES 255 DB 0
+
+ALIGN 4
 SYSBUF:
     DB 0
     TIMES 255 DB 0
@@ -538,14 +730,17 @@ VAR_SYSSTATE:   DD 0
 VAR_SYSDICT:    DD 0
 VAR_SYSALLOC:   DD 0
 VAR_SYSIN:      DD 0
+VAR_SYSSTR:     DD 0
 VAR_SYSBUF:     DD 0
 
 SECTION .rodata
 
+ALIGN 4
 DIGITS:
     DB "0123456789ABCDEF"
 DIGITSEND:
 
+ALIGN 4
 NUCLEUSSRC:
     INCBIN "nucleus.nop"
 NUCLEUSSIZE EQU $ - NUCLEUSSRC

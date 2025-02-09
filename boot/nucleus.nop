@@ -1,6 +1,63 @@
-42 b,
+\ align heap address
+SYSHERE @ align SYSHERE !
 
-$A_F SYSHERE b!
+\ write "def:"
+SYSTOK def:
+'SYSBUF @ dup 1 + swap b@ bmov,
+
+\ align again
+SYSHERE @ align SYSHERE !
+
+\ function length/flags (for-inlining / not-necessary)
+$0000 h,
+$00 b,
+
+\ length of "def:"
+'SYSBUF @ b@ b,
+
+\ update dictionary links
+SYSHERE @
+'SYSDICT @ ,
+'SYSDICT !
+
+\ compile what we just wrote above (very meta)
+[
+    SYSHERE @ align SYSHERE !
+    SYSTOK
+    'SYSBUF @ dup 1 + swap b@ bmov,
+    SYSHERE @ align SYSHERE !
+    $0000 h,
+    $00 b,
+    'SYSBUF @ b@ b,
+    SYSHERE @
+    'SYSDICT @ ,
+    'SYSDICT !
+    [exit]
+]
+
+\debug
+
+def: {: \debug [
+    DEFINE
+    [call] [
+    [exit]
+]
+
+\debug
+
+def: :} [
+    [call] [exit]
+    [call] ]
+    [exit]
+]
+
+def: vga! [
+    $B8000 h!
+    [exit]
+]
+
+$17_45 vga!
+$17_45 $B8002 h!
 
 SYSQUIT
 
