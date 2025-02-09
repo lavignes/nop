@@ -35,29 +35,28 @@ SYSHERE @
     [exit]
 ]
 
-\debug
-
-def: {: \debug [
-    DEFINE
-    [call] [
+def: [: [
+    def:
     [exit]
 ]
 
-\debug
-
-def: :} [
+def: :] [
     [call] [exit]
     [call] ]
     [exit]
 ]
 
-def: vga! [
+def: vga! inline [
     $B8000 h!
     [exit]
 ]
 
-$17_45 vga!
-$17_45 $B8002 h!
+[: vga2!
+    $B8002 h!
+:]
+
+$17_4F vga!
+$17_6B vga2!
 
 SYSQUIT
 

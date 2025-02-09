@@ -607,6 +607,20 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     test BYTE [edx-6], FLAG_IMMEDIATE
     jnz .execute
 
+    test BYTE [edx-6], FLAG_INLINE
+    jz .compile
+
+    ; compile inline
+    mov ebx, [VAR_SYSALLOC]
+    mov edi, [ebx]
+    movzx ecx, WORD [edx-8]
+    dec ecx ; ignore retn byte
+    mov esi, edx
+    repe movsb
+    mov [ebx], edi
+    jmp .interpret
+
+.compile:
     ; compile absolute call
     mov ecx, [VAR_SYSALLOC]
     mov edi, [ecx]
@@ -624,7 +638,6 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     jmp .interpret
 
 .not_found:
-    ; FIXME: we're assuming the LL tokenizer always uses the SYSSTR
     mov edi, [VAR_SYSSTR]
     movzx ecx, BYTE [edi]
     inc edi
