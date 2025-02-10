@@ -172,7 +172,7 @@ DEFENTRY "SYSTOK", _SYSTOK, FLAG_NONE
     inc ecx
     mov edi, [VAR_SYSBUF]
     mov eax, edi
-    repe movsb
+    rep movsb
     ret
 _SYSTOK_END:
 
@@ -295,7 +295,7 @@ DEFENTRY "mov", _move, FLAG_INLINE
     mov ecx, eax
     mov edi, [ebp]
     mov esi, [ebp+4]
-    repe movsd
+    rep movsd
     mov eax, [ebp+8]
     add ebp, 12
     ret
@@ -305,7 +305,7 @@ DEFENTRY "bmov", _bmove, FLAG_INLINE
     mov ecx, eax
     mov edi, [ebp]
     mov esi, [ebp+4]
-    repe movsb
+    rep movsb
     mov eax, [ebp+8]
     add ebp, 12
     ret
@@ -315,7 +315,7 @@ DEFENTRY "hmov", _hmove, FLAG_INLINE
     mov ecx, eax
     mov edi, [ebp]
     mov esi, [ebp+4]
-    repe movsw
+    rep movsw
     mov eax, [ebp+8]
     add ebp, 12
     ret
@@ -326,7 +326,7 @@ DEFENTRY "bmov,", _bmovewrite, FLAG_INLINE
     mov edx, [VAR_SYSALLOC]
     mov edi, [edx]
     mov esi, [ebp]
-    repe movsb
+    rep movsb
     mov [edx], edi
     mov eax, [ebp+4]
     add ebp, 8
@@ -714,8 +714,7 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     jnz .execute
 
     test BYTE [edx-6], FLAG_INLINE
-    jmp .compile
-    ;jz .compile
+    jz .compile
 
     ; compile inline
     mov ebx, [VAR_SYSALLOC]
@@ -723,7 +722,7 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     movzx ecx, WORD [edx-8]
     dec ecx ; ignore retn byte
     mov esi, edx
-    repe movsb
+    rep movsb
     mov [ebx], edi
     jmp .interpret
 
