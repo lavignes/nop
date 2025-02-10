@@ -26,7 +26,7 @@ debug: nop.img
 	qemu-system-i386 -s -S -cpu 486 -machine isapc,acpi=off -vga cirrus -drive file=nop.img,format=raw
 
 nop.img: bin/boot.bin
-	dd if=/dev/zero of=nop.img bs=512 count=59
+	dd if=/dev/zero of=nop.img bs=512 count=60
 	dd if=bin/boot.bin of=nop.img seek=0 bs=512 conv=notrunc
 
 bin/boot.bin: bin/boot.elf

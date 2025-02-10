@@ -12,8 +12,8 @@ SECTIONS {
         SHORT(0xAA55);
     }
 
-    . = 0x500;
-    .text : AT(0x7E00) {
+    . = 0x7E00;
+    .text : {
         boot/boot2.o(.text)
         boot/boot2.o(.rodata)
         *(.text)

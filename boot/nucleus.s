@@ -1,11 +1,11 @@
 ; vim: ft=nasm
 CPU 386
 
-RSBASE   EQU 0x7800
-PSBASE   EQU 0x80000
+RSBASE   EQU 0x1000
+PSBASE   EQU 0x7C00
 
-HEAPBASE EQU 0x8800
-HEAPMAX  EQU 0x70000
+HEAPBASE EQU 0x10000
+HEAPMAX  EQU 0xA0000
 
 FLAG_NONE         EQU 0x00
 FLAG_IMMEDIATE    EQU 0x01
@@ -846,6 +846,11 @@ INTERRUPT_HANDLER i
 %assign i i+1
 %endrep
 
+%if (interrupt_handler0_END - interrupt_handler0) != \
+    (interrupt_handler8_END - interrupt_handler8)
+%error "All interrupt handlers need to be the exact same size!"
+%endif
+
 SECTION .data
 
 ALIGN 4
@@ -873,6 +878,7 @@ SYSALLOC:
 ALIGN 4
 IDT:
     TIMES 256 DQ 0
+IDT_END:
 
 ALIGN 4
 VAR_SYSSTATE:   DD 0
@@ -887,7 +893,7 @@ SECTION .rodata
 
 ALIGN 4
 IDTR:
-    DW (256 * 8) - 1 ; size of table - 1
+    DW (IDT_END - IDT - 1)
     DD IDT
 
 ALIGN 4

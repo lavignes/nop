@@ -34,7 +34,7 @@ def: immediate: [
     1 or
     SYSDICT @ 2 - b!
     [exit]
-] immediate: \ Of course we need to be meta about it.
+] immediate: \ Of course "immediate:" _is_ immediate (wow meta).
 
 \ Now helpers for quick function definitions.
 def: [: immediate: [
@@ -43,7 +43,7 @@ def: [: immediate: [
     [exit]
 ]
 
-\ Don't forget to make _this_ immediate otherwise we'll stay in compiling mode.
+\ Don't forget to make immediate otherwise we'll stay in compiling mode.
 def: :] immediate: [
     [call] [exit]
     [call] ]
@@ -67,30 +67,24 @@ def: :] immediate: [
     ' ,
 :]
 
-[: vga!
-    $B8000 h!
-:]
-[: vga2!
-    $B8002 h!
-:]
+[: vga!  $B8000 h! :]
+[: vga2! $B8002 h! :]
 
 \ Print Ok
-$17_4F vga!
-$17_6B vga2!
+\ $17_4F vga!
+\ $17_6B vga2!
 
-[: (INTERRUPT)
-    $1718 + vga!   \ IRQ number
+[: interrupt
+    $1710 + vga!   \ IRQ number
     $1730 + vga2!  \ error code
 :]
 
-' (INTERRUPT) SYSINT !
+' interrupt SYSINT !
 
 [: forever
     <R drop
     ['] forever >R
 :]
-
-forever
 
 SYSQUIT
 

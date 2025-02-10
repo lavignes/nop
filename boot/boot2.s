@@ -13,17 +13,17 @@ boot2:
 
 ; Setup identity paging and jump to protected mode
     cli
-    lgdt [gdtr]
+    lgdt [GDTR]
 
     mov eax, cr0
     or eax, 1
     mov cr0, eax
 
-    jmp (gdt_code - gdt):protected_mode
+    jmp (GDT_CODE - GDT):protected_mode
 
 BITS 32
 protected_mode:
-    mov ax, (gdt_data - gdt)
+    mov ax, (GDT_DATA - GDT)
     mov ds, ax
     mov ss, ax
     mov es, ax
@@ -38,26 +38,26 @@ protected_mode:
 SECTION .rodata
 
 ALIGN 4
-gdt:
+GDT:
     DW 0, 0
     DB 0, 0, 0, 0
-gdt_code:
+GDT_CODE:
     DW 0xFFFF     ; segment limit: bits 0-15
     DW 0x0000     ; segment base: bits 0-15
     DB 0x00       ; segment base: bits 16-23
     DB 0b10011010 ; access byte
     DB 0b11001111 ; segment length: bits 16-19, flags (4 bits)
     DB 0x00       ; segment base: bits 24-31
-gdt_data:
+GDT_DATA:
     DW 0xFFFF
     DW 0x0000
     DB 0x00
     DB 0b10010010
     DB 0b11001111
     DB 0x00
-gdt_end:
+GDT_END:
 
-gdtr:
-    DW (gdt_end - gdt - 1)
-    DD gdt
+GDTR:
+    DW (GDT_END - GDT - 1)
+    DD GDT
 

@@ -38,12 +38,12 @@ free_a20_stage2:
     mov es, ax
     mov ds, ax
 
-    mov bx, 0x500 ; load kernel into conventional memory at $500
-    mov ah, 0x02  ; read sectors
-    mov al, 58    ; 58 sectors (to fit in lower conventioal memory)
-    mov ch, 0     ; cly 0
-    mov cl, 2     ; sector 2 (1-indexed)
-    mov dh, 0     ; head 0
+    mov bx, 0x7E00 ; load kernel into conventional memory at $7E00
+    mov ah, 0x02   ; read sectors
+    mov al, 59     ; 59 sectors (need to size this with image)
+    mov ch, 0      ; cly 0
+    mov cl, 2      ; start from sector 2 (1-indexed)
+    mov dh, 0      ; head 0
     int 0x13
 
     EXTERN boot2
