@@ -63,9 +63,7 @@ def: :] immediate: [
 :]
 
 \ And we'll need a compiling form.
-[: ['] immediate:
-    ' ,
-:]
+[: ['] immediate: ' , :]
 
 [: vga!  $B8000 h! :]
 [: vga2! $B8002 h! :]

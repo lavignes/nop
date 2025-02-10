@@ -92,6 +92,18 @@ DEFENTRY "SYSINT", _SYSINT, FLAG_INLINE
     ret
 _SYSINT_END:
 
+DEFENTRY "SYSPANIC", _SYSPANIC, FLAG_INLINE
+    PSPUSH VAR_SYSPANIC
+    ret
+_SYSPANIC_END:
+
+DEFENTRY "(PANIC)", _panic, FLAG_NONE
+    cli
+.loop:
+    hlt
+    jmp .loop
+_panic_END:
+
 DEFENTRY "(INTERRUPT)", _interrupt, FLAG_NONE
     DROP
     DROP
@@ -603,6 +615,7 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     mov DWORD [VAR_SYSSTR], SYSSTR
     mov DWORD [VAR_SYSBUF], SYSBUF
     mov DWORD [VAR_SYSINT], _interrupt
+    mov DWORD [VAR_SYSPANIC], _panic
 
     ; Intialize the IDT
     mov esi, interrupt_handler0
@@ -743,7 +756,7 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     mov esi, DIGITS
 .next_digit:
     cmp esi, DIGITSEND
-    je .next_char
+    je .not_digit
     cmp dl, BYTE [esi]
     je .accum_digit
     inc esi
@@ -759,6 +772,13 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     dec ecx
     inc edi
     jmp .parse_digit
+
+.not_digit:
+    DROP
+    PSPUSH 0
+    mov edx, [VAR_SYSPANIC]
+    call edx
+    jmp .interpret
 
 .try_literal:
     test DWORD [VAR_SYSSTATE], STATE_COMPILING
@@ -888,6 +908,7 @@ VAR_SYSIN:      DD 0
 VAR_SYSSTR:     DD 0
 VAR_SYSBUF:     DD 0
 VAR_SYSINT:     DD 0
+VAR_SYSPANIC:   DD 0
 
 SECTION .rodata
 
