@@ -9,8 +9,8 @@ HEAPMAX  EQU 0x70000
 
 FLAG_NONE         EQU 0x00
 FLAG_IMMEDIATE    EQU 0x01
-FLAG_COMPILE_ONLY EQU 0x02
-FLAG_INLINE       EQU 0x04
+FLAG_INLINE       EQU 0x02
+FLAG_COMPILE_ONLY EQU 0x04
 
 STATE_INTERPRETING EQU 0
 STATE_COMPILING    EQU 1
@@ -57,12 +57,12 @@ DEFENTRY "SYSSTATE", _SYSSTATE, FLAG_INLINE
     ret
 _SYSSTATE_END:
 
-DEFENTRY "'SYSDICT", _SYSDICT, FLAG_INLINE
+DEFENTRY "SYSDICT", _SYSDICT, FLAG_INLINE
     PSPUSH VAR_SYSDICT
     ret
 _SYSDICT_END:
 
-DEFENTRY "'SYSALLOC", _SYSALLOC, FLAG_INLINE
+DEFENTRY "SYSALLOC", _SYSALLOC, FLAG_INLINE
     PSPUSH VAR_SYSALLOC
     ret
 _SYSALLOC_END:
@@ -72,20 +72,31 @@ DEFENTRY "SYSHERE", _SYSHERE, FLAG_INLINE
     ret
 _SYSHERE_END:
 
-DEFENTRY "'SYSIN", _SYSIN, FLAG_INLINE
+DEFENTRY "SYSIN", _SYSIN, FLAG_INLINE
     PSPUSH VAR_SYSIN
     ret
 _SYSIN_END:
 
-DEFENTRY "'SYSSTR", _SYSSTR, FLAG_INLINE
+DEFENTRY "SYSSTR", _SYSSTR, FLAG_INLINE
     PSPUSH VAR_SYSSTR
     ret
 _SYSSTR_END:
 
-DEFENTRY "'SYSBUF", _SYSBUF, FLAG_INLINE
+DEFENTRY "SYSBUF", _SYSBUF, FLAG_INLINE
     PSPUSH VAR_SYSBUF
     ret
 _SYSBUF_END:
+
+DEFENTRY "SYSINT", _SYSINT, FLAG_INLINE
+    PSPUSH VAR_SYSINT
+    ret
+_SYSINT_END:
+
+DEFENTRY "(INTERRUPT)", _interrupt, FLAG_NONE
+    DROP
+    DROP
+    ret
+_interrupt_END:
 
 DEFENTRY "<SYSIN", _from_SYSIN, FLAG_NONE
     PSPUSH [VAR_SYSIN]
@@ -562,15 +573,20 @@ DEFENTRY "\", _line_comment, FLAG_IMMEDIATE
     ret
 _line_comment_END:
 
-DEFENTRY "\debug", _debug, FLAG_IMMEDIATE
+io_wait:
+    pusha
+    mov ecx, 0xFFFF
+.delay:
+    dec ecx
+    jnz .delay
+    popa
     ret
-_debug_END:
 
 GLOBAL _SYSQUIT
 DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     cli
     mov esp, RSBASE
-    mov ebp, PSBASE+4
+    mov ebp, PSBASE
 
     mov DWORD [SYSIN+0], NUCLEUSSRC-1
     mov DWORD [SYSIN+4], NUCLEUSSIZE+1
@@ -586,9 +602,67 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     mov DWORD [VAR_SYSIN], SYSIN
     mov DWORD [VAR_SYSSTR], SYSSTR
     mov DWORD [VAR_SYSBUF], SYSBUF
+    mov DWORD [VAR_SYSINT], _interrupt
 
-    ; TODO: setup basic hardware stuff like the IDT
-    ; and enable interrupts
+    ; Intialize the IDT
+    mov esi, interrupt_handler0
+    mov edi, IDT
+    mov ecx, 256
+.fill_idt:
+    mov WORD [edi], si
+    mov WORD [edi+2], cs    ; code segment to load
+    mov BYTE [edi+4], 0     ; unused
+    mov BYTE [edi+5], 0x8E  ; type: interrupt
+    mov edx, esi
+    shr edx, 16
+    mov WORD [edi+6], dx
+    add edi, 8
+    add esi, (interrupt_handler0_END - interrupt_handler0)
+    dec ecx
+    jnz .fill_idt
+
+    ; Initialize the PICs and remap their IRQs
+    mov eax, 0x11
+    out 0x20, al
+    call io_wait
+    out 0xA0, al
+    call io_wait
+
+    ; IRQ 0-7 -> Interrupt 0x20 - 0x27
+    mov eax, 0x20
+    out 0x21, al
+    call io_wait
+
+    ; IRQ 8-15 -> Interrupt 0x28 - 0x2F
+    mov eax, 0x28
+    out 0xA1, al
+    call io_wait
+
+    ; Enable cascade to second PIC
+    mov eax, 4
+    out 0x21, al
+    call io_wait
+    mov eax, 2
+    out 0xA1, al
+    call io_wait
+
+    ; Enable PICs x86 mode
+    mov eax, 1
+    out 0x21, al
+    call io_wait
+    out 0xA1, al
+    call io_wait
+
+    ; Enable the PICs
+    xor eax, eax
+    out 0x21, al
+    call io_wait
+    out 0xA1, al
+    call io_wait
+
+    ; Enable interrupts
+    lidt [IDTR]
+    sti
 
 .interpret:
     call _ll_SYSTOK
@@ -714,6 +788,64 @@ _SYSQUIT_END:
 ; Do not place more entries below because we want _LINK
 ; to always be _SYSQUIT
 
+%macro INTERRUPT_HANDLER 1
+interrupt_handler%1:
+    PSPUSH 0
+    nop        ; the length of these needs to be identical
+    PSPUSH %1
+    call interrupt_common
+    iret
+interrupt_handler%1_END:
+%endmacro
+
+%macro INTERRUPT_HANDLER_WITH_CODE 1
+interrupt_handler%1:
+    PSPUSH 0
+    pop eax    ; note that we insert a nop above
+    PSPUSH %1
+    call interrupt_common
+    iret
+interrupt_handler%1_END:
+%endmacro
+
+interrupt_common:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+    mov edx, [VAR_SYSINT]
+    call edx
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+; Interrupts 0 - 7
+%assign i 0
+%rep 8
+INTERRUPT_HANDLER i
+%assign i i+1
+%endrep
+INTERRUPT_HANDLER_WITH_CODE 8
+INTERRUPT_HANDLER_WITH_CODE 9
+INTERRUPT_HANDLER_WITH_CODE 10
+INTERRUPT_HANDLER_WITH_CODE 11
+INTERRUPT_HANDLER_WITH_CODE 12
+INTERRUPT_HANDLER_WITH_CODE 13
+INTERRUPT_HANDLER_WITH_CODE 14
+INTERRUPT_HANDLER           15
+INTERRUPT_HANDLER           16
+INTERRUPT_HANDLER_WITH_CODE 17
+; Interrupts 18 - 255
+%assign i 18
+%rep 238
+INTERRUPT_HANDLER i
+%assign i i+1
+%endrep
+
 SECTION .data
 
 ALIGN 4
@@ -739,14 +871,24 @@ SYSALLOC:
     DD 0
 
 ALIGN 4
+IDT:
+    TIMES 256 DQ 0
+
+ALIGN 4
 VAR_SYSSTATE:   DD 0
 VAR_SYSDICT:    DD 0
 VAR_SYSALLOC:   DD 0
 VAR_SYSIN:      DD 0
 VAR_SYSSTR:     DD 0
 VAR_SYSBUF:     DD 0
+VAR_SYSINT:     DD 0
 
 SECTION .rodata
+
+ALIGN 4
+IDTR:
+    DW (256 * 8) - 1 ; size of table - 1
+    DD IDT
 
 ALIGN 4
 DIGITS:

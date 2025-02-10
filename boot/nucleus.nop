@@ -1,62 +1,96 @@
-\ align heap address
+\ Bootstrap defining functions by manually writing a dictionary entry header.
 SYSHERE @ align SYSHERE !
-
-\ write "def:"
-SYSTOK def:
-'SYSBUF @ dup 1 + swap b@ bmov,
-
-\ align again
+SYSTOK def:                 \ Its name is "def:".
+dup 1 + swap b@ bmov,
 SYSHERE @ align SYSHERE !
-
-\ function length/flags (for-inlining / not-necessary)
-$0000 h,
-$00 b,
-
-\ length of "def:"
-'SYSBUF @ b@ b,
-
-\ update dictionary links
+$0000 h,                    \ Ideally we'd write the fn length here
+$00 b,                      \ and maybe set some flags.
+SYSBUF @ b@ b,              \ The SYSBUF still holds "def:"
 SYSHERE @
-'SYSDICT @ ,
-'SYSDICT !
-
-\ compile what we just wrote above (very meta)
+SYSDICT @ ,
+SYSDICT !
+\ We compile the same code as its definition (very meta).
 [
     SYSHERE @ align SYSHERE !
     SYSTOK
-    'SYSBUF @ dup 1 + swap b@ bmov,
+    dup 1 + swap b@ bmov,
     SYSHERE @ align SYSHERE !
     $0000 h,
     $00 b,
-    'SYSBUF @ b@ b,
+    SYSBUF @ b@ b,
     SYSHERE @
-    'SYSDICT @ ,
-    'SYSDICT !
+    SYSDICT @ ,
+    SYSDICT !
     [exit]
 ]
 
-def: [: [
+\ Now we can define new things in the language using the language.
+\ (how meta can we get!?)
+
+\ We'll make a function to mark definitions as "immediate".
+\ (mainly used for adding compiler functions)
+def: immediate: [
+    SYSDICT @ 2 - b@
+    1 or
+    SYSDICT @ 2 - b!
+    [exit]
+] immediate: \ Of course we need to be meta about it.
+
+\ Now helpers for quick function definitions.
+def: [: immediate: [
     def:
+    [call] [
     [exit]
 ]
 
-def: :] [
+\ Don't forget to make _this_ immediate otherwise we'll stay in compiling mode.
+def: :] immediate: [
     [call] [exit]
     [call] ]
     [exit]
 ]
 
-def: vga! inline [
-    $B8000 h!
-    [exit]
-]
+\ Now we can define inlinable functions, too!
+[: inline: immediate:
+    SYSDICT @ 2 - b@
+    2 or
+    SYSDICT @ 2 - b!
+:]
 
+\ Make function for pushing the address of a function.
+[: '
+    SYSTOK SYSFIND 4 +
+:]
+
+\ And we'll need a compiling form.
+[: ['] immediate:
+    ' ,
+:]
+
+[: vga!
+    $B8000 h!
+:]
 [: vga2!
     $B8002 h!
 :]
 
+\ Print Ok
 $17_4F vga!
 $17_6B vga2!
+
+[: (INTERRUPT)
+    $1718 + vga!   \ IRQ number
+    $1730 + vga2!  \ error code
+:]
+
+' (INTERRUPT) SYSINT !
+
+[: forever
+    <R drop
+    ['] forever >R
+:]
+
+forever
 
 SYSQUIT
 
