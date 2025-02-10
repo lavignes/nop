@@ -99,6 +99,21 @@ _SYSPANIC_END:
 
 DEFENTRY "(PANIC)", _panic, FLAG_NONE
     cli
+    DROP
+
+    mov esi, [VAR_SYSSTR]
+    movzx ecx, BYTE [esi]
+    inc esi
+    mov edi, 0xB8000
+.next_char:
+    movzx ebx, BYTE [esi]
+    mov BYTE [edi], bl
+    mov BYTE [edi+1], 0x47
+    inc esi,
+    add edi, 2
+    dec ecx
+    jnz .next_char
+
 .loop:
     hlt
     jmp .loop
@@ -524,16 +539,20 @@ DEFENTRY "over", _over, FLAG_INLINE
     ret
 _over_END:
 
-DEFENTRY ">R", _to_return, FLAG_INLINE
+DEFENTRY ">R", _to_return, FLAG_NONE
+    pop edx
     push eax
     DROP
+    push edx
     ret
 _to_return_END:
 
-DEFENTRY "<R", _from_return, FLAG_INLINE
+DEFENTRY "<R", _from_return, FLAG_NONE
+    pop edx
     sub ebp, 4
     mov [ebp], eax
     pop eax
+    push edx
     ret
 _from_return_END:
 
@@ -695,7 +714,8 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     jnz .execute
 
     test BYTE [edx-6], FLAG_INLINE
-    jz .compile
+    jmp .compile
+    ;jz .compile
 
     ; compile inline
     mov ebx, [VAR_SYSALLOC]

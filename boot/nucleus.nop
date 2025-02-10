@@ -58,31 +58,38 @@ def: :] immediate: [
 :]
 
 \ Make function for pushing the address of a function.
-[: '
+[: ' inline:
     SYSTOK SYSFIND 4 +
 :]
 
 \ And we'll need a compiling form.
 [: ['] immediate: ' , :]
 
-[: vga!  $B8000 h! :]
-[: vga2! $B8002 h! :]
+[: vga!  inline:
+    $B8000 h!
+:]
+[: vga2! inline:
+    $B8002 h!
+:]
 
 \ Print Ok
-\ $17_4F vga!
-\ $17_6B vga2!
+\ $0E_4F vga!
+\ $0E_6B vga2!
 
 [: interrupt
-    $1710 + vga!   \ IRQ number
-    $1730 + vga2!  \ error code
+    $0E10 + vga!   \ IRQ number
+    $0E30 + vga2!  \ error code
 :]
 
 ' interrupt SYSINT !
 
+\ still lots of bugs in the inlining and probably the stack fns
 [: forever
     <R drop
     ['] forever >R
 :]
+
+forever
 
 SYSQUIT
 
