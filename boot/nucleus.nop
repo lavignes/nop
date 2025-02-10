@@ -47,6 +47,9 @@ def: [: immediate: [
 def: :] immediate: [
     [call] [exit]
     [call] ]
+    \ Save function length (for inlining)
+    SYSHERE @ SYSDICT @ 4 + -
+    SYSDICT @ 4 - h!
     [exit]
 ]
 
@@ -58,7 +61,7 @@ def: :] immediate: [
 :]
 
 \ Make function for pushing the address of a function.
-[: ' \ inline:
+[: ' inline:
     SYSTOK SYSFIND 4 +
 :]
 
@@ -74,10 +77,10 @@ def: :] immediate: [
 \ And we'll need a compiling form.
 [: ['] immediate: ' , :]
 
-[: vga! \ inline:
+[: vga! inline:
     $B8000 h!
 :]
-[: vga2! \ inline:
+[: vga2! inline:
     $B8002 h!
 :]
 
