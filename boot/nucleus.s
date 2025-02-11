@@ -585,6 +585,27 @@ DEFENTRY "[call]", _call, FLAG_COMPILE_ONLY | FLAG_IMMEDIATE
     ret
 _call_END:
 
+DEFENTRY "[lit]", _lit, FLAG_COMPILE_ONLY | FLAG_IMMEDIATE
+    ; compile literal
+    mov ecx, [VAR_SYSALLOC]
+    mov edi, [ecx]
+    mov WORD [edi], 0xED83 ; sub ebp,
+    add edi, 2
+    mov BYTE [edi], 0x04   ;          4
+    inc edi
+    mov WORD [edi], 0x4589 ; mov [ebp+ ], eax
+    add edi, 2
+    mov BYTE [edi], 0x00   ;          0
+    inc edi
+    mov BYTE [edi], 0xB8   ; mov eax,
+    inc edi
+    mov DWORD [edi], eax   ;          LITERAL
+    add edi, 4
+    mov [ecx], edi
+    DROP
+    ret
+_lit_END:
+
 DEFENTRY "[", _start_compile, FLAG_INLINE | FLAG_IMMEDIATE
     mov DWORD [VAR_SYSSTATE], STATE_COMPILING
     ret
@@ -803,24 +824,7 @@ DEFENTRY "SYSQUIT", _SYSQUIT, FLAG_NONE
     test DWORD [VAR_SYSSTATE], STATE_COMPILING
     jz .interpret
 
-    ; compile literal
-    mov ecx, [VAR_SYSALLOC]
-    mov edi, [ecx]
-    mov WORD [edi], 0xED83 ; sub ebp,
-    add edi, 2
-    mov BYTE [edi], 0x04   ;          4
-    inc edi
-    mov WORD [edi], 0x4589 ; mov [ebp+ ], eax
-    add edi, 2
-    mov BYTE [edi], 0x00   ;          0
-    inc edi
-    mov BYTE [edi], 0xB8   ; mov eax,
-    inc edi
-    mov DWORD [edi], eax   ;          LITERAL
-    add edi, 4
-    mov [ecx], edi
-
-    DROP
+    call _lit
     jmp .interpret
 _SYSQUIT_END:
 

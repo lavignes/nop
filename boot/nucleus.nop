@@ -67,8 +67,7 @@ def: :] immediate: [
 
 [: const:
     [call] [:
-    \ [lit]
-    drop
+    [lit]
     [call] :]
 :]
 
