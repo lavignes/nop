@@ -32,17 +32,17 @@ SECTIONS {
     }
 
     .data : {
-		*(.data)
-	}
+        *(.data)
+    }
 
-	.bss : {
-		*(.bss)
+    .bss : {
+        *(.bss)
     }
 
     /DISCARD/ : {
-		*(.comment)
-		*(.eh_frame)
-		*(.note.gnu.build-id)
-	}
+        *(.comment)
+        *(.eh_frame)
+        *(.note.gnu.build-id)
+    }
 }
 
