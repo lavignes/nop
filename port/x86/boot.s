@@ -16,7 +16,7 @@ boot:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov sp, 0x7800 ; Place stack _somewhere_ for now
+    mov sp, 0x7C00 ; Place stack before the bootsector for now
 
 ; In early x86 processes, the A20 (address line 20) and up is not enabled
 ; and all memory access is limited to 1MB. To load a kernel larger than
