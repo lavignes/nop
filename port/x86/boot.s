@@ -9,9 +9,9 @@ KERNEL_SIZE EQU 59     ; Size in sectors (512 bytes)
 
 SECTION .text
 
-GLOBAL boot
+GLOBAL Boot
 BITS 16
-boot:
+Boot:
     xor ax, ax
     mov ds, ax
     mov es, ax
@@ -22,17 +22,17 @@ boot:
 ; and all memory access is limited to 1MB. To load a kernel larger than
 ; 1MB, we need to enable it.
 
-wait_keyboard_controller1:
+WaitKeyboardController1:
     in al, 0x64
     test al, 2
-    jnz wait_keyboard_controller1
+    jnz WaitKeyboardController1
     mov al, 0xD1
     out 0x64, al
 
-wait_keyboard_controller2:
+WaitKeyboardController2:
     in al, 0x64
     test al, 2
-    jnz wait_keyboard_controller2
+    jnz WaitKeyboardController2
     mov al, 0xDF
     out 0x60, al
 
@@ -50,9 +50,9 @@ wait_keyboard_controller2:
     mov dh, 0           ; Head 0
     int 0x13            ; Execute
 
-    EXTERN kinit
-    jnc kinit
+    EXTERN Kinit
+    jnc Kinit
 
-halt:
+Halt:
     hlt
-    jmp near halt
+    jmp near Halt
