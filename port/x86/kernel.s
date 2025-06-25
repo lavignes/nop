@@ -67,6 +67,11 @@ ALIGN 4
 BITS 32
 
 DEFENTRY "Knext", _Knext, FLAG_NONE
+    PPUSH [kin]
+    dec DWORD [eax+4]
+    inc DWORD [eax]
+    mov eax, [eax]
+    movzx eax, BYTE [eax]
     ret
 .End:
 
@@ -84,9 +89,18 @@ DEFENTRY "Keat", _Keat, FLAG_NONE
     inc edi
     call _Knext
     PPOP edx
+    ; This is a special case to make strings nicer.
+    ; When we encounter a " (double quote, that always terminates a word)
+    cmp edx, '"'
+    je .StringTerminate
     cmp edx, ' '
     ja .NextChar
+    jmp .Done
 
+.StringTerminate:
+    inc ecx ; Make sure we include the " in the word
+
+.Done:
     mov ecx, edi
     mov edi, [ktmp]
     sub ecx, edi
@@ -219,7 +233,6 @@ DEFENTRY "Krun", _Krun, FLAG_NONE
     je .AccumDigit
     inc esi
     jmp .NextDigit
-
 .AccumDigit:
     sub esi, digits
     xor edx, edx
