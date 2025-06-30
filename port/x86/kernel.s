@@ -1,15 +1,16 @@
 ; vim: ft=nasm
 CPU 386
 
-RTOP    EQU 0x00007C00
-PTOP    EQU 0x00080000
+RTOP     EQU 0x00007C00
+PTOP     EQU 0x00080000
 
 HEAPBASE EQU 0x00100000
+HEAPMAX  EQU 0x00400000
 
-FLAG_NONE         EQU 0x00
-FLAG_IMMEDIATE    EQU 0x01
-FLAG_INLINE       EQU 0x02
-FLAG_COMPILE_ONLY EQU 0x04
+FLAG_NONE        EQU 0x00
+FLAG_HIDDEN      EQU 0x01
+FLAG_IMMEDIATE   EQU 0x02
+FLAG_INLINE      EQU 0x03
 
 STATE_INTERPRET  EQU 0x00
 STATE_COMPILE    EQU 0x01
@@ -27,7 +28,7 @@ Kinit:
     or eax, 1
     mov cr0, eax
 
-    jmp (gdt_code - gdt):_Kabort
+    jmp (gdt.code - gdt):_kAbort
 
 %define _LINK 0x00000000
 
@@ -66,7 +67,545 @@ ALIGN 4
 
 BITS 32
 
-DEFENTRY "Knext", _Knext, FLAG_NONE
+DEFENTRY "'kstate", _kstate, FLAG_INLINE
+    PPUSH kstate
+    ret
+.End:
+
+DEFENTRY "'kptop", _kptop, FLAG_INLINE
+    PPUSH kptop
+    ret
+.End:
+
+DEFENTRY "'krtop", _krtop, FLAG_INLINE
+    PPUSH krtop
+    ret
+.End:
+
+DEFENTRY "'kdict", _kdict, FLAG_INLINE
+    PPUSH kdict
+    ret
+.End:
+
+DEFENTRY "'kalloc", _kalloc, FLAG_INLINE
+    PPUSH kalloc
+    ret
+.End:
+
+DEFENTRY "'kin", _kin, FLAG_INLINE
+    PPUSH kin
+    ret
+.End:
+
+DEFENTRY "'ktmp", _ktmp, FLAG_INLINE
+    PPUSH ktmp
+    ret
+.End:
+
+DEFENTRY "'kbuf", _kbuf, FLAG_INLINE
+    PPUSH kbuf
+    ret
+.End:
+
+DEFENTRY "'kpanic", _kpanic, FLAG_INLINE
+    PPUSH kpanic
+    ret
+.End:
+
+DEFENTRY "@", _Load, FLAG_INLINE
+    mov eax, [eax]
+    ret
+.End:
+
+DEFENTRY "!", _Store, FLAG_INLINE
+    mov edx, [ebp]
+    mov [eax], edx
+    add ebp, 8
+    mov eax, [ebp-4]
+    ret
+.End:
+
+DEFENTRY "b@", _bLoad, FLAG_INLINE
+    movsx eax, BYTE [eax]
+    ret
+.End:
+
+DEFENTRY "b!", _bStore, FLAG_INLINE
+    mov edx, [ebp]
+    mov BYTE [eax], dl
+    add ebp, 8
+    mov eax, [ebp-4]
+    ret
+.End:
+
+DEFENTRY "ub@", _ubLoad, FLAG_INLINE
+    movzx eax, BYTE [eax]
+    ret
+.End:
+
+DEFENTRY "h@", _hLoad, FLAG_INLINE
+    movsx eax, WORD [eax]
+    ret
+.End:
+
+DEFENTRY "h!", _hStore, FLAG_INLINE
+    mov edx, [ebp]
+    mov WORD [eax], dx
+    add ebp, 8
+    mov eax, [ebp-4]
+    ret
+.End:
+
+DEFENTRY "uh@", _uhLoad, FLAG_INLINE
+    movzx eax, WORD [eax]
+    ret
+.End:
+
+DEFENTRY ",", _Compile, FLAG_INLINE
+    mov edx, [kalloc]
+    mov edi, [edx]
+    mov [edi], eax
+    add edi, 4
+    mov [edx], edi
+    PDROP
+    ret
+.End:
+
+DEFENTRY "b,", _bCompile, FLAG_INLINE
+    mov edx, [kalloc]
+    mov edi, [edx]
+    mov BYTE [edi], al
+    inc edi
+    mov [edx], edi
+    PDROP
+    ret
+.End:
+
+DEFENTRY "h,", _hCompile, FLAG_INLINE
+    mov edx, [kalloc]
+    mov edi, [edx]
+    mov WORD [edi], ax
+    add edi, 2
+    mov [edx], edi
+    PDROP
+    ret
+.End:
+
+DEFENTRY "Mov", _Mov, FLAG_INLINE
+    mov ecx, eax
+    mov edi, [ebp]
+    mov esi, [ebp+4]
+    rep movsd
+    mov eax, [ebp+8]
+    add ebp, 12
+    ret
+.End:
+
+DEFENTRY "bMov", _bMov, FLAG_INLINE
+    mov ecx, eax
+    mov edi, [ebp]
+    mov esi, [ebp+4]
+    rep movsb
+    mov eax, [ebp+8]
+    add ebp, 12
+    ret
+.End:
+
+DEFENTRY "hMov", _hMov, FLAG_INLINE
+    mov ecx, eax
+    mov edi, [ebp]
+    mov esi, [ebp+4]
+    rep movsw
+    mov eax, [ebp+8]
+    add ebp, 12
+    ret
+.End:
+
+DEFENTRY "bMov,", _bMovCompile, FLAG_INLINE
+    mov ecx, eax
+    mov edx, [kalloc]
+    mov edi, [edx]
+    mov esi, [ebp]
+    rep movsb
+    mov [edx], edi
+    mov eax, [ebp+4]
+    add ebp, 8
+    ret
+.End:
+
+DEFENTRY "Align", _Align, FLAG_INLINE
+    PPOP ebx
+    mov ecx, eax
+    xor edx, edx
+    div ebx
+    test edx, edx
+    je .Aligned
+    mov eax, 8
+    sub eax, edx
+    add eax, ecx
+    ret
+.Aligned:
+    mov eax, ecx
+    ret
+.End:
+
+DEFENTRY "+", _Add, FLAG_INLINE
+    add eax, [ebp]
+    PNIP
+    ret
+.End:
+
+DEFENTRY "-", _Sub, FLAG_INLINE
+    sub [ebp], eax
+    PDROP
+    ret
+.End:
+
+DEFENTRY "*", _Mul, FLAG_INLINE
+    imul eax, [ebp]
+    PNIP
+    ret
+.End:
+
+DEFENTRY "/", _Div, FLAG_INLINE
+    xor edx, edx
+    mov ecx, eax
+    mov eax, [ebp]
+    idiv ecx
+    PNIP
+    ret
+.End:
+
+DEFENTRY "%", _Mod, FLAG_INLINE
+    xor edx, edx
+    mov ecx, eax
+    mov eax, [ebp]
+    idiv ecx
+    mov eax, edx
+    PNIP
+    ret
+.End:
+
+DEFENTRY "u*", _uMul, FLAG_INLINE
+    xor edx, edx
+    mul DWORD [ebp]
+    PNIP
+    ret
+.End:
+
+DEFENTRY "u/", _uDiv, FLAG_INLINE
+    xor edx, edx
+    mov ecx, eax
+    mov eax, [ebp]
+    div ecx
+    PNIP
+    ret
+.End:
+
+DEFENTRY "u%", _uMod, FLAG_INLINE
+    xor edx, edx
+    mov ecx, eax
+    mov eax, [ebp]
+    div ecx
+    mov eax, edx
+    PNIP
+    ret
+.End:
+
+DEFENTRY "%And", _BitAnd, FLAG_INLINE
+    and eax, [ebp]
+    PNIP
+    ret
+.End:
+
+DEFENTRY "%Or", _BitOr, FLAG_INLINE
+    or eax, [ebp]
+    PNIP
+    ret
+.End:
+
+DEFENTRY "%Xor", _BitXor, FLAG_INLINE
+    xor eax, [ebp]
+    PNIP
+    ret
+.End:
+
+DEFENTRY "%Not", _BitNot, FLAG_INLINE
+    not eax
+    ret
+.End:
+
+DEFENTRY "And", _And, FLAG_INLINE
+    PPOP edx
+    or edx, edx
+    je .False
+    or eax, eax
+    je .False
+    mov eax, 1
+    ret
+.False:
+    xor eax, eax
+    ret
+.End:
+
+DEFENTRY "Or", _Or, FLAG_INLINE
+    PPOP edx
+    or edx, edx
+    jne .True
+    or eax, eax
+    jne .True
+    xor eax, eax
+    ret
+.True:
+    mov eax, 1
+    ret
+.End:
+
+DEFENTRY "Not", _Not, FLAG_INLINE
+    or eax, eax
+    sete al
+    movzx eax, al
+    ret
+.End:
+
+DEFENTRY "=", _Equal, FLAG_INLINE
+    cmp eax, [ebp]
+    sete al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY "<>", _Nequal, FLAG_INLINE
+    cmp eax, [ebp]
+    setne al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY "<", _LessThan, FLAG_INLINE
+    cmp eax, [ebp]
+    setg al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY ">", _GreaterThan, FLAG_INLINE
+    cmp eax, [ebp]
+    setl al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY "<=", _LessEqual, FLAG_INLINE
+    cmp eax, [ebp]
+    setge al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY ">=", _GreaterEqual, FLAG_INLINE
+    cmp eax, [ebp]
+    setle al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY "u<", _uLessThan, FLAG_INLINE
+    cmp eax, [ebp]
+    seta al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY "u>", _uGreaterThan, FLAG_INLINE
+    cmp eax, [ebp]
+    setb al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY "u<=", _uLessEqual, FLAG_INLINE
+    cmp eax, [ebp]
+    setae al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY ">=", _uGreaterEqual, FLAG_INLINE
+    cmp eax, [ebp]
+    setbe al
+    movzx eax, al
+    PNIP
+    ret
+.End:
+
+DEFENTRY "Drop", _Drop, FLAG_INLINE
+    PDROP
+    ret
+.End:
+
+DEFENTRY "Nip", _Nip, FLAG_INLINE
+    PNIP
+    ret
+.End:
+
+DEFENTRY "Swap", _Swap, FLAG_INLINE
+    xchg eax, [ebp]
+    ret
+.End:
+
+DEFENTRY "Dup", _Dup, FLAG_INLINE
+    sub ebp, 4
+    mov [ebp], eax
+    ret
+.End:
+
+DEFENTRY "Over", _Over, FLAG_INLINE
+    sub ebp, 4
+    mov [ebp], eax
+    mov eax, [ebp+8]
+    ret
+.End:
+
+DEFENTRY ">>R", _PushR, FLAG_INLINE
+    pop edx
+    push eax
+    PDROP
+    push edx
+    ret
+.End:
+
+DEFENTRY "<<R", _PullR, FLAG_INLINE
+    pop edx
+    sub ebp, 4
+    mov [ebp], eax
+    pop eax
+    push edx
+    ret
+.End:
+
+DEFENTRY "Exit", _Exit, FLAG_IMMEDIATE
+    mov edx, [kalloc]
+    mov edi, [edx]
+    mov BYTE [edi], 0xC3   ; retn
+    inc edi
+    mov [edx], edi
+    ret
+.End:
+
+DEFENTRY "[", _StartCompile, FLAG_IMMEDIATE | FLAG_INLINE
+    mov DWORD [kstate], STATE_COMPILE
+    ret
+.End:
+
+DEFENTRY "]", _StopCompile, FLAG_IMMEDIATE | FLAG_INLINE
+    mov DWORD [kstate], STATE_INTERPRET
+    ret
+.End:
+
+DEFENTRY "(", _StartComment, FLAG_IMMEDIATE
+.Loop:
+    call _kNext
+    PPOP edx
+    cmp edx, 41
+    jne .Loop
+    ret
+.End:
+
+DEFENTRY "Lit,", _LitCompile, FLAG_IMMEDIATE
+    mov edx, [kalloc]
+    mov edi, [edx]
+    mov WORD [edi], 0xED83 ; sub ebp,
+    add edi, 2
+    mov BYTE [edi], 0x04   ;          4
+    inc edi
+    mov WORD [edi], 0x4589 ; mov [ebp+ ], eax
+    add edi, 2
+    mov BYTE [edi], 0x00   ;          0
+    inc edi
+    mov BYTE [edi], 0xB8   ; mov eax,
+    inc edi
+    mov [edi], eax         ;          LITERAL
+    add edi, 4
+    mov [edx], edi
+    PDROP
+    ret
+.End:
+
+DEFENTRY "Call,", _CallCompile, FLAG_IMMEDIATE
+    call _kEat
+    PPUSH [ktmp]
+    call _kFind
+    PPOP edx
+
+    ; TODO: should check for :Inline and inline the call
+    ; get POINTER
+    add edx, 4
+
+    mov ecx, [kalloc]
+    mov edi, [ecx]
+    mov BYTE [edi], 0xBA   ; mov edx,
+    inc edi
+    mov [edi], edx         ;          POINTER
+    add edi, 4
+    mov WORD [edi], 0xD2FF ; call edx
+    add edi, 2
+    mov [ecx], edi
+    ret
+.End:
+
+DEFENTRY "Goto,", _GotoCompile, FLAG_IMMEDIATE
+    mov edx, [kalloc]
+    mov edi, [edx]
+    mov BYTE [edi], 0xBA    ; mov edx,
+    inc edi
+    pop ebx
+    push edi
+    push ebx
+    mov DWORD [edi], 0      ;          POINTER
+    add edi, 4
+    mov WORD [edi], 0xE2FF  ; jmp edx
+    add edi, 2
+    mov [edx], edi
+    ret
+.End:
+
+DEFENTRY "Branch,", _BranchCompile, FLAG_IMMEDIATE
+    mov edx, [kalloc]
+    mov edi, [edx]
+    mov WORD [edi], 0xD089 ; mov edx, eax
+    add edi, 2
+    mov WORD [edi], 0x458B ; mov eax, [ebp+ ]
+    add edi, 2
+    mov BYTE [edi], 0x00   ;               0
+    inc edi
+    mov WORD [edi], 0xC583 ; add ebp,
+    add edi, 2
+    mov BYTE [edi], 0x04   ;          4
+    inc edi
+    mov WORD [edi], 0xD285 ; test edx, edx
+    add edi, 2
+    mov WORD [edi], 0x850F ; jnz
+    add edi, 2
+    pop ebx
+    push edi
+    push ebx
+    mov DWORD [edi], 0     ;    OFFSET
+    add edi, 4
+    mov [edx], edi
+    ret
+.End:
+
+DEFENTRY "kNext", _kNext, FLAG_NONE
     PPUSH [kin]
     dec DWORD [eax+4]
     inc DWORD [eax]
@@ -75,9 +614,9 @@ DEFENTRY "Knext", _Knext, FLAG_NONE
     ret
 .End:
 
-DEFENTRY "Keat", _Keat, FLAG_NONE
+DEFENTRY "kEat", _kEat, FLAG_NONE
 .NextSpace:
-    call _Knext
+    call _kNext
     PPOP edx
     cmp edx, ' '
     jbe .NextSpace
@@ -87,10 +626,10 @@ DEFENTRY "Keat", _Keat, FLAG_NONE
 .NextChar:
     mov BYTE [edi], dl
     inc edi
-    call _Knext
+    call _kNext
     PPOP edx
     ; This is a special case to make strings nicer.
-    ; When we encounter a " (double quote, that always terminates a word)
+    ; When we encounter a " (double quote, that always terminates a token)
     cmp edx, '"'
     je .StringTerminate
     cmp edx, ' '
@@ -98,7 +637,7 @@ DEFENTRY "Keat", _Keat, FLAG_NONE
     jmp .Done
 
 .StringTerminate:
-    inc ecx ; Make sure we include the " in the word
+    inc ecx ; Make sure we include the " in the token
 
 .Done:
     mov ecx, edi
@@ -109,8 +648,8 @@ DEFENTRY "Keat", _Keat, FLAG_NONE
     ret
 .End:
 
-DEFENTRY "Ktok", _Ktok, FLAG_NONE
-    call _Knext
+DEFENTRY "kTok", _kTok, FLAG_NONE
+    call _kEat
     mov esi, [ktmp]
     movzx ecx, BYTE [esi]
     inc ecx
@@ -120,7 +659,7 @@ DEFENTRY "Ktok", _Ktok, FLAG_NONE
     ret
 .End:
 
-DEFENTRY "Kfind", _Kfind, FLAG_NONE
+DEFENTRY "kFind", _kFind, FLAG_NONE
     mov edi, eax
     movzx ecx, BYTE [edi]
     inc edi
@@ -149,17 +688,19 @@ DEFENTRY "Kfind", _Kfind, FLAG_NONE
     pop edi
     jne .NextLink
 
-.EntryInEdx
+.EntryInEdx:
     mov eax, edx
     ret
 .End:
 
-DEFENTRY ":Lit", _Lit, FLAG_COMPILE_ONLY | FLAG_IMMEDIATE
+DEFENTRY "kPanic", _kPanic, FLAG_NONE
+    ret
 .End:
 
-DEFENTRY "Krun", _Krun, FLAG_NONE
-    call _Ktok
-    call _Kfind
+DEFENTRY "kRun", _kRun, FLAG_NONE
+    call _kEat
+    PPUSH [ktmp]
+    call _kFind
     PPOP edx
     test edx, edx
     jz .NotFound
@@ -182,23 +723,23 @@ DEFENTRY "Krun", _Krun, FLAG_NONE
     mov esi, edx
     rep movsb
     mov [ebx], edi
-    jmp _Krun
+    jmp _kRun
 
 .Compile:
     mov ebx, [kalloc]
     mov edi, [ebx]
-    mov BYTE [edi], 0xBA    ; mov edx, DWORD
+    mov BYTE [edi], 0xBA    ; mov edx,
     inc edi
-    mov [edi], edx          ;          pointer
+    mov [edi], edx          ;          POINTER
     add edi, 4
     mov WORD [edi], 0xD2FF  ; call edx
     add edi, 2
-    mov [ecx], edi
-    jmp _Krun
+    mov [ebx], edi
+    jmp _kRun
 
 .Execute:
     call edx
-    jmp _Krun
+    jmp _kRun
 
 .NotFound:
     mov edi, [ktmp]
@@ -227,7 +768,7 @@ DEFENTRY "Krun", _Krun, FLAG_NONE
 
     mov esi, digits
 .NextDigit:
-    sub esi, digits.end
+    cmp esi, digits.end
     je .NotDigit
     cmp dl, BYTE [esi]
     je .AccumDigit
@@ -249,20 +790,20 @@ DEFENTRY "Krun", _Krun, FLAG_NONE
     PPUSH 0
     mov edx, [kpanic]
     call edx
-    jmp _Krun
+    jmp _kRun
 
 .TryLiteral:
     test DWORD [kstate], STATE_COMPILE
-    jz _Krun
-    call _Lit
+    jz _kRun
+    call _LitCompile
 
-    jmp _Krun
+    jmp _kRun
 .End:
 
 ; Real kernel entry/reset point
-DEFENTRY "Kabort", _Kabort, FLAG_NONE
+DEFENTRY "kAbort", _kAbort, FLAG_NONE
     cli
-    mov ax, (gdt_data - gdt)
+    mov ax, (gdt.data - gdt)
     mov ds, ax
     mov es, ax
     mov ss, ax
@@ -274,21 +815,29 @@ DEFENTRY "Kabort", _Kabort, FLAG_NONE
     mov esp, RTOP
     mov ebp, PTOP
 
-    jmp _Krun
+    mov DWORD [kin_state+0], ksrc-1
+    mov DWORD [kin_state+4], ksrc.size+1
+    mov DWORD [kin_state+8], 0
+
+    mov DWORD [kalloc_state+0], HEAPBASE
+    mov DWORD [kalloc_state+4], HEAPMAX
+    mov DWORD [kalloc_state+8], 0
+
+    mov DWORD [kstate], STATE_INTERPRET
+    mov DWORD [kdict], _LINK
+    mov DWORD [kalloc], kalloc_state
+    mov DWORD [kin], kin_state
+    mov DWORD [ktmp], ktmp_state
+    mov DWORD [kbuf], kbuf_state
+    mov DWORD [kpanic], _kPanic
+
+    jmp _kRun
 .End:
 
 ; Place no more entries after this point
 ; _Kabort must always be the value of _LINK
 
 SECTION .data
-
-; ( This is a comment )
-; :Fn Testing ( a -> b )
-;    [ :Inline :Immediate ]
-;    0= If
-;       2+ <<IN Iso:gar Drop
-;    Then
-; ;
 
 ALIGN 4
 ktmp_state:
@@ -319,9 +868,9 @@ krtop:      DD 0
 kdict:      DD 0
 kalloc:     DD 0
 kin:        DD 0
-kpanic:     DD 0
 ktmp:       DD 0
 kbuf:       DD 0
+kpanic:     DD 0
 
 SECTION .rodata
 
@@ -334,14 +883,14 @@ ALIGN 4
 gdt:
     DW 0, 0
     DB 0, 0, 0, 0
-gdt_code:
+.code:
     DW 0xFFFF     ; segment limit: bits 0-15
     DW 0x0000     ; segment base: bits 0-15
     DB 0x00       ; segment base: bits 16-23
     DB 0b10011010 ; access byte
     DB 0b11001111 ; segment length: bits 16-19, flags (4 bits)
     DB 0x00       ; segment base: bits 24-31
-gdt_data:
+.data:
     DW 0xFFFF
     DW 0x0000
     DB 0x00
@@ -352,3 +901,7 @@ gdtr:
     DW (gdtr - gdt - 1)
     DD gdt
 
+ALIGN 4
+ksrc:
+    incbin "kernel.nop"
+.size: EQU $ - ksrc

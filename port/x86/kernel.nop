@@ -1,0 +1,84 @@
+'kalloc @ @ 4 Align 'kalloc @ ! ( align heap )
+KTok :Def
+Dup 1 + Swap b@ bMov,           ( copy name )
+'kalloc @ @ 4 Align 'kalloc @ ! ( align again )
+$0000 h,                        ( code length )
+$00 b,                          ( flags )
+'kbuf @ b@ b,                   ( name length )
+'kalloc @ @ 'kdict @ , 'kdict ! ( update dict entry )
+]
+    'kalloc @ @ 4 Align 'kalloc @ !
+    KTok
+    Dup 1 + Swap b@ bMov,
+    'kalloc @ @ 4 Align 'kalloc @ !
+    $0000 h,
+    $00 b,
+    'kbuf @ b@ b,
+    'kalloc @ @ 'kdict @ , 'kdict !
+    Exit
+[
+
+:Def :Hidden
+]
+    'kdict @ @ 2 - b@
+    $01 %Or
+    'kdict @ @ 2 - b!
+    Exit
+[
+
+:Def :Visible
+]
+    'kdict @ @ 2 - b@
+    $FE %And
+    'kdict @ @ 2 - b!
+    Exit
+[
+
+:Def :Immediate
+]
+    'kdict @ @ 2 - b@
+    $02 %Or
+    'kdict @ @ 2 - b!
+    Exit
+[
+
+:Def :Fn
+]
+    :Def :Hidden
+    Defer ]
+    Exit
+[
+
+:Def :; :Immediate
+]
+    :Visible
+    Defer [
+    Exit
+[
+
+:Fn Here
+    [ :Inline ]
+    'kalloc @
+:;
+
+:Fn If
+    [ :Immediate ]
+    Branch,
+:;
+
+:Fn Then
+    [ :Immediate ]
+    <<R
+    Dup
+    Here @ Swap -
+    Swap !
+:;
+
+:Fn Else
+    [ :Immediate ]
+    Goto,
+    <<R <<R Swap
+    Dup
+    Here @ Swap -
+    Swap !
+:;
