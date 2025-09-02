@@ -1,0 +1,6 @@
+-std=c99
+-Werror
+-Wextra
+-Wall
+-Wimplicit
+-Wstrict-aliasing
