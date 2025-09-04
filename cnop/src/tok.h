@@ -6,9 +6,9 @@
 #include "buf.h"
 
 typedef struct {
-    Buf  path;
-    UInt line;
-    UInt col;
+    BufView path;
+    UInt    line;
+    UInt    col;
 } FilePos;
 
 typedef enum {
@@ -33,12 +33,6 @@ typedef struct {
             UInt ccol;
             U8   cbuf[4];
             UInt clen;
-
-            union {
-                I64  inum;
-                U64  unum;
-                GBuf buf;
-            };
 
         } file;
 
