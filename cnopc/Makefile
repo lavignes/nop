@@ -10,9 +10,9 @@ DEPS = $(SRCS:.c=.d)
 
 .PHONY: all clean
 
-all: bin/cnop
+all: bin/nopc
 
-bin/cnop: $(DEPS) $(OBJS)
+bin/nopc: $(DEPS) $(OBJS)
 	$(LD) $(OBJS) -o $@ $(LDFLAGS)
 
 %.o %.d: %.c
