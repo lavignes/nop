@@ -1,7 +1,7 @@
 #include "utf8.h"
 #include "fatal.h"
 
-U32 utf8Decode(BufView buf, UInt* len) {
+U32 utf8Decode(View buf, UInt* len) {
     if ((buf.len > 0) && (buf.bytes[0] < 0x80)) {
         *len = 1;
         return buf.bytes[0];
@@ -31,7 +31,7 @@ U32 utf8Decode(BufView buf, UInt* len) {
     return 0xFFFD;
 }
 
-UInt utf8Encode(BufView buf, U32 c) {
+UInt utf8Encode(View buf, U32 c) {
     if (c < 0x80) {
         buf.bytes[0] = c;
         return 1;
@@ -57,7 +57,7 @@ UInt utf8Encode(BufView buf, U32 c) {
     return 0;
 }
 
-UInt utf8Len(BufView buf) {
+UInt utf8Len(View buf) {
     UInt len = 0;
     for (UInt i = 0; i < buf.len; ++i) {
         if ((buf.bytes[i] & 0xC0) != 0x80) {
@@ -69,9 +69,9 @@ UInt utf8Len(BufView buf) {
 
 void utf8Cat(Buf* buf, U32 c) {
     U8   tmp[4];
-    UInt len = utf8Encode((BufView){tmp, 4}, c);
+    UInt len = utf8Encode(VIEW(tmp), c);
     if (len == 0) {
         fatal("invalid UTF-8 codepoint");
     }
-    bufCat(buf, (BufView){tmp, len});
+    bufCat(buf, (View){tmp, len});
 }

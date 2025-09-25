@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void bufCat(Buf* buf, BufView view) {
+void bufCat(Buf* buf, View view) {
     if (!buf->view.bytes) {
         buf->view.bytes = malloc(view.len);
         if (!buf->view.bytes) {

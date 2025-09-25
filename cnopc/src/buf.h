@@ -6,18 +6,21 @@
 typedef struct {
     U8*  bytes;
     UInt len;
-} BufView;
+} View;
 
-static BufView const BUF_VIEW_NULL = {0};
+static View const VIEW_NULL = {0};
 
-#define BUF_VIEW(cstr) ((BufView){(U8*)(cstr), sizeof(cstr) - 1})
+#define VIEW(cstr)         ((View){(U8*)(cstr), sizeof(cstr) - 1})
+
+#define VIEW_FMT           "%*s"
+#define VIEW_FMT_ARG(view) ((view).bytes), ((int)(view).len)
 
 typedef struct {
-    BufView view;
-    UInt    cap;
+    View view;
+    UInt cap;
 } Buf;
 
-void bufCat(Buf* buf, BufView view);
+void bufCat(Buf* buf, View view);
 void bufFini(Buf* buf);
 
 #endif // BUF_H
