@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "buf.h"
+#include "fatal.h"
 
 typedef struct {
     View path;
@@ -13,7 +14,6 @@ typedef struct {
 
 typedef enum {
     TOK_STREAM_FILE,
-    TOK_STREAM_MACRO,
 } TokStreamKind;
 
 typedef enum {
@@ -57,12 +57,33 @@ typedef struct {
             U8   cbuf[4];
             UInt clen;
 
-        } file;
+            Buf buf;
+            Num num;
 
-        struct {
-        } macro;
+        } file;
     };
 
 } TokStream;
+
+void tokStreamInitFile(TokStream* ts, View path, FILE* hnd);
+void tokStreamFini(TokStream* ts);
+
+FORMAT(2)
+NORETURN void tokStreamFatal(TokStream* ts, char const* fmt, ...);
+
+FORMAT(3)
+NORETURN
+void tokStreamFatalPos(TokStream* ts, FilePos pos, char const* fmt, ...);
+
+NORETURN void tokStreamFatalV(TokStream* ts, char const* fmt, va_list args);
+NORETURN void tokStreamFatalPosV(TokStream* ts, FilePos pos, char const* fmt,
+                                 va_list args);
+
+U32 tokStreamPeek(TokStream* ts);
+U32 tokStreamEat(TokStream* ts);
+
+View    tokStreamView(TokStream* ts);
+Num     tokStreamNum(TokStream* ts);
+FilePos tokStreamPos(TokStream* ts);
 
 #endif // TOK_H

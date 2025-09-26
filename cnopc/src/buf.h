@@ -1,7 +1,7 @@
 #ifndef BUF_H
 #define BUF_H
 
-#include "ints.h"
+#include "num.h"
 
 typedef struct {
     U8*  bytes;
@@ -13,7 +13,7 @@ static View const VIEW_NULL = {0};
 #define VIEW(cstr)         ((View){(U8*)(cstr), sizeof(cstr) - 1})
 
 #define VIEW_FMT           "%*s"
-#define VIEW_FMT_ARG(view) ((view).bytes), ((int)(view).len)
+#define VIEW_FMT_ARG(view) ((int)((view).len)), (view).bytes
 
 typedef struct {
     View view;
