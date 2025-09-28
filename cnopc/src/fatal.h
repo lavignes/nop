@@ -33,7 +33,7 @@
         fatal("%s:%d: not implemented: %s\n", __FILE__, __LINE__, msg);        \
     } while (0)
 
-NORETURN void fatalv(char const* fmt, va_list args);
+NORETURN void fatalV(char const* fmt, va_list args);
 FORMAT(1) NORETURN void fatal(char const* fmt, ...);
 
 #endif // FATAL_H

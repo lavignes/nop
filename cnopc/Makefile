@@ -3,6 +3,7 @@ rwildcard = $(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(
 CC = cc
 LD = cc
 CFLAGS = -std=c99 -Werror -Wextra -Wall -Wimplicit -Wstrict-aliasing
+CFLAGS += -g
 
 SRCS = $(call rwildcard,src,*.c)
 OBJS = $(SRCS:.c=.o)

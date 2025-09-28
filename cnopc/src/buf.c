@@ -4,6 +4,21 @@
 #include <stdlib.h>
 #include <string.h>
 
+Bool viewEqual(View lhs, View rhs) {
+    if (lhs.len != rhs.len) {
+        return false;
+    }
+    return memcmp(lhs.bytes, rhs.bytes, lhs.len) == 0;
+}
+
+void bufFini(Buf* buf) {
+    if (!buf->view.bytes) {
+        return;
+    }
+    free(buf->view.bytes);
+    memset(buf, 0, sizeof(*buf));
+}
+
 void bufCat(Buf* buf, View view) {
     if (!buf->view.bytes) {
         buf->view.bytes = malloc(view.len);
@@ -24,10 +39,4 @@ void bufCat(Buf* buf, View view) {
     buf->view.len += view.len;
 }
 
-void bufFini(Buf* buf) {
-    if (!buf->view.bytes) {
-        return;
-    }
-    free(buf->view.bytes);
-    memset(buf, 0, sizeof(*buf));
-}
+void bufClear(Buf* buf) { buf->view.len = 0; }

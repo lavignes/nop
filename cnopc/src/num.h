@@ -68,39 +68,21 @@ typedef double F64;
 #define F64_FMT     "%lf"
 
 typedef enum {
-    NUM_U8,
-    NUM_I8,
-    NUM_U16,
-    NUM_I16,
-    NUM_U32,
-    NUM_I32,
-    NUM_I64,
-    NUM_U64,
-    NUM_INT,
-    NUM_UINT,
-    NUM_F32,
-    NUM_F64,
-} NumKind;
+    INT_I8,
+    INT_I16,
+    INT_I32,
+    INT_I64,
+    INT_INT,
 
-typedef struct {
-    NumKind kind;
+    INT_U8,
+    INT_U16,
+    INT_U32,
+    INT_U64,
+    INT_UINT,
 
-    union {
-        Bool b;
-        U8   u8;
-        I8   i8;
-        U16  u16;
-        I16  i16;
-        U32  u32;
-        I32  i32;
-        U64  u64;
-        I64  i64;
-        UInt u;
-        Int  i;
-        F32  f32;
-        F64  f64;
-    };
+    INT_INTEGER
+} IntKind;
 
-} Num;
+typedef enum { FLOAT_F32, FLOAT_F64, FLOAT_FLOAT } FloatKind;
 
 #endif // NUM_H
