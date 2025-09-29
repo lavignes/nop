@@ -4,11 +4,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-Bool viewEqual(View lhs, View rhs) {
-    if (lhs.len != rhs.len) {
-        return false;
+Int viewCmp(View lhs, View rhs) {
+    UInt len;
+    if (lhs.len < rhs.len) {
+        len = lhs.len;
+    } else {
+        len = rhs.len;
     }
-    return memcmp(lhs.bytes, rhs.bytes, lhs.len) == 0;
+    Int cmp = memcmp(lhs.bytes, rhs.bytes, len);
+    if (cmp != 0) {
+        return cmp;
+    }
+    if (lhs.len == rhs.len) {
+        return 0;
+    }
+    if (lhs.len < rhs.len) {
+        return -1;
+    }
+    return 1;
 }
 
 void bufFini(Buf* buf) {

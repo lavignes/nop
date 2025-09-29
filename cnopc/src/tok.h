@@ -26,7 +26,12 @@ typedef enum {
     TOK_BOOL    = 0xF0003,
     TOK_STR     = 0xF0004,
     TOK_CHAR    = 0xF0005,
-    TOK_COMMENT = 0xF0006,
+    TOK_NIL     = 0xF0006,
+    TOK_NEVER   = 0xF0007,
+    TOK_COMMENT = 0xF0008,
+
+    TOK_PKG     = 0xF0100,
+    TOK_FN      = 0xF0101,
 
     TOK_SHL     = 0xF1000, // <<
     TOK_SHR     = 0xF1001, // >>
@@ -51,7 +56,7 @@ typedef struct {
     Pos           pos;
 
     // TODO: consider adding a buffer for holding the raw
-    // input which is useful for error reports and formatting.
+    // input which is useful for error reports and formatters.
 
     union {
         struct {
@@ -59,18 +64,15 @@ typedef struct {
                 FILE* hnd;
                 View  view;
             };
-
             U32  stash;
             Bool stashed;
-
             U32  cstash;
             Bool cstashed;
             UInt cline;
             UInt ccol;
             U8   cbuf[4];
             UInt clen;
-
-            Buf buf;
+            Buf  buf;
             union {
                 struct {
                     IntKind kind;

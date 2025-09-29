@@ -574,7 +574,44 @@ static const struct {
     {"^=", TOK_XOR_EQ},
 };
 
-static U32 peekFile(TokStream* ts) {
+// TODO: I dont think types should be keywords. They should be identifiers that
+// refer to types.
+// It will make parsing easier.
+/*
+static const struct {
+    View name;
+    U32  tok;
+} TYPES[] = {
+    {VIEW("Nil"), TOK_TYPE_NIL},   {VIEW("U8"), TOK_TYPE_U8},
+    {VIEW("U16"), TOK_TYPE_U16},   {VIEW("U32"), TOK_TYPE_U32},
+    {VIEW("U64"), TOK_TYPE_U64},   {VIEW("UInt"), TOK_TYPE_UINT},
+    {VIEW("I8"), TOK_TYPE_I8},     {VIEW("I16"), TOK_TYPE_I16},
+    {VIEW("I32"), TOK_TYPE_I32},   {VIEW("I64"), TOK_TYPE_I64},
+    {VIEW("Int"), TOK_TYPE_INT},   {VIEW("F32"), TOK_TYPE_F32},
+    {VIEW("F64"), TOK_TYPE_F64},   {VIEW("Bool"), TOK_TYPE_BOOL},
+    {VIEW("Char"), TOK_TYPE_CHAR}, {VIEW("Never"), TOK_TYPE_NEVER},
+};
+*/
+
+static const struct {
+    View name;
+    U32  tok;
+} CONSTANTS[] = {
+    {VIEW("TRUE"), TOK_BOOL},
+    {VIEW("FALSE"), TOK_BOOL},
+    {VIEW("NIL"), TOK_NIL},
+    {VIEW("NEVER"), TOK_NEVER},
+};
+
+static const struct {
+    View name;
+    U32  tok;
+} KEYWORDS[] = {
+    {VIEW("pkg"), TOK_PKG},
+    {VIEW("fn"), TOK_FN},
+};
+
+U32 peekFile(TokStream* ts) {
     if (ts->chardev.stashed) {
         return ts->chardev.stash;
     }
@@ -615,16 +652,42 @@ static U32 peekFile(TokStream* ts) {
         ceat(ts);
         U32 nc = cpeek(ts);
         for (UInt i = 0; i < (sizeof(DIGRAPHS) / sizeof(DIGRAPHS[0])); ++i) {
-            if ((DIGRAPHS[i].text[0] == c) && (DIGRAPHS[i].text[1] == nc)) {
-                ceat(ts);
-                ts->chardev.stashed = true;
-                ts->chardev.stash   = DIGRAPHS[i].tok;
-                return ts->chardev.stash;
+            if ((DIGRAPHS[i].text[0] != c) || (DIGRAPHS[i].text[1] != nc)) {
+                continue;
             }
+            ceat(ts);
+            ts->chardev.stashed = true;
+            ts->chardev.stash   = DIGRAPHS[i].tok;
+            return DIGRAPHS[i].tok;
         }
     }
     if (ts->chardev.buf.view.len != 0) {
-        TODO("keywords");
+        for (UInt i = 0; i < (sizeof(CONSTANTS) / sizeof(CONSTANTS[0])); ++i) {
+            if (viewCmp(ts->chardev.buf.view, CONSTANTS[i].name) != 0) {
+                continue;
+            }
+            if (CONSTANTS[i].tok == TOK_BOOL) {
+                if (viewCmp(ts->chardev.buf.view, VIEW("TRUE")) == 0) {
+                    ts->chardev.num.val = 1;
+                } else {
+                    ts->chardev.num.val = 0;
+                }
+                ts->chardev.num.kind = INT_U8;
+            }
+            ts->chardev.stashed = true;
+            ts->chardev.stash   = CONSTANTS[i].tok;
+            return CONSTANTS[i].tok;
+        }
+    }
+    if (ts->chardev.buf.view.len != 0) {
+        for (UInt i = 0; i < (sizeof(KEYWORDS) / sizeof(KEYWORDS[0])); ++i) {
+            if (viewCmp(ts->chardev.buf.view, KEYWORDS[i].name) != 0) {
+                continue;
+            }
+            ts->chardev.stashed = true;
+            ts->chardev.stash   = KEYWORDS[i].tok;
+            return KEYWORDS[i].tok;
+        }
         ts->chardev.stashed = true;
         ts->chardev.stash   = TOK_ID;
         return TOK_ID;

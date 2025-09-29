@@ -15,7 +15,7 @@ static View const VIEW_NULL = {0};
 #define VIEW_FMT           "%*s"
 #define VIEW_FMT_ARG(view) ((int)((view).len)), (view).bytes
 
-Bool viewEqual(View lhs, View rhs);
+Int viewCmp(View lhs, View rhs);
 
 typedef struct {
     View view;
