@@ -3,8 +3,8 @@
 
 #include <stdio.h>
 
-#include "buf.h"
-#include "fatal.h"
+#include <nop/buf.h>
+#include <nop/fatal.h>
 
 typedef struct {
     View path;
@@ -13,14 +13,14 @@ typedef struct {
 } Pos;
 
 typedef enum {
-    TOK_STREAM_FILE,
-    TOK_STREAM_VIEW,
-} TokStreamKind;
+    TOKS_FILE,
+    TOKS_VIEW,
+} ToksKind;
 
-typedef enum {
+enum {
     TOK_EOF     = 26,
 
-    TOK_ID      = 0xF0000,
+    TOK_IDENT   = 0xF0000,
     TOK_INT     = 0xF0001,
     TOK_FLOAT   = 0xF0002,
     TOK_BOOL    = 0xF0003,
@@ -49,11 +49,13 @@ typedef enum {
     TOK_AND_EQ  = 0xF100D, // &=
     TOK_OR_EQ   = 0xF100E, // |=
     TOK_XOR_EQ  = 0xF100F, // ^=
-} Tok;
+};
+
+void tokName(U32 tok, Buf* buf);
 
 typedef struct {
-    TokStreamKind kind;
-    Pos           pos;
+    ToksKind kind;
+    Pos      pos;
 
     // TODO: consider adding a buffer for holding the raw
     // input which is useful for error reports and formatters.
@@ -84,34 +86,33 @@ typedef struct {
                     F64       val;
                 } fnum;
             };
-        } chardev;
+        } bstream;
     };
-} TokStream;
+} Toks;
 
-void tokStreamInitFile(TokStream* ts, View path, FILE* hnd);
-void tokStreamInitView(TokStream* ts, View path, View view);
-void tokStreamFini(TokStream* ts);
+void toksInitFile(Toks* ts, View path, FILE* hnd);
+void toksInitView(Toks* ts, View path, View view);
+void toksFini(Toks* ts);
 
 FORMAT(2)
-NORETURN void tokStreamFatal(TokStream const* ts, char const* fmt, ...);
+NORETURN void toksFatal(Toks const* ts, char const* fmt, ...);
 
 FORMAT(3)
 NORETURN
-void tokStreamFatalPos(TokStream const* ts, Pos pos, char const* fmt, ...);
+void toksFatalPos(Toks const* ts, Pos pos, char const* fmt, ...);
 
-NORETURN void tokStreamFatalV(TokStream const* ts, char const* fmt,
-                              va_list args);
-NORETURN void tokStreamFatalPosV(TokStream const* ts, Pos pos, char const* fmt,
-                                 va_list args);
+NORETURN void toksFatalV(Toks const* ts, char const* fmt, va_list args);
+NORETURN void toksFatalPosV(Toks const* ts, Pos pos, char const* fmt,
+                            va_list args);
 
-U32  tokStreamPeek(TokStream* ts);
-void tokStreamEat(TokStream* ts);
+U32  toksPeek(Toks* ts);
+void toksEat(Toks* ts);
 
-View tokStreamView(TokStream const* ts);
-UInt tokStreamInt(TokStream const* ts, IntKind* kind);
-F64  tokStreamFloat(TokStream const* ts, FloatKind* kind);
-Bool tokStreamBool(TokStream const* ts);
-U32  tokStreamChar(TokStream const* ts);
-Pos  tokStreamPos(TokStream const* ts);
+View toksView(Toks const* ts);
+UInt toksInt(Toks const* ts, IntKind* kind);
+F64  toksFloat(Toks const* ts, FloatKind* kind);
+Bool toksBool(Toks const* ts);
+U32  toksChar(Toks const* ts);
+Pos  toksPos(Toks const* ts);
 
 #endif // TOK_H

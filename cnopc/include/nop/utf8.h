@@ -1,7 +1,7 @@
 #ifndef UTF8_H
 #define UTF8_H
 
-#include "buf.h"
+#include <nop/buf.h>
 
 U32  utf8Decode(View view, UInt* len);
 UInt utf8Encode(View view, U32 c);

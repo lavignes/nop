@@ -1,5 +1,5 @@
-#include "utf8.h"
-#include "fatal.h"
+#include <nop/fatal.h>
+#include <nop/utf8.h>
 
 U32 utf8Decode(View buf, UInt* len) {
     if ((buf.len > 0) && (buf.bytes[0] < 0x80)) {

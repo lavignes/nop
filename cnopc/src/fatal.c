@@ -1,4 +1,4 @@
-#include "fatal.h"
+#include <nop/fatal.h>
 
 #include <stdio.h>
 #include <stdlib.h>

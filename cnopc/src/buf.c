@@ -1,5 +1,5 @@
-#include "buf.h"
-#include "fatal.h"
+#include <nop/buf.h>
+#include <nop/fatal.h>
 
 #include <stdlib.h>
 #include <string.h>
