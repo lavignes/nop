@@ -2,26 +2,36 @@ rwildcard = $(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(
 
 CC = cc
 LD = cc
-CFLAGS = -std=c99 -Werror -Wextra -Wall -Wimplicit -Wstrict-aliasing \
-		 -Iinclude
-CFLAGS += -g
+AR = ar
 
-SRCS = $(call rwildcard,src,*.c)
-OBJS = $(SRCS:.c=.o)
-DEPS = $(SRCS:.c=.d)
+CFLAGS   = -std=c99 -Werror -Wextra -Wall -Wimplicit -Wstrict-aliasing \
+		 -Iinclude
+CFLAGS  += -g
+LDFLAGS  = -Llib -lnop
+
+LIBSRCS = $(call rwildcard,src/libnop,*.c)
+LIBOBJS = $(LIBSRCS:.c=.o)
+LIBDEPS = $(LIBSRCS:.c=.d)
 
 TSTSRCS = $(call rwildcard,tst,*.c)
 TSTEXES = $(TSTSRCS:.c=.tst)
 TSTDEPS = $(TSTSRCS:.c=.d)
 
+SRCS = $(call rwildcard,src/nopc,*.c)
+OBJS = $(SRCS:.c=.o)
+DEPS = $(SRCS:.c=.d)
+
 .PHONY: all test clean
 
 all: bin/nopc test
 
-bin/nopc: $(DEPS) $(OBJS)
+lib/libnop.a: $(LIBDEPS) $(LIBOBJS)
+	$(AR) rcs $@ $(LIBOBJS)
+
+bin/nopc: $(DEPS) $(OBJS) lib/libnop.a
 	$(LD) $(OBJS) -o $@ $(LDFLAGS)
 
-test: $(TSTEXES)
+test: $(TSTEXES) lib/libnop.a
 	$(foreach exe,$(TSTEXES),$(exe))
 
 %.tst: %.o %.d
@@ -37,6 +47,7 @@ clean:
 	rm -f $(call rwildcard,tst,*.tst)
 
 ifneq ($(MAKECMDGOALS),clean)
-include $(DEPS)
+include $(LIBDEPS)
 include $(TSTDEPS)
+include $(DEPS)
 endif
