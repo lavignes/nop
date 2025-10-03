@@ -10,12 +10,22 @@ SRCS = $(call rwildcard,src,*.c)
 OBJS = $(SRCS:.c=.o)
 DEPS = $(SRCS:.c=.d)
 
-.PHONY: all clean
+TSTSRCS = $(call rwildcard,tst,*.c)
+TSTEXES = $(TSTSRCS:.c=.tst)
+TSTDEPS = $(TSTSRCS:.c=.d)
 
-all: bin/nopc
+.PHONY: all test clean
+
+all: bin/nopc test
 
 bin/nopc: $(DEPS) $(OBJS)
 	$(LD) $(OBJS) -o $@ $(LDFLAGS)
+
+test: $(TSTEXES)
+	$(foreach exe,$(TSTEXES),$(exe))
+
+%.tst: %.o %.d
+	$(LD) $< -o $@ $(LDFLAGS)
 
 %.o %.d: %.c
 	$(CC) $(CFLAGS) -MD -MF $(addsuffix .d,$(basename $<)) -c $< -o $(addsuffix .o,$(basename $<))
@@ -24,7 +34,9 @@ clean:
 	rm -f bin/*
 	rm -f $(call rwildcard,src,*.o)
 	rm -f $(call rwildcard,src,*.d)
+	rm -f $(call rwildcard,tst,*.tst)
 
 ifneq ($(MAKECMDGOALS),clean)
 include $(DEPS)
+include $(TSTDEPS)
 endif
