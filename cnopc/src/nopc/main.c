@@ -2,10 +2,7 @@
 
 #include <assert.h>
 
-int main(int argc, char const* argv[]) {
-    (void)argc;
-    (void)argv;
-
+int main() {
     Toks ts = {0};
     toksInitView(&ts, VIEW("test.nop"), VIEW("\
         pkg Test;                             \

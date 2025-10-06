@@ -22,6 +22,7 @@ OBJS = $(SRCS:.c=.o)
 DEPS = $(SRCS:.c=.d)
 
 .PHONY: all test clean
+.PRECIOUS: $(TSTEXES)
 
 all: bin/nopc test
 
@@ -31,19 +32,23 @@ lib/libnop.a: $(LIBDEPS) $(LIBOBJS)
 bin/nopc: $(DEPS) $(OBJS) lib/libnop.a
 	$(LD) $(OBJS) -o $@ $(LDFLAGS)
 
-test: $(TSTEXES) lib/libnop.a
-	$(foreach exe,$(TSTEXES),$(exe))
-
-%.tst: %.o %.d
+%.tst: %.o %.d lib/libnop.a
 	$(LD) $< -o $@ $(LDFLAGS)
+	@echo -n "$@..."
+	@$@
+	@echo " OK"
 
 %.o %.d: %.c
 	$(CC) $(CFLAGS) -MD -MF $(addsuffix .d,$(basename $<)) -c $< -o $(addsuffix .o,$(basename $<))
+
+test: $(TSTEXES)
 
 clean:
 	rm -f bin/*
 	rm -f $(call rwildcard,src,*.o)
 	rm -f $(call rwildcard,src,*.d)
+	rm -f $(call rwildcard,tst,*.o)
+	rm -f $(call rwildcard,tst,*.d)
 	rm -f $(call rwildcard,tst,*.tst)
 
 ifneq ($(MAKECMDGOALS),clean)

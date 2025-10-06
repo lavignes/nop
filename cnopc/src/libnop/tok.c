@@ -40,6 +40,8 @@ static struct {
     {VIEW("`&=`"), TOK_AND_EQ},
     {VIEW("`|=`"), TOK_OR_EQ},
     {VIEW("`^=`"), TOK_XOR_EQ},
+
+    {VIEW("`->`"), TOK_ARROW},
 };
 
 void tokName(U32 tok, Buf* buf) {
@@ -439,14 +441,17 @@ static U32 eatNumber(Toks* ts) {
         ceat(ts);
         switch (cpeek(ts)) {
         case 'b':
+        case 'B':
             ceat(ts);
             base = 2;
             break;
         case 'o':
+        case 'O':
             ceat(ts);
             base = 8;
             break;
         case 'x':
+        case 'X':
             ceat(ts);
             base = 16;
             break;
@@ -471,13 +476,13 @@ static U32 eatNumber(Toks* ts) {
             cpush(ts, c);
             continue;
         }
-        if (cpeek(ts) == '.') {
+        if (c == '.') {
             flt = true;
             ceat(ts);
             cpush(ts, '.');
             continue;
         }
-        if (tolower(c) == 'e') {
+        if ((c == 'e') || (c == 'E')) {
             flt = true;
             ceat(ts);
             cpush(ts, 'e');
@@ -489,10 +494,10 @@ static U32 eatNumber(Toks* ts) {
         }
         break;
     }
-    if (cpeek(ts) == 'f') {
+    if ((cpeek(ts) == 'f') || (cpeek(ts) == 'F')) {
         flt   = true;
         fkind = eatFloatSuffix(ts);
-    } else if (cpeek(ts) == 'u') {
+    } else if ((cpeek(ts) == 'u') || (cpeek(ts) == 'U')) {
         ceat(ts);
         switch (cpeek(ts)) {
         case '8':
@@ -530,7 +535,7 @@ static U32 eatNumber(Toks* ts) {
             ikind = INT_UINT;
             break;
         }
-    } else if (cpeek(ts) == 'i') {
+    } else if ((cpeek(ts) == 'i' || (cpeek(ts) == 'I'))) {
         ceat(ts);
         switch (cpeek(ts)) {
         case '8':
@@ -605,6 +610,7 @@ static U32 eatNumber(Toks* ts) {
         (((char*)ts->bstream.buf.view.bytes) + ts->bstream.buf.view.len - 1)) {
         toksFatal(ts, "invalid integer literal\n");
     }
+    ts->bstream.num.base = base;
     ts->bstream.num.kind = ikind;
     ts->bstream.stashed  = true;
     ts->bstream.stash    = TOK_INT;
@@ -620,27 +626,8 @@ static struct {
     {"&&", TOK_AND},    {"||", TOK_OR},     {"+=", TOK_ADD_EQ},
     {"-=", TOK_SUB_EQ}, {"*=", TOK_MUL_EQ}, {"/=", TOK_DIV_EQ},
     {"%=", TOK_MOD_EQ}, {"&=", TOK_AND_EQ}, {"|=", TOK_OR_EQ},
-    {"^=", TOK_XOR_EQ},
+    {"^=", TOK_XOR_EQ}, {"->", TOK_ARROW},
 };
-
-// TODO: I dont think types should be keywords. They should be identifiers that
-// refer to types.
-// It will make parsing easier.
-/*
-static struct {
-    View name;
-    U32  tok;
-} const TYPES[] = {
-    {VIEW("Nil"), TOK_TYPE_NIL},   {VIEW("U8"), TOK_TYPE_U8},
-    {VIEW("U16"), TOK_TYPE_U16},   {VIEW("U32"), TOK_TYPE_U32},
-    {VIEW("U64"), TOK_TYPE_U64},   {VIEW("UInt"), TOK_TYPE_UINT},
-    {VIEW("I8"), TOK_TYPE_I8},     {VIEW("I16"), TOK_TYPE_I16},
-    {VIEW("I32"), TOK_TYPE_I32},   {VIEW("I64"), TOK_TYPE_I64},
-    {VIEW("Int"), TOK_TYPE_INT},   {VIEW("F32"), TOK_TYPE_F32},
-    {VIEW("F64"), TOK_TYPE_F64},   {VIEW("Bool"), TOK_TYPE_BOOL},
-    {VIEW("Char"), TOK_TYPE_CHAR}, {VIEW("Never"), TOK_TYPE_NEVER},
-};
-*/
 
 static struct {
     View name;
@@ -666,7 +653,7 @@ U32 peekFile(Toks* ts) {
     }
     while (true) {
         U32 c = cpeek(ts);
-        if ((c == TOK_EOF) || !isspace(c) || (c == '\n')) {
+        if ((c == TOK_EOF) || !isspace(c)) {
             break;
         }
         ceat(ts);
@@ -778,12 +765,15 @@ View toksView(Toks const* ts) {
     }
 }
 
-UInt toksInt(Toks const* ts, IntKind* kind) {
+UInt toksInt(Toks const* ts, IntKind* kind, UInt* base) {
     switch (ts->kind) {
     case TOKS_FILE:
     case TOKS_VIEW:
         if (kind) {
             *kind = ts->bstream.num.kind;
+        }
+        if (base) {
+            *base = ts->bstream.num.base;
         }
         return ts->bstream.num.val;
     default:
@@ -804,8 +794,8 @@ F64 toksFloat(Toks const* ts, FloatKind* kind) {
     }
 }
 
-Bool toksBool(Toks const* ts) { return toksInt(ts, NULL) != 0; }
+Bool toksBool(Toks const* ts) { return toksInt(ts, NULL, NULL) != 0; }
 
-U32 toksChar(Toks const* ts) { return toksInt(ts, NULL); }
+U32 toksChar(Toks const* ts) { return toksInt(ts, NULL, NULL); }
 
 Pos toksPos(Toks const* ts) { return ts->pos; }

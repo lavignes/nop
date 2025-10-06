@@ -49,6 +49,8 @@ enum {
     TOK_AND_EQ  = 0xF100D, // &=
     TOK_OR_EQ   = 0xF100E, // |=
     TOK_XOR_EQ  = 0xF100F, // ^=
+
+    TOK_ARROW   = 0xF1010, // ->
 };
 
 void tokName(U32 tok, Buf* buf);
@@ -79,6 +81,7 @@ typedef struct {
                 struct {
                     IntKind kind;
                     UInt    val;
+                    UInt    base;
                 } num;
 
                 struct {
@@ -109,7 +112,7 @@ U32  toksPeek(Toks* ts);
 void toksEat(Toks* ts);
 
 View toksView(Toks const* ts);
-UInt toksInt(Toks const* ts, IntKind* kind);
+UInt toksInt(Toks const* ts, IntKind* kind, UInt* base);
 F64  toksFloat(Toks const* ts, FloatKind* kind);
 Bool toksBool(Toks const* ts);
 U32  toksChar(Toks const* ts);
