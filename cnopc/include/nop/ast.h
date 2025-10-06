@@ -51,6 +51,7 @@ typedef struct {
 } ParamBuf;
 
 typedef enum {
+    TYPE_UNKNOWN,
     TYPE_NIL,
     TYPE_NEVER,
     TYPE_BOOL,
