@@ -21,7 +21,7 @@ typedef struct {
 } TypeBuf;
 
 typedef struct {
-    Name  name;
+    View  name;
     Type* type;
 } Field;
 
@@ -36,7 +36,7 @@ typedef struct {
 } FieldBuf;
 
 typedef struct {
-    Name  name;
+    View  id;
     Type* type;
 } Param;
 
@@ -76,6 +76,7 @@ typedef enum {
     TYPE_RECORD,
     TYPE_UNION,
     TYPE_ENUM,
+    TYPE_ARRAY,
 } TypeKind;
 
 struct Type {
@@ -104,6 +105,7 @@ typedef struct Scope Scope;
 
 struct Scope {
     Scope* parent;
+    Item*  items;
 };
 
 typedef struct {
@@ -151,10 +153,10 @@ typedef struct {
     ScopeBuf scopes;
 } Pkg;
 
-#define STREAM_RECURSION_CAP 16
+#define PRS_RECURSION_CAP 16
 
 typedef struct {
-    Toks  tsstack[STREAM_RECURSION_CAP];
+    Toks  tsstack[PRS_RECURSION_CAP];
     Toks* ts;
 } Prs;
 
