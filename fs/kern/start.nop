@@ -1,0 +1,105 @@
+\ At this point, we have a core set of system words and are in interpreter
+\ mode. However, we don't yet have the ability to define new words. We'll
+\ manually construct a new word, ":Def", which will allow us to define new
+\ words.
+
+'sysalloc @ @ 4 AlignTo 'sysalloc @ ! \ Align the heap pointer.
+Tok :Def                              \ Tokenize the word: ":Def".
+Dup 1 + Swap @bu ,bs                  \ Copy the token to the heap.
+'sysalloc @ @ 4 AlignTo 'sysalloc @ ! \ Align the heap again.
+$0000 ,h                              \ Write 0 for the code length.
+$00 ,b                                \ No flags. (visible, non-immediate)
+'systok @ @bu ,b                      \ Copy the token length.
+'sysalloc @ @ 'sysdict @ , 'sysdict ! \ Link the new word in the dictionary.
+
+\ Now we've manually defined the header of ":Def" in the dictionary, we'll
+\ define the code of the word to effectively do the same thing we just did
+\ above.
+
+\ The main notable change is the use of ",Defer" to defer the execution of
+\ "compilation words" (i.e. words that write to the heap and start with ",")
+\ This is necessary as compilation words are "immediate" words: Words that are
+\ executed as soon as they are encountered during compilation. ",Defer", being
+\ a compilation word itself, writes the code to execute the next word
+\ regardless of whether it is immediate or not.
+
+] \ Exit interpreter mode.
+
+\ All non-immediate words from here on will be
+\ compiled into the body of ":Def".
+
+    'sysalloc @ @ 4 AlignTo 'sysalloc @ !
+    Tok
+    Dup 1 + Swap @bu ,Defer ,bs
+    'sysalloc @ @ 4 AlignTo 'sysalloc @ !
+    $0000 ,Defer ,h
+    $00 ,Defer ,b
+    'systok @ @bu ,Defer ,b
+    'sysalloc @ @ 'sysdict @ ,Defer , 'sysdict !
+    ,Exit
+
+[ \ Re-Enter interpreter mode.
+
+\ Now, ":Def" will be able to take the next token and define a new word.
+\ We can now use ":Def" to define some helper words for manipulating the flags
+\ byte of a word's header.
+
+:Def :@Flags
+]
+    'sysdict @ @ \ Get the address of the last defined word.
+    2 - @bu      \ Read the flags byte.
+    ,Exit
+[
+
+:Def :!Flags
+]
+    'sysdict @ @ \ Get the address of the last defined word.
+    2 - !b       \ Write the flags byte.
+    ,Exit
+[
+
+\ Mark the most recently defined word as hidden.
+\ Hidden words will be skipped when searching the word list.
+:Def :Hidden
+]
+    :@Flags $01 Or% :!Flags
+    ,Exit
+[
+
+\ Mark the most recently defined word as visible (not hidden).
+:Def :Visible
+]
+    :@Flags $FE And% :!Flags
+    ,Exit
+[
+
+\ Mark the most recently defined word as immediate.
+:Def :Immediate
+]
+    :@Flags $02 Or% :!Flags
+    ,Exit
+[
+
+\ Define a new hidden word and enter compilation mode.
+:Def :Fn
+]
+    :Def :Hidden
+    ,Defer ]
+    ,Exit
+[
+
+\ Mark the most recently defined word as visible, compile an ",Exit" to end
+\ the function, and return to interpreter mode.
+:Def ; :Immediate
+]
+    :Visible
+    ,Defer ,Exit
+    ,Defer [
+    ,Exit
+[
+
+:Fn test 2 2 + ;
+
+$4B4B $000B8000 !h
+$4B4B $000B8002 !h
+
