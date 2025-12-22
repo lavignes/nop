@@ -58,25 +58,13 @@ systok_state:
     TIMES 255 DB 0 ; Buffer
 
 ALIGN 4
-sysalloc_state:
-    DD 0           ; Base Pointer
-    DD 0           ; End Pointer
-    DD 0           ; Unused / Userdata
-
-ALIGN 4
-sysin_state:
-    DD 0           ; Base Pointer
-    DD 0           ; Length
-    DD 0           ; Unused / Userdata
-
-ALIGN 4
 syspanic:     DD 0 ; Pointer to panic handler
 sysstate:     DD 0 ; Current interpreter state
 sysptop:      DD 0 ; Top of parameter stack
 sysrtop:      DD 0 ; Top of return stack
 sysdict:      DD 0 ; Pointer to last dictionary entry
-sysalloc:     DD 0 ; Pointer to alloctor
-sysin:        DD 0 ; Pointer to input stream
+syshere:      DD 0 ; Pointer to free heap
+sysin:        DD 0 ; Pointer to input
 syspeek:      DD 0 ; Pointer to token being read (could be incomplete)
 systok:       DD 0 ; Pointer to latest token (usually copied from syspeek)
 
@@ -86,7 +74,6 @@ RTOP     EQU 0x00080000
 PTOP     EQU 0x00007E00
 
 MEM_BASE EQU 0x00100000
-MEM_MAX  EQU 0x00400000
 
 BITS 32
 
@@ -160,8 +147,8 @@ DEF "'sysdict", _sysdict, FLAG_INLINE
     ret
 .End:
 
-DEF "'sysalloc", _sysalloc, FLAG_INLINE
-    PPUSH sysalloc
+DEF "'syshere", _syshere, FLAG_INLINE
+    PPUSH syshere
     ret
 .End:
 
@@ -272,8 +259,7 @@ DEF "Movh", _MovHalf, FLAG_INLINE
 
 ; ( addr n -- addr )
 DEF "AlignTo", _AlignTo, FLAG_INLINE
-    mov ecx, eax
-    PDROP
+    PPOP ecx
     test ecx, ecx
     jz .Done
     mov ebx, eax
@@ -353,25 +339,25 @@ DEF "%u", _ModUnsigned, FLAG_INLINE
     ret
 .End:
 
-DEF "And%", _AndBit, FLAG_INLINE
+DEF "BitAnd", _BitAnd, FLAG_INLINE
     and eax, [ebp]
     PNIP
     ret
 .End:
 
-DEF "Or%", _OrBit, FLAG_INLINE
+DEF "BitOr", _BitOr, FLAG_INLINE
     or eax, [ebp]
     PNIP
     ret
 .End:
 
-DEF "Xor%", _XorBit, FLAG_INLINE
+DEF "BitXor", _BitXor, FLAG_INLINE
     xor eax, [ebp]
     PNIP
     ret
 .End:
 
-DEF "Not%", _NotBit, FLAG_INLINE
+DEF "BitNot", _BitNot, FLAG_INLINE
     not eax
     ret
 .End:
@@ -524,7 +510,7 @@ DEF "Over", _Over, FLAG_INLINE
     ret
 .End:
 
-DEF ">>r", _PushR, FLAG_INLINE
+DEF ">>r", _PushR, FLAG_IMMEDIATE | FLAG_INLINE
     pop edx
     push eax
     PDROP
@@ -532,7 +518,7 @@ DEF ">>r", _PushR, FLAG_INLINE
     ret
 .End:
 
-DEF "<<r", _PullR, FLAG_INLINE
+DEF "<<r", _PullR, FLAG_IMMEDIATE | FLAG_INLINE
     pop edx
     sub ebp, 4
     mov [ebp], eax
@@ -560,7 +546,7 @@ DEF "\", _StartComment, FLAG_IMMEDIATE
 .End:
 
 DEF ",", _Compile, FLAG_IMMEDIATE
-    mov edx, [sysalloc]
+    mov edx, syshere
     mov edi, [edx]
     mov [edi], eax
     add edi, 4
@@ -569,8 +555,8 @@ DEF ",", _Compile, FLAG_IMMEDIATE
     ret
 .End:
 
-DEF ",b", _CompileByte, FLAG_IMMEDIATE
-    mov edx, [sysalloc]
+DEF "b,", _CompileByte, FLAG_IMMEDIATE
+    mov edx, syshere
     mov edi, [edx]
     mov BYTE [edi], al
     inc edi
@@ -579,8 +565,8 @@ DEF ",b", _CompileByte, FLAG_IMMEDIATE
     ret
 .End:
 
-DEF ",h", _CompileHalf, FLAG_IMMEDIATE
-    mov edx, [sysalloc]
+DEF "h,", _CompileHalf, FLAG_IMMEDIATE
+    mov edx, syshere
     mov edi, [edx]
     mov WORD [edi], ax
     add edi, 2
@@ -590,9 +576,9 @@ DEF ",h", _CompileHalf, FLAG_IMMEDIATE
 .End:
 
 ; ( src n -- )
-DEF ",bs", _CompileByteString, FLAG_IMMEDIATE
+DEF "#b,", _CompileBytes, FLAG_IMMEDIATE
     mov ecx, eax
-    mov edx, [sysalloc]
+    mov edx, syshere
     mov edi, [edx]
     mov esi, [ebp]
     rep movsb
@@ -602,8 +588,8 @@ DEF ",bs", _CompileByteString, FLAG_IMMEDIATE
     ret
 .End:
 
-DEF ",Exit", _CompileExit, FLAG_IMMEDIATE
-    mov edx, [sysalloc]
+DEF "Exit,", _CompileExit, FLAG_IMMEDIATE
+    mov edx, syshere
     mov edi, [edx]
     mov BYTE [edi], 0xC3   ; retn
     inc edi
@@ -612,8 +598,8 @@ DEF ",Exit", _CompileExit, FLAG_IMMEDIATE
 .End:
 
 ; ( val -- )
-DEF ",Lit", _CompileLit, FLAG_IMMEDIATE
-    mov edx, [sysalloc]
+DEF "Lit,", _CompileLit, FLAG_IMMEDIATE
+    mov edx, syshere
     mov edi, [edx]
     mov WORD [edi], 0xED83 ; sub ebp,
     add edi, 2
@@ -633,8 +619,8 @@ DEF ",Lit", _CompileLit, FLAG_IMMEDIATE
 .End:
 
 ; ( addr -- )
-DEF ",Call", _CompileCall, FLAG_IMMEDIATE
-    mov edx, [sysalloc]
+DEF "Call,", _CompileCall, FLAG_IMMEDIATE
+    mov edx, syshere
     mov edi, [edx]
     mov BYTE [edi], 0xBA   ; mov edx,
     inc edi
@@ -648,8 +634,8 @@ DEF ",Call", _CompileCall, FLAG_IMMEDIATE
 .End:
 
 ; ( addr -- )
-DEF ",Goto", _CompileGoto, FLAG_IMMEDIATE
-    mov edx, [sysalloc]
+DEF "Goto,", _CompileGoto, FLAG_IMMEDIATE
+    mov edx, syshere
     mov edi, [edx]
     mov BYTE [edi], 0xBA    ; mov edx,
     inc edi
@@ -665,8 +651,8 @@ DEF ",Goto", _CompileGoto, FLAG_IMMEDIATE
 .End:
 
 ; ( addr -- )
-DEF ",Branch", _CompileBranch, FLAG_IMMEDIATE
-    mov edx, [sysalloc]
+DEF "Branch,", _CompileBranch, FLAG_IMMEDIATE
+    mov edx, syshere
     mov edi, [edx]
     mov WORD [edi], 0xD089 ; mov edx, eax
     add edi, 2
@@ -691,7 +677,7 @@ DEF ",Branch", _CompileBranch, FLAG_IMMEDIATE
     ret
 .End:
 
-DEF ",Defer", _CompileDefer, FLAG_IMMEDIATE
+DEF "Defer,", _CompileDefer, FLAG_IMMEDIATE
     call _Peek
     PPUSH [syspeek]
     call _Find
@@ -709,8 +695,7 @@ DEF ",Defer", _CompileDefer, FLAG_IMMEDIATE
 .End:
 
 DEF "<<sysin", _PullSysin, FLAG_NONE
-    PPUSH [sysin]
-    dec DWORD [eax + 4]
+    PPUSH sysin
     inc DWORD [eax]
     mov eax, [eax]
     movzx eax, BYTE [eax]
@@ -823,25 +808,15 @@ DEF "RunLoop", _RunLoop, FLAG_NONE
     jz .Compile
 
     ; Inline compile
-    mov ebx, [sysalloc]
-    mov edi, [ebx]
-    movzx ecx, WORD [edx - 8]
-    dec ecx ; Ignore retn byte at end
-    mov esi, edx
-    rep movsb
-    mov [ebx], edi
+    PPUSH edx
+    movzx eax, WORD [edx - 8]
+    dec eax ; Ignore retn byte at end
+    call _CompileBytes
     jmp _RunLoop
 
 .Compile:
-    mov ebx, [sysalloc]
-    mov edi, [ebx]
-    mov BYTE [edi], 0xBA    ; mov edx,
-    inc edi
-    mov [edi], edx          ;          POINTER
-    add edi, 4
-    mov WORD [edi], 0xD2FF  ; call edx
-    add edi, 2
-    mov [ebx], edi
+    PPUSH edx
+    call _CompileCall
     jmp _RunLoop
 
 .Execute:
@@ -922,21 +897,13 @@ SysInit:
     mov esp, RTOP
     mov ebp, PTOP
 
-    mov DWORD [sysin_state + 0], (syssrc - 1)
-    mov DWORD [sysin_state + 4], (syssrc.end - syssrc + 1)
-    mov DWORD [sysin_state + 8], 0
-
-    mov DWORD [sysalloc_state + 0], MEM_BASE
-    mov DWORD [sysalloc_state + 4], MEM_MAX
-    mov DWORD [sysalloc_state + 8], 0
-
     mov DWORD [syspanic], _Panic
     mov DWORD [sysstate], STATE_INTERPRET
     mov DWORD [sysptop], PTOP
     mov DWORD [sysrtop], RTOP
     mov DWORD [sysdict], _DEFLINK
-    mov DWORD [sysalloc], sysalloc_state
-    mov DWORD [sysin], sysin_state
+    mov DWORD [syshere], MEM_BASE
+    mov DWORD [sysin], (syssrc - 1)
     mov DWORD [syspeek], syspeek_state
     mov DWORD [systok], systok_state
 
