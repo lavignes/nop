@@ -739,6 +739,7 @@ DEF "Peek", _Peek, FLAG_NONE
     ret
 .End:
 
+; ( -- pstr-addr )
 DEF "Tok", _Tok, FLAG_NONE
     call _Peek
     mov esi, [syspeek]
@@ -750,6 +751,7 @@ DEF "Tok", _Tok, FLAG_NONE
     ret
 .End:
 
+; ( pstr-addr -- entry-addr )
 DEF "Find", _Find, FLAG_NONE
     mov edi, eax
     movzx ecx, BYTE [edi]
@@ -793,41 +795,40 @@ DEF "RunLoop", _RunLoop, FLAG_NONE
     call _Peek
     PPUSH [syspeek]
     call _Find
-    PPOP edx
-    test edx, edx
+    test eax, eax
     jz .NotFound
 
-    add edx, 4
+    add eax, 4
     test DWORD [sysstate], STATE_COMPILE
     jz .Execute
 
-    movzx ecx, BYTE [edx - 6]
+    movzx ecx, BYTE [eax - 6]
     test ecx, FLAG_IMMEDIATE
     jnz .Execute
     test ecx, FLAG_INLINE
     jz .Compile
 
     ; Inline compile
-    PPUSH edx
-    movzx eax, WORD [edx - 8]
+    sub ebp, 4
+    mov [ebp], eax
+    movzx eax, WORD [eax - 8]
     dec eax ; Ignore retn byte at end
     call _CompileBytes
     jmp _RunLoop
 
 .Compile:
-    PPUSH edx
     call _CompileCall
     jmp _RunLoop
 
 .Execute:
-    call edx
+    call eax
     jmp _RunLoop
 
 .NotFound:
     mov edi, [syspeek]
     movzx ecx, BYTE [edi]
     inc edi
-    PPUSH 0
+    xor eax, eax
 
     mov ebx, 10
 .ParseDigit:
@@ -874,8 +875,7 @@ DEF "RunLoop", _RunLoop, FLAG_NONE
     jmp _RunLoop
 
 .PanicNotDigit:
-    PDROP
-    PPUSH PANIC_NOT_FOUND
+    mov eax, PANIC_NOT_FOUND
 
     mov edx, [syspanic]
     call edx
