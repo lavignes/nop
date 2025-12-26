@@ -7,7 +7,7 @@
 Tok :Def                             \ Tokenize the word: ":Def".
 Dup 1 + Swap @bu #b,                 \ Copy the token to the heap.
 'syshere @ 4 AlignTo 'syshere !      \ Align the heap again.
-$0000 h,                             \ Write 0 for the code length.
+$0000 h,                              \ Set code len to 0 for now.
 $00 b,                               \ No flags. (visible, non-immediate)
 'systok @ @bu b,                     \ Copy the token length.
 'syshere @ 'sysdict @ , 'sysdict !   \ Link the new word in the dictionary.
@@ -40,9 +40,28 @@ $00 b,                               \ No flags. (visible, non-immediate)
 
 [ \ Re-Enter interpreter mode.
 
+\ We also want to go back and fix up the 16-bit code address we wrote
+\ earlier. We want it to be the length of the code for ":Def", which starts
+\ just after the header we wrote above, and ends at the current heap pointer.
+
+'sysdict @ 4 - @hu
+'syshere @ 'sysdict @ 4 + -
+'sysdict @ 4 - !h
+
 \ Now, ":Def" will be able to take the next token and define a new word.
-\ We can now use ":Def" to define some helper words for manipulating the flags
-\ byte of a word's header.
+\ We can now use ":Def" to define some helper words for manipulating a word's
+\ header. We'll start with a word to update the code length.
+
+:Def FixLen;
+]
+    'sysdict @ 4 - @hu
+    'syshere @ 'sysdict @ 4 + -
+    'sysdict @ 4 - !h
+    Exit,
+[
+
+\ And we'll call it now to fix up the code length of "FixLen;".
+FixLen;
 
 \ Get the address of the last-defined word.
 :Def :Last
@@ -50,6 +69,7 @@ $00 b,                               \ No flags. (visible, non-immediate)
     'sysdict @
     Exit,
 [
+FixLen;
 
 \ Mark the most recently defined word as hidden.
 \ Hidden words will be skipped when searching the word list.
@@ -60,6 +80,7 @@ $00 b,                               \ No flags. (visible, non-immediate)
     Swap !b       \ Write back flags.
     Exit,
 [
+FixLen;
 
 \ Mark the most recently defined word as visible (not hidden).
 :Def :Visible
@@ -70,6 +91,7 @@ $00 b,                               \ No flags. (visible, non-immediate)
     Swap !b       \ Write back flags.
     Exit,
 [
+FixLen;
 
 \ Mark the most recently defined word as immediate.
 :Def :Immediate
@@ -79,6 +101,7 @@ $00 b,                               \ No flags. (visible, non-immediate)
     Swap !b       \ Write back flags.
     Exit,
 [
+FixLen;
 
 \ Define a new hidden word and enter compilation mode.
 :Def :Fn
@@ -87,6 +110,7 @@ $00 b,                               \ No flags. (visible, non-immediate)
     Defer, ]
     Exit,
 [
+FixLen;
 
 \ Mark the most recently defined word as visible, compile an "Exit," to end
 \ the function, and return to interpreter mode.
@@ -95,8 +119,10 @@ $00 b,                               \ No flags. (visible, non-immediate)
     :Visible
     Defer, Exit,
     Defer, [
+    FixLen;
     Exit,
 [
+FixLen;
 
 :Fn test 2 2 + ;
 
