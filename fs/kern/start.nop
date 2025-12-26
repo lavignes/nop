@@ -75,7 +75,7 @@ $00 b,                               \ No flags. (visible, non-immediate)
 :Def :Immediate
 ]
     :Last 2 - Dup \ Dup address of the flags byte.
-    @b $01 BitOr  \ Set hidden flag.
+    @b $02 BitOr  \ Set immediate flag.
     Swap !b       \ Write back flags.
     Exit,
 [
@@ -99,6 +99,8 @@ $00 b,                               \ No flags. (visible, non-immediate)
 [
 
 :Fn test 2 2 + ;
+
+test Panic
 
 $4B4B $000B8000 !h
 $4B4B $000B8002 !h

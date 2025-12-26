@@ -261,18 +261,16 @@ DEF "Movh", _MovHalf, FLAG_INLINE
 DEF "AlignTo", _AlignTo, FLAG_INLINE
     PPOP ecx
     test ecx, ecx
-    jz .Done
+    jz .Aligned
     mov ebx, eax
     xor edx, edx
     div ecx
+    mov eax, ebx
     test edx, edx
     jz .Aligned
     sub ecx, edx
     add eax, ecx
-    jmp .Done
 .Aligned:
-    mov eax, ebx
-.Done:
     ret
 .End:
 
@@ -577,14 +575,13 @@ DEF "h,", _CompileHalf, FLAG_IMMEDIATE
 
 ; ( src n -- )
 DEF "#b,", _CompileBytes, FLAG_IMMEDIATE
-    mov ecx, eax
+    PPOP ecx
     mov edx, syshere
     mov edi, [edx]
-    mov esi, [ebp]
+    mov esi, eax
     rep movsb
     mov [edx], edi
-    mov eax, [ebp + 4]
-    add ebp, 8
+    PDROP
     ret
 .End:
 
@@ -694,6 +691,7 @@ DEF "Defer,", _CompileDefer, FLAG_IMMEDIATE
     ret
 .End:
 
+; ( -- byte )
 DEF "<<sysin", _PullSysin, FLAG_NONE
     PPUSH sysin
     inc DWORD [eax]
@@ -702,6 +700,7 @@ DEF "<<sysin", _PullSysin, FLAG_NONE
     ret
 .End:
 
+; ( -- )
 DEF "Peek", _Peek, FLAG_NONE
 .NextSpace:
     call _PullSysin
@@ -728,7 +727,7 @@ DEF "Peek", _Peek, FLAG_NONE
     jmp .Done
 
 .EarlyTerminate:
-    inc ecx ; Make sure we include the special char in the token
+    inc edi ; Make sure we include the special char in the token
 
 .Done:
     mov ecx, edi
@@ -746,7 +745,7 @@ DEF "Tok", _Tok, FLAG_NONE
     movzx ecx, BYTE [esi]
     inc ecx
     mov edi, [systok]
-    mov eax, edi
+    PPUSH edi
     rep movsb
     ret
 .End:
@@ -786,6 +785,7 @@ DEF "Find", _Find, FLAG_NONE
     ret
 .End:
 
+; ( err -- )
 DEF "Panic", _Panic, FLAG_NONE
     PDROP
     ret
@@ -795,40 +795,43 @@ DEF "RunLoop", _RunLoop, FLAG_NONE
     call _Peek
     PPUSH [syspeek]
     call _Find
-    test eax, eax
+    PPOP edx
+    test edx, edx
     jz .NotFound
 
-    add eax, 4
+    add edx, 4
     test DWORD [sysstate], STATE_COMPILE
     jz .Execute
 
-    movzx ecx, BYTE [eax - 6]
+    movzx ecx, BYTE [edx - 6]
     test ecx, FLAG_IMMEDIATE
     jnz .Execute
     test ecx, FLAG_INLINE
     jz .Compile
 
     ; Inline compile
-    sub ebp, 4
-    mov [ebp], eax
-    movzx eax, WORD [eax - 8]
+    PPUSH edx
+    sub ebp, 4     ; We're doing a WORD PPUSH (i.e. PPUSH WORD [edx - 8])
+    mov [ebp], eax ; because PPUSH only calls mov.
+    movzx eax, WORD [edx - 8]
     dec eax ; Ignore retn byte at end
     call _CompileBytes
     jmp _RunLoop
 
 .Compile:
+    PPUSH edx
     call _CompileCall
     jmp _RunLoop
 
 .Execute:
-    call eax
+    call edx
     jmp _RunLoop
 
 .NotFound:
     mov edi, [syspeek]
     movzx ecx, BYTE [edi]
     inc edi
-    xor eax, eax
+    PPUSH 0
 
     mov ebx, 10
 .ParseDigit:
@@ -876,7 +879,6 @@ DEF "RunLoop", _RunLoop, FLAG_NONE
 
 .PanicNotDigit:
     mov eax, PANIC_NOT_FOUND
-
     mov edx, [syspanic]
     call edx
     jmp _RunLoop

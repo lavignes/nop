@@ -36,6 +36,8 @@ end
 tui enable
 
 tui new-layout nop {-horizontal src 1 regs 1} 2 status 0 cmd 1
+tui new-layout nopasm {-horizontal src 1 regs 1} 2 status 0 cmd 1
+
 tui layout nop
 focus cmd
 
