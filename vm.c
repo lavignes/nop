@@ -406,315 +406,101 @@ U16 disrel(U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
+typedef U16 (*DisFn)(U8, U16, char const *);
+
+typedef struct {
+  char const *mne;
+  DisFn fn;
+  U16 cycles;
+} DisEntry;
+
+DisEntry DISASM_TABLE[256] = {
+    [0x00] = {"BRK", disimm, 7},  [0x01] = {"ORA", disidx, 6},
+    [0x05] = {"ORA", diszp, 3},   [0x06] = {"ASL", diszp, 5},
+    [0x08] = {"PHP", disimpl, 3}, [0x09] = {"ORA", disimm, 2},
+    [0x0A] = {"ASL", disimpl, 2}, [0x0D] = {"ORA", disab, 4},
+    [0x0E] = {"ASL", disab, 6},   [0x10] = {"BPL", disrel, 2},
+    [0x11] = {"ORA", disidy, 5},  [0x15] = {"ORA", diszpx, 4},
+    [0x16] = {"ASL", diszpx, 6},  [0x18] = {"CLC", disimpl, 2},
+    [0x19] = {"ORA", disaby, 4},  [0x1D] = {"ORA", disabx, 4},
+    [0x1E] = {"ASL", disabx, 7},  [0x20] = {"JSR", disab, 6},
+    [0x21] = {"AND", disidx, 6},  [0x24] = {"BIT", diszp, 3},
+    [0x25] = {"AND", diszp, 3},   [0x26] = {"ROL", diszp, 5},
+    [0x28] = {"PLP", disimpl, 4}, [0x29] = {"AND", disimm, 2},
+    [0x2A] = {"ROL", disimpl, 2}, [0x2C] = {"BIT", disab, 4},
+    [0x2D] = {"AND", disab, 4},   [0x2E] = {"ROL", disab, 6},
+    [0x30] = {"BMI", disrel, 2},  [0x31] = {"AND", disidy, 5},
+    [0x35] = {"AND", diszpx, 4},  [0x36] = {"ROL", diszpx, 6},
+    [0x38] = {"SEC", disimpl, 2}, [0x39] = {"AND", disaby, 4},
+    [0x3D] = {"AND", disabx, 4},  [0x3E] = {"ROL", disabx, 7},
+    [0x40] = {"RTI", disimpl, 6}, [0x41] = {"EOR", disidx, 6},
+    [0x45] = {"EOR", diszp, 3},   [0x46] = {"LSR", diszp, 5},
+    [0x48] = {"PHA", disimpl, 3}, [0x49] = {"EOR", disimm, 2},
+    [0x4A] = {"LSR", disimpl, 2}, [0x4C] = {"JMP", disab, 3},
+    [0x4D] = {"EOR", disab, 4},   [0x4E] = {"LSR", disab, 6},
+    [0x50] = {"BVC", disrel, 2},  [0x51] = {"EOR", disidy, 5},
+    [0x55] = {"EOR", diszpx, 4},  [0x56] = {"LSR", diszpx, 6},
+    [0x58] = {"CLI", disimpl, 2}, [0x59] = {"EOR", disaby, 4},
+    [0x5D] = {"EOR", disabx, 4},  [0x5E] = {"LSR", disabx, 7},
+    [0x60] = {"RTS", disimpl, 6}, [0x61] = {"ADC", disidx, 6},
+    [0x65] = {"ADC", diszp, 3},   [0x66] = {"ROR", diszp, 5},
+    [0x68] = {"PLA", disimpl, 4}, [0x69] = {"ADC", disimm, 2},
+    [0x6A] = {"ROR", disimpl, 2}, [0x6C] = {"JMP", disid, 5},
+    [0x6D] = {"ADC", disab, 4},   [0x6E] = {"ROR", disab, 6},
+    [0x70] = {"BVS", disrel, 2},  [0x71] = {"ADC", disidy, 5},
+    [0x75] = {"ADC", diszpx, 4},  [0x76] = {"ROR", diszpx, 6},
+    [0x78] = {"SEI", disimpl, 2}, [0x79] = {"ADC", disaby, 4},
+    [0x7D] = {"ADC", disabx, 4},  [0x7E] = {"ROR", disabx, 7},
+    [0x81] = {"STA", disidx, 6},  [0x84] = {"STY", diszp, 3},
+    [0x85] = {"STA", diszp, 3},   [0x86] = {"STX", diszp, 3},
+    [0x88] = {"DEY", disimpl, 2}, [0x8A] = {"TXA", disimpl, 2},
+    [0x8C] = {"STY", disab, 4},   [0x8D] = {"STA", disab, 4},
+    [0x8E] = {"STX", disab, 4},   [0x90] = {"BCC", disrel, 2},
+    [0x91] = {"STA", disidy, 6},  [0x94] = {"STY", diszpx, 4},
+    [0x95] = {"STA", diszpx, 4},  [0x96] = {"STX", diszpy, 4},
+    [0x98] = {"TYA", disimpl, 2}, [0x99] = {"STA", disaby, 5},
+    [0x9A] = {"TXS", disimpl, 2}, [0x9D] = {"STA", disabx, 5},
+    [0xA0] = {"LDY", disimm, 2},  [0xA1] = {"LDA", disidx, 6},
+    [0xA2] = {"LDX", disimm, 2},  [0xA4] = {"LDY", diszp, 3},
+    [0xA5] = {"LDA", diszp, 3},   [0xA6] = {"LDX", diszp, 3},
+    [0xA8] = {"TAY", disimpl, 2}, [0xA9] = {"LDA", disimm, 2},
+    [0xAA] = {"TAX", disimpl, 2}, [0xAC] = {"LDY", disab, 4},
+    [0xAD] = {"LDA", disab, 4},   [0xAE] = {"LDX", disab, 4},
+    [0xB0] = {"BCS", disrel, 2},  [0xB1] = {"LDA", disidy, 5},
+    [0xB4] = {"LDY", diszpx, 4},  [0xB5] = {"LDA", diszpx, 4},
+    [0xB6] = {"LDX", diszpy, 4},  [0xB8] = {"CLV", disimpl, 2},
+    [0xB9] = {"LDA", disaby, 4},  [0xBA] = {"TSX", disimpl, 2},
+    [0xBC] = {"LDY", disabx, 4},  [0xBD] = {"LDA", disabx, 4},
+    [0xBE] = {"LDX", disaby, 4},  [0xC0] = {"CPY", disimm, 2},
+    [0xC1] = {"CMP", disidx, 6},  [0xC4] = {"CPY", diszp, 3},
+    [0xC5] = {"CMP", diszp, 3},   [0xC6] = {"DEC", diszp, 5},
+    [0xC8] = {"INY", disimpl, 2}, [0xC9] = {"CMP", disimm, 2},
+    [0xCA] = {"DEX", disimpl, 2}, [0xCC] = {"CPY", disab, 4},
+    [0xCD] = {"CMP", disab, 4},   [0xCE] = {"DEC", disab, 6},
+    [0xD0] = {"BNE", disrel, 2},  [0xD1] = {"CMP", disidy, 5},
+    [0xD5] = {"CMP", diszpx, 4},  [0xD6] = {"DEC", diszpx, 6},
+    [0xD8] = {"CLD", disimpl, 2}, [0xD9] = {"CMP", disaby, 4},
+    [0xDD] = {"CMP", disabx, 4},  [0xDE] = {"DEC", disabx, 7},
+    [0xE0] = {"CPX", disimm, 2},  [0xE1] = {"SBC", disidx, 6},
+    [0xE4] = {"CPX", diszp, 3},   [0xE5] = {"SBC", diszp, 3},
+    [0xE6] = {"INC", diszp, 5},   [0xE8] = {"INX", disimpl, 2},
+    [0xE9] = {"SBC", disimm, 2},  [0xEA] = {"NOP", disimpl, 2},
+    [0xEC] = {"CPX", disab, 4},   [0xED] = {"SBC", disab, 4},
+    [0xEE] = {"INC", disab, 6},   [0xF0] = {"BEQ", disrel, 2},
+    [0xF1] = {"SBC", disidy, 5},  [0xF5] = {"SBC", diszpx, 4},
+    [0xF6] = {"INC", diszpx, 6},  [0xF8] = {"SED", disimpl, 2},
+    [0xF9] = {"SBC", disaby, 4},  [0xFD] = {"SBC", disabx, 4},
+    [0xFE] = {"INC", disabx, 7},
+};
+
 U16 disasm(U16 addr) {
   fprintf(stderr, "%04X ", addr);
   U8 op = MEM[addr++];
-  switch (op) {
-  case 0x00:
-    return disimm(op, addr, "BRK");
-  case 0x01:
-    return disidx(op, addr, "ORA");
-  case 0x05:
-    return diszp(op, addr, "ORA");
-  case 0x06:
-    return diszp(op, addr, "ASL");
-  case 0x08:
-    return disimpl(op, addr, "PHP");
-  case 0x09:
-    return disimm(op, addr, "ORA");
-  case 0x0A:
-    return disimpl(op, addr, "ASL");
-  case 0x0D:
-    return disab(op, addr, "ORA");
-  case 0x0E:
-    return disab(op, addr, "ASL");
-  case 0x10:
-    return disrel(op, addr, "BPL");
-  case 0x11:
-    return disidy(op, addr, "ORA");
-  case 0x15:
-    return diszpx(op, addr, "ORA");
-  case 0x16:
-    return diszpx(op, addr, "ASL");
-  case 0x18:
-    return disimpl(op, addr, "CLC");
-  case 0x19:
-    return disaby(op, addr, "ORA");
-  case 0x1D:
-    return disabx(op, addr, "ORA");
-  case 0x1E:
-    return disabx(op, addr, "ASL");
-  case 0x20:
-    return disab(op, addr, "JSR");
-  case 0x21:
-    return disidx(op, addr, "AND");
-  case 0x24:
-    return diszp(op, addr, "BIT");
-  case 0x25:
-    return diszp(op, addr, "AND");
-  case 0x26:
-    return diszp(op, addr, "ROL");
-  case 0x28:
-    return disimpl(op, addr, "PLP");
-  case 0x29:
-    return disimm(op, addr, "AND");
-  case 0x2A:
-    return disimpl(op, addr, "ROL");
-  case 0x2C:
-    return disab(op, addr, "BIT");
-  case 0x2D:
-    return disab(op, addr, "AND");
-  case 0x2E:
-    return disab(op, addr, "ROL");
-  case 0x30:
-    return disrel(op, addr, "BMI");
-  case 0x31:
-    return disidy(op, addr, "AND");
-  case 0x35:
-    return diszpx(op, addr, "AND");
-  case 0x36:
-    return diszpx(op, addr, "ROL");
-  case 0x38:
-    return disimpl(op, addr, "SEC");
-  case 0x39:
-    return disaby(op, addr, "AND");
-  case 0x3D:
-    return disabx(op, addr, "AND");
-  case 0x3E:
-    return disabx(op, addr, "ROL");
-  case 0x40:
-    return disimpl(op, addr, "RTI");
-  case 0x41:
-    return disidx(op, addr, "EOR");
-  case 0x45:
-    return diszp(op, addr, "EOR");
-  case 0x46:
-    return diszp(op, addr, "LSR");
-  case 0x48:
-    return disimpl(op, addr, "PHA");
-  case 0x49:
-    return disimm(op, addr, "EOR");
-  case 0x4A:
-    return disimpl(op, addr, "LSR");
-  case 0x4C:
-    return disab(op, addr, "JMP");
-  case 0x4D:
-    return disab(op, addr, "EOR");
-  case 0x4E:
-    return disab(op, addr, "LSR");
-  case 0x50:
-    return disrel(op, addr, "BVC");
-  case 0x51:
-    return disidy(op, addr, "EOR");
-  case 0x55:
-    return diszpx(op, addr, "EOR");
-  case 0x56:
-    return diszpx(op, addr, "LSR");
-  case 0x58:
-    return disimpl(op, addr, "CLI");
-  case 0x59:
-    return disaby(op, addr, "EOR");
-  case 0x5D:
-    return disabx(op, addr, "EOR");
-  case 0x5E:
-    return disabx(op, addr, "LSR");
-  case 0x60:
-    return disimpl(op, addr, "RTS");
-  case 0x61:
-    return disidx(op, addr, "ADC");
-  case 0x65:
-    return diszp(op, addr, "ADC");
-  case 0x66:
-    return diszp(op, addr, "ROR");
-  case 0x68:
-    return disimpl(op, addr, "PLA");
-  case 0x69:
-    return disimm(op, addr, "ADC");
-  case 0x6A:
-    return disimpl(op, addr, "ROR");
-  case 0x6C:
-    return disid(op, addr, "JMP");
-  case 0x6D:
-    return disab(op, addr, "ADC");
-  case 0x6E:
-    return disab(op, addr, "ROR");
-  case 0x70:
-    return disrel(op, addr, "BVS");
-  case 0x71:
-    return disidy(op, addr, "ADC");
-  case 0x75:
-    return diszpx(op, addr, "ADC");
-  case 0x76:
-    return diszpx(op, addr, "ROR");
-  case 0x78:
-    return disimpl(op, addr, "SEI");
-  case 0x79:
-    return disaby(op, addr, "ADC");
-  case 0x7D:
-    return disabx(op, addr, "ADC");
-  case 0x7E:
-    return disabx(op, addr, "ROR");
-  case 0x81:
-    return disidx(op, addr, "STA");
-  case 0x84:
-    return diszp(op, addr, "STY");
-  case 0x85:
-    return diszp(op, addr, "STA");
-  case 0x86:
-    return diszp(op, addr, "STX");
-  case 0x88:
-    return disimpl(op, addr, "DEY");
-  case 0x8A:
-    return disimpl(op, addr, "TXA");
-  case 0x8C:
-    return disab(op, addr, "STY");
-  case 0x8D:
-    return disab(op, addr, "STA");
-  case 0x8E:
-    return disab(op, addr, "STX");
-  case 0x90:
-    return disrel(op, addr, "BCC");
-  case 0x91:
-    return disidy(op, addr, "STA");
-  case 0x94:
-    return diszpx(op, addr, "STY");
-  case 0x95:
-    return diszpx(op, addr, "STA");
-  case 0x96:
-    return diszpy(op, addr, "STX");
-  case 0x98:
-    return disimpl(op, addr, "TYA");
-  case 0x99:
-    return disaby(op, addr, "STA");
-  case 0x9A:
-    return disimpl(op, addr, "TXS");
-  case 0x9D:
-    return disabx(op, addr, "STA");
-  case 0xA0:
-    return disimm(op, addr, "LDY");
-  case 0xA1:
-    return disidx(op, addr, "LDA");
-  case 0xA2:
-    return disimm(op, addr, "LDX");
-  case 0xA4:
-    return diszp(op, addr, "LDY");
-  case 0xA5:
-    return diszp(op, addr, "LDA");
-  case 0xA6:
-    return diszp(op, addr, "LDX");
-  case 0xA8:
-    return disimpl(op, addr, "TAY");
-  case 0xA9:
-    return disimm(op, addr, "LDA");
-  case 0xAA:
-    return disimpl(op, addr, "TAX");
-  case 0xAC:
-    return disab(op, addr, "LDY");
-  case 0xAD:
-    return disab(op, addr, "LDA");
-  case 0xAE:
-    return disab(op, addr, "LDX");
-  case 0xB0:
-    return disrel(op, addr, "BCS");
-  case 0xB1:
-    return disidy(op, addr, "LDA");
-  case 0xB4:
-    return diszpx(op, addr, "LDY");
-  case 0xB5:
-    return diszpx(op, addr, "LDA");
-  case 0xB6:
-    return diszpy(op, addr, "LDX");
-  case 0xB8:
-    return disimpl(op, addr, "CLV");
-  case 0xB9:
-    return disaby(op, addr, "LDA");
-  case 0xBA:
-    return disimpl(op, addr, "TSX");
-  case 0xBC:
-    return disabx(op, addr, "LDY");
-  case 0xBD:
-    return disabx(op, addr, "LDA");
-  case 0xBE:
-    return disaby(op, addr, "LDX");
-  case 0xC0:
-    return disimm(op, addr, "CPY");
-  case 0xC1:
-    return disidx(op, addr, "CMP");
-  case 0xC4:
-    return diszp(op, addr, "CPY");
-  case 0xC5:
-    return diszp(op, addr, "CMP");
-  case 0xC6:
-    return diszp(op, addr, "DEC");
-  case 0xC8:
-    return disimpl(op, addr, "INY");
-  case 0xC9:
-    return disimm(op, addr, "CMP");
-  case 0xCA:
-    return disimpl(op, addr, "DEX");
-  case 0xCC:
-    return disab(op, addr, "CPY");
-  case 0xCD:
-    return disab(op, addr, "CMP");
-  case 0xCE:
-    return disab(op, addr, "DEC");
-  case 0xD0:
-    return disrel(op, addr, "BNE");
-  case 0xD1:
-    return disidy(op, addr, "CMP");
-  case 0xD5:
-    return diszpx(op, addr, "CMP");
-  case 0xD6:
-    return diszpx(op, addr, "DEC");
-  case 0xD8:
-    return disimpl(op, addr, "CLD");
-  case 0xD9:
-    return disaby(op, addr, "CMP");
-  case 0xDD:
-    return disabx(op, addr, "CMP");
-  case 0xDE:
-    return disabx(op, addr, "DEC");
-  case 0xE0:
-    return disimm(op, addr, "CPX");
-  case 0xE1:
-    return disidx(op, addr, "SBC");
-  case 0xE4:
-    return diszp(op, addr, "CPX");
-  case 0xE5:
-    return diszp(op, addr, "SBC");
-  case 0xE6:
-    return diszp(op, addr, "INC");
-  case 0xE8:
-    return disimpl(op, addr, "INX");
-  case 0xE9:
-    return disimm(op, addr, "SBC");
-  case 0xEA:
-    return disimpl(op, addr, "NOP");
-  case 0xEC:
-    return disab(op, addr, "CPX");
-  case 0xED:
-    return disab(op, addr, "SBC");
-  case 0xEE:
-    return disab(op, addr, "INC");
-  case 0xF0:
-    return disrel(op, addr, "BEQ");
-  case 0xF1:
-    return disidy(op, addr, "SBC");
-  case 0xF5:
-    return diszpx(op, addr, "SBC");
-  case 0xF6:
-    return diszpx(op, addr, "INC");
-  case 0xF8:
-    return disimpl(op, addr, "SED");
-  case 0xF9:
-    return disaby(op, addr, "SBC");
-  case 0xFD:
-    return disabx(op, addr, "SBC");
-  case 0xFE:
-    return disabx(op, addr, "INC");
-  default:
-    return disimpl(op, addr, "JAM");
+  DisEntry *entry = &DISASM_TABLE[op];
+  if (entry->fn) {
+    return entry->fn(op, addr, entry->mne);
   }
+  return disimpl(op, addr, "JAM");
 }
 
 void flag(U8 flag, bool condition) {
