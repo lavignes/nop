@@ -41,16 +41,16 @@ enum {
   FLAG_NEGATIVE = 1 << 7,
 };
 
-U8 A;
-U8 X;
-U8 Y;
-U8 P;
-U8 SP;
-U16 PC = 0x0200;
+static U8 A;
+static U8 X;
+static U8 Y;
+static U8 P;
+static U8 SP;
+static U16 PC = 0x0200;
 
-bool debug = false;
+static bool debug = false;
 
-U8 MEM[65536];
+static U8 MEM[65536];
 
 void help(char const *name) { (void)name; }
 
@@ -113,11 +113,11 @@ struct Breakpoint {
   U16 addr;
 };
 
-U16 BREAKPOINT_COUNTER = 0;
-Breakpoint *BREAKPOINTS = NULL;
+static U16 bpcount = 0;
+static Breakpoint *bphead = NULL;
 
 void tick() {
-  for (Breakpoint const *bp = BREAKPOINTS; bp != NULL; bp = bp->next) {
+  for (Breakpoint const *bp = bphead; bp != NULL; bp = bp->next) {
     if (PC == bp->addr) {
       debug = true;
       break;
@@ -146,14 +146,15 @@ Int parse(char const *str) {
   return (Int)val;
 }
 
-U16 disasm(U16 addr);
+U16 disasm(U16 addr, U16 *cytot);
 void regs();
 
 void debugger() {
   static char *line = NULL;
   static size_t len = 0;
   regs();
-  disasm(PC);
+  U16 cytot = 0;
+  disasm(PC, &cytot);
   while (true) {
     fprintf(stderr, "> ");
     if (getline(&line, &len, stdin) == -1) {
@@ -184,12 +185,12 @@ void debugger() {
         fprintf(stderr, "Invalid address for breakpoint: %s\n", tok);
         continue;
       }
-      ++BREAKPOINT_COUNTER;
+      ++bpcount;
       Breakpoint *bp = malloc(sizeof(Breakpoint));
-      bp->num = BREAKPOINT_COUNTER;
+      bp->num = bpcount;
       bp->addr = (U16)addr;
-      bp->next = BREAKPOINTS;
-      BREAKPOINTS = bp;
+      bp->next = bphead;
+      bphead = bp;
       fprintf(stderr, "Breakpoint %d set at $%04X\n", bp->num, bp->addr);
       continue;
     }
@@ -204,8 +205,8 @@ void debugger() {
         fprintf(stderr, "Invalid breakpoint number: %s\n", tok);
         continue;
       }
-      Breakpoint **prevptr = &BREAKPOINTS;
-      Breakpoint *bp = BREAKPOINTS;
+      Breakpoint **prevptr = &bphead;
+      Breakpoint *bp = bphead;
       while (bp != NULL) {
         if (bp->num == (U16)num) {
           *prevptr = bp->next;
@@ -295,8 +296,9 @@ void debugger() {
         }
       }
       U16 addr = (U16)start;
+      U16 cytot = 0;
       while (addr <= (U16)end) {
-        addr = disasm(addr);
+        addr = disasm(addr, &cytot);
       }
       continue;
     }
@@ -316,85 +318,85 @@ void regs() {
 
 U16 disimpl(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, " %02X      ", op);
-  fprintf(stderr, "  %s\n", mne);
+  fprintf(stderr, "  %s            ", mne);
   return addr;
 }
 
 U16 disimm(U8 op, U16 addr, char const *mne) {
   U8 val = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, val);
-  fprintf(stderr, "  %s #$%02X\n", mne, val);
+  fprintf(stderr, "  %s #$%02X       ", mne, val);
   return addr;
 }
 
 U16 diszp(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s $%02X\n", mne, zp);
+  fprintf(stderr, "  %s $%02X        ", mne, zp);
   return addr;
 }
 
 U16 diszpx(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s $%02X,X\n", mne, zp);
+  fprintf(stderr, "  %s $%02X,X      ", mne, zp);
   return addr;
 }
 
 U16 diszpy(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s $%02X,Y\n", mne, zp);
+  fprintf(stderr, "  %s $%02X,Y      ", mne, zp);
   return addr;
 }
 
 U16 disab(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
-  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   U16 ab = (((U16)hi) << 8) | lo;
-  fprintf(stderr, "  %s $%04X\n", mne, ab);
+  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
+  fprintf(stderr, "  %s $%04X      ", mne, ab);
   return addr;
 }
 
 U16 disabx(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
-  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   U16 ab = (((U16)hi) << 8) | lo;
-  fprintf(stderr, "  %s $%04X,X\n", mne, ab);
+  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
+  fprintf(stderr, "  %s $%04X,X    ", mne, ab);
   return addr;
 }
 
 U16 disaby(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
-  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   U16 ab = (((U16)hi) << 8) | lo;
-  fprintf(stderr, "  %s $%04X,Y\n", mne, ab);
+  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
+  fprintf(stderr, "  %s $%04X,Y    ", mne, ab);
   return addr;
 }
 
 U16 disid(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
-  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   U16 ptr = (((U16)hi) << 8) | lo;
-  fprintf(stderr, "  %s ($%04X)\n", mne, ptr);
+  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
+  fprintf(stderr, "  %s ($%04X)    ", mne, ptr);
   return addr;
 }
 
 U16 disidx(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s ($%02X,X)\n", mne, zp);
+  fprintf(stderr, "  %s ($%02X,X)    ", mne, zp);
   return addr;
 }
 
 U16 disidy(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s ($%02X),Y\n", mne, zp);
+  fprintf(stderr, "  %s ($%02X),Y    ", mne, zp);
   return addr;
 }
 
@@ -402,7 +404,7 @@ U16 disrel(U8 op, U16 addr, char const *mne) {
   I8 offset = (I8)MEM[addr++];
   U16 target = addr + offset;
   fprintf(stderr, " %02X %02X   ", op, (U8)offset);
-  fprintf(stderr, "  %s $%04X\n", mne, target);
+  fprintf(stderr, "  %s $%04X      ", mne, target);
   return addr;
 }
 
@@ -414,7 +416,7 @@ typedef struct {
   U16 cycles;
 } DisEntry;
 
-DisEntry DISASM_TABLE[256] = {
+static DisEntry const DISASM_TABLE[256] = {
     [0x00] = {"BRK", disimm, 7},  [0x01] = {"ORA", disidx, 6},
     [0x05] = {"ORA", diszp, 3},   [0x06] = {"ASL", diszp, 5},
     [0x08] = {"PHP", disimpl, 3}, [0x09] = {"ORA", disimm, 2},
@@ -493,14 +495,21 @@ DisEntry DISASM_TABLE[256] = {
     [0xFE] = {"INC", disabx, 7},
 };
 
-U16 disasm(U16 addr) {
+U16 disasm(U16 addr, U16 *cytot) {
   fprintf(stderr, "%04X ", addr);
   U8 op = MEM[addr++];
-  DisEntry *entry = &DISASM_TABLE[op];
+  DisEntry const *entry = &DISASM_TABLE[op];
+  U16 cycles;
   if (entry->fn) {
-    return entry->fn(op, addr, entry->mne);
+    addr = entry->fn(op, addr, entry->mne);
+    cycles = entry->cycles;
+  } else {
+    addr = disimpl(op, addr, "JAM");
+    cycles = 2;
   }
-  return disimpl(op, addr, "JAM");
+  *cytot += cycles;
+  fprintf(stderr, "/  %4d  +%d\n", *cytot, cycles);
+  return addr;
 }
 
 void flag(U8 flag, bool condition) {
@@ -510,6 +519,10 @@ void flag(U8 flag, bool condition) {
     P &= ~flag;
   }
 }
+
+U8 *impl() { return NULL; }
+
+U8 *acc() { return &A; }
 
 U8 *imm() { return &MEM[PC++]; }
 
@@ -568,10 +581,6 @@ U8 *idy() {
   U16 addr = ((((U16)hi) << 8) | lo) + Y;
   return &MEM[addr];
 }
-
-U8 *acc() { return &A; }
-
-U8 *impl() { return NULL; }
 
 void adc(U8 *val) {
   if (P & FLAG_DECIMAL) {
@@ -931,7 +940,7 @@ typedef struct {
   AddrFn addr;
 } OpEntry;
 
-OpEntry OP_TABLE[256] = {
+OpEntry const OP_TABLE[256] = {
     [0x00] = {_brk, imm}, [0x01] = {ora, idx},  [0x05] = {ora, zp},
     [0x06] = {asl, zp},   [0x08] = {php, impl}, [0x09] = {ora, imm},
     [0x0A] = {asl, acc},  [0x0D] = {ora, ab},   [0x0E] = {asl, ab},
@@ -987,7 +996,7 @@ OpEntry OP_TABLE[256] = {
 
 void doop() {
   U8 op = MEM[PC++];
-  OpEntry *entry = &OP_TABLE[op];
+  OpEntry const *entry = &OP_TABLE[op];
   if (entry->exec) {
     entry->exec(entry->addr());
   } else {
