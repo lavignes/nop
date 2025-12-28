@@ -234,6 +234,7 @@ _Xor:
     INX
     RTS
 
+; ( n1 n2 -- n1 + n2 )
 .byt "+", 1 | FLAG_NONE
 .word _Xor-2
 _Add:
@@ -248,6 +249,7 @@ _Add:
     INX
     RTS
 
+; ( n1 n2 -- n1 - n2 )
 .byt "-", 1 | FLAG_NONE
 .word _Add-2
 _Sub:

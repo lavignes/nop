@@ -119,6 +119,7 @@ static Breakpoint *bphead = NULL;
 void tick() {
   for (Breakpoint const *bp = bphead; bp != NULL; bp = bp->next) {
     if (PC == bp->addr) {
+      fprintf(stderr, "Hit breakpoint %d at $%04X\n", bp->num, bp->addr);
       debug = true;
       break;
     }
@@ -149,6 +150,151 @@ Int parse(char const *str) {
 U16 disasm(U16 addr, U16 *cytot);
 void regs();
 
+typedef enum { DBG_CONTINUE, DBG_BREAK, DBG_EXIT } DbgResult;
+
+DbgResult dbgquit() { exit(EXIT_SUCCESS); }
+
+DbgResult dbgcontinue() {
+  debug = false;
+  return DBG_EXIT;
+}
+
+DbgResult dbgstep() { return DBG_BREAK; }
+
+DbgResult dbgregs() {
+  regs();
+  return DBG_CONTINUE;
+}
+
+DbgResult dbgbreak() {
+  char *tok = strtok(NULL, " \t\n");
+  if (!tok) {
+    fprintf(stderr, "No address provided for breakpoint\n");
+    return DBG_CONTINUE;
+  }
+  Int addr = parse(tok);
+  if ((addr == INT_MAX) || (addr > U16_MAX)) {
+    fprintf(stderr, "Invalid address for breakpoint: %s\n", tok);
+    return DBG_CONTINUE;
+  }
+  Breakpoint *bp = malloc(sizeof(Breakpoint));
+  bp->num = ++bpcount;
+  bp->addr = (U16)addr;
+  bp->next = bphead;
+  bphead = bp;
+  fprintf(stderr, "Breakpoint %d set at $%04X\n", bp->num, bp->addr);
+  return DBG_CONTINUE;
+}
+
+DbgResult dbgdel() {
+  char *tok = strtok(NULL, " \t\n");
+  if (!tok) {
+    fprintf(stderr, "No breakpoint number provided for deletion\n");
+    return DBG_CONTINUE;
+  }
+  Int num = parse(tok);
+  if ((num == INT_MAX) || (num > U16_MAX)) {
+    fprintf(stderr, "Invalid breakpoint number: %s\n", tok);
+    return DBG_CONTINUE;
+  }
+  Breakpoint **prev = &bphead;
+  Breakpoint *bp = bphead;
+  while (bp != NULL) {
+    if (bp->num == (U16)num) {
+      *prev = bp->next;
+      free(bp);
+      fprintf(stderr, "Breakpoint %d deleted\n", (U16)num);
+      return DBG_CONTINUE;
+    }
+    prev = &bp->next;
+    bp = bp->next;
+  }
+  fprintf(stderr, "No breakpoint with number %d\n", (U16)num);
+  return DBG_CONTINUE;
+}
+
+DbgResult dbgexa() {
+  Int start = PC, end;
+  char *tok = strtok(NULL, " \t\n");
+  if (tok) {
+    start = parse(tok);
+    if ((start == INT_MAX) || (start > U16_MAX)) {
+      fprintf(stderr, "Invalid address for examine: %s\n", tok);
+      return DBG_CONTINUE;
+    }
+  }
+  end = ((start + 15) > U16_MAX) ? U16_MAX : (start + 15);
+  tok = strtok(NULL, " \t\n");
+  if (tok) {
+    end = parse(tok);
+    if ((end == INT_MAX) || (end > U16_MAX) || (end < start)) {
+      fprintf(stderr, "Invalid end address for examine: %s\n", tok);
+      return DBG_CONTINUE;
+    }
+  }
+  while (start <= end) {
+    fprintf(stderr, "%04X ", (U16)start);
+    for (UInt i = 0; i < 16; ++i) {
+      if (i == 8)
+        fprintf(stderr, " ");
+      fprintf(stderr, (start + i) > end ? "   " : " %02X",
+              MEM[(U16)(start + i)]);
+    }
+    fprintf(stderr, "  |");
+    for (UInt i = 0; i < 16; ++i) {
+      if ((start + i) > end) {
+        fprintf(stderr, " ");
+      } else {
+        U8 byte = MEM[(U16)(start + i)];
+        fprintf(stderr, "%c", isprint(byte) ? (char)byte : '.');
+      }
+    }
+    fprintf(stderr, "|\n");
+    start += 16;
+  }
+  return DBG_CONTINUE;
+}
+
+DbgResult dbgdisasm() {
+  Int start = PC, end = PC;
+  char *tok = strtok(NULL, " \t\n");
+  if (tok) {
+    start = parse(tok);
+    if ((start == INT_MAX) || (start > U16_MAX)) {
+      fprintf(stderr, "Invalid address for disasm: %s\n", tok);
+      return DBG_CONTINUE;
+    }
+    end = start;
+  }
+  tok = strtok(NULL, " \t\n");
+  if (tok) {
+    end = parse(tok);
+    if ((end == INT_MAX) || (end > U16_MAX) || (end < start)) {
+      fprintf(stderr, "Invalid end address for disasm: %s\n", tok);
+      return DBG_CONTINUE;
+    }
+  }
+  U16 addr = (U16)start, cytot = 0;
+  while (addr <= (U16)end)
+    addr = disasm(addr, &cytot);
+  return DBG_CONTINUE;
+}
+
+typedef struct {
+  char const *name;
+  DbgResult (*fn)();
+} DbgCmd;
+
+static DbgCmd const DEBUG_CMDS[] = {
+    {"q", dbgquit},     {"quit", dbgquit},
+    {"c", dbgcontinue}, {"continue", dbgcontinue},
+    {"s", dbgstep},     {"step", dbgstep},
+    {"b", dbgbreak},    {"break", dbgbreak},
+    {"del", dbgdel},    {"r", dbgregs},
+    {"regs", dbgregs},  {"x", dbgexa},
+    {"dis", dbgdisasm}, {"disasm", dbgdisasm},
+    {NULL, NULL}};
+
 void debugger() {
   static char *line = NULL;
   static size_t len = 0;
@@ -164,145 +310,21 @@ void debugger() {
     if (!tok) {
       continue;
     }
-    if ((strcmp(tok, "q") == 0) || (strcmp(tok, "quit") == 0)) {
-      exit(EXIT_SUCCESS);
+    DbgCmd const *cmd = DEBUG_CMDS;
+    while (cmd->name && (strcmp(tok, cmd->name) != 0)) {
+      ++cmd;
     }
-    if ((strcmp(tok, "c") == 0) || (strcmp(tok, "continue") == 0)) {
-      debug = false;
-      return;
+    if (!cmd->name) {
+      fprintf(stderr, "Unknown command: %s\n", tok);
+      continue;
     }
-    if ((strcmp(tok, "s") == 0) || (strcmp(tok, "step") == 0)) {
+    DbgResult res = cmd->fn();
+    if (res == DBG_BREAK) {
       break;
     }
-    if ((strcmp(tok, "b") == 0) || (strcmp(tok, "break") == 0)) {
-      tok = strtok(NULL, " \t\n");
-      if (!tok) {
-        fprintf(stderr, "No address provided for breakpoint\n");
-        continue;
-      }
-      Int addr = parse(tok);
-      if ((addr == INT_MAX) || (addr > U16_MAX)) {
-        fprintf(stderr, "Invalid address for breakpoint: %s\n", tok);
-        continue;
-      }
-      ++bpcount;
-      Breakpoint *bp = malloc(sizeof(Breakpoint));
-      bp->num = bpcount;
-      bp->addr = (U16)addr;
-      bp->next = bphead;
-      bphead = bp;
-      fprintf(stderr, "Breakpoint %d set at $%04X\n", bp->num, bp->addr);
-      continue;
+    if (res == DBG_EXIT) {
+      return;
     }
-    if (strcmp(tok, "del") == 0) {
-      tok = strtok(NULL, " \t\n");
-      if (!tok) {
-        fprintf(stderr, "No breakpoint number provided for deletion\n");
-        continue;
-      }
-      Int num = parse(tok);
-      if ((num == INT_MAX) || (num > U16_MAX)) {
-        fprintf(stderr, "Invalid breakpoint number: %s\n", tok);
-        continue;
-      }
-      Breakpoint **prevptr = &bphead;
-      Breakpoint *bp = bphead;
-      while (bp != NULL) {
-        if (bp->num == (U16)num) {
-          *prevptr = bp->next;
-          free(bp);
-          fprintf(stderr, "Breakpoint %d deleted\n", (U16)num);
-          break;
-        }
-        prevptr = &bp->next;
-        bp = bp->next;
-      }
-      if (bp == NULL) {
-        fprintf(stderr, "No breakpoint with number %d\n", (U16)num);
-      }
-      continue;
-    }
-    if ((strcmp(tok, "r") == 0) || (strcmp(tok, "regs") == 0)) {
-      regs();
-      continue;
-    }
-    if (strcmp(tok, "x") == 0) {
-      Int start = PC;
-      tok = strtok(NULL, " \t\n");
-      if (tok) {
-        start = parse(tok);
-        if ((start == INT_MAX) || (start > U16_MAX)) {
-          fprintf(stderr, "Invalid address for examine: %s\n", tok);
-          continue;
-        }
-      }
-      Int end = ((start + 15) > U16_MAX) ? U16_MAX : (start + 15);
-      tok = strtok(NULL, " \t\n");
-      if (tok) {
-        end = parse(tok);
-        if ((end == INT_MAX) || (end > U16_MAX) || (end < start)) {
-          fprintf(stderr, "Invalid end address for examine: %s\n", tok);
-          continue;
-        }
-      }
-      while (start <= end) {
-        fprintf(stderr, "%04X ", (U16)start);
-        for (UInt i = 0; i < 16; ++i) {
-          if (i == 8) {
-            fprintf(stderr, " ");
-          }
-          if ((start + i) > end) {
-            fprintf(stderr, "   ");
-            continue;
-          }
-          fprintf(stderr, " %02X", MEM[(U16)(start + i)]);
-        }
-        fprintf(stderr, "  |");
-        for (UInt i = 0; i < 16; ++i) {
-          if ((start + i) > end) {
-            fprintf(stderr, " ");
-            continue;
-          }
-          U8 byte = MEM[(U16)(start + i)];
-          if (isprint(byte)) {
-            fprintf(stderr, "%c", (char)byte);
-            continue;
-          } else {
-            fprintf(stderr, ".");
-          }
-        }
-        fprintf(stderr, "|\n");
-        start += 16;
-      }
-      continue;
-    }
-    if ((strcmp(tok, "dis") == 0) || (strcmp(tok, "disasm") == 0)) {
-      Int start = PC;
-      tok = strtok(NULL, " \t\n");
-      if (tok) {
-        start = parse(tok);
-        if ((start == INT_MAX) || (start > U16_MAX)) {
-          fprintf(stderr, "Invalid address for disasm: %s\n", tok);
-          continue;
-        }
-      }
-      Int end = start;
-      tok = strtok(NULL, " \t\n");
-      if (tok) {
-        end = parse(tok);
-        if ((end == INT_MAX) || (end > U16_MAX) || (end < start)) {
-          fprintf(stderr, "Invalid end address for disasm: %s\n", tok);
-          continue;
-        }
-      }
-      U16 addr = (U16)start;
-      U16 cytot = 0;
-      while (addr <= (U16)end) {
-        addr = disasm(addr, &cytot);
-      }
-      continue;
-    }
-    fprintf(stderr, "Unknown command: %s\n", tok);
   }
 }
 
