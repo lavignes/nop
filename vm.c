@@ -31,14 +31,14 @@ typedef intptr_t Int;
 #define INT_MIN INTPTR_MIN
 
 enum {
-  FLAG_CARRY = 0x01,
-  FLAG_ZERO = 0x02,
-  FLAG_INTERRUPT = 0x04,
-  FLAG_DECIMAL = 0x08,
-  FLAG_BREAK = 0x10,
-  FLAG_UNUSED = 0x20,
-  FLAG_OVERFLOW = 0x40,
-  FLAG_NEGATIVE = 0x80
+  FLAG_CARRY = 1 << 0,
+  FLAG_ZERO = 1 << 1,
+  FLAG_INTERRUPT = 1 << 2,
+  FLAG_DECIMAL = 1 << 3,
+  FLAG_BREAK = 1 << 4,
+  FLAG_UNUSED = 1 << 5,
+  FLAG_OVERFLOW = 1 << 6,
+  FLAG_NEGATIVE = 1 << 7,
 };
 
 U8 A;
@@ -305,8 +305,13 @@ void debugger() {
 }
 
 void regs() {
-  fprintf(stderr, "A:$%02X X:$%02X Y:$%02X P:$%02X SP:$%02X PC:$%04X\n", A, X,
-          Y, P, SP, PC);
+  fprintf(stderr, "PC:$%04X S:$%02X A:$%02X X:$%02X Y:$%02X P:$%02X |", PC, SP,
+          A, X, Y, P);
+  fprintf(stderr, "%c%c%c%c%c%c%c%c|\n", (P & FLAG_NEGATIVE) ? 'N' : '.',
+          (P & FLAG_OVERFLOW) ? 'V' : '.', (P & FLAG_UNUSED) ? '1' : '.',
+          (P & FLAG_BREAK) ? 'B' : '.', (P & FLAG_DECIMAL) ? 'D' : '.',
+          (P & FLAG_INTERRUPT) ? 'I' : '.', (P & FLAG_ZERO) ? 'Z' : '.',
+          (P & FLAG_CARRY) ? 'C' : '.');
 }
 
 U16 disimpl(U8 op, U16 addr, char const *mne) {
@@ -735,24 +740,21 @@ U8 *zpy() {
 }
 
 U8 *ab() {
-  U8 lo = MEM[PC++];
-  U8 hi = MEM[PC++];
-  U16 addr = ((U16)hi << 8) | lo;
+  U16 addr = PC;
+  PC += 2;
   return &MEM[addr];
 }
 
 U8 *abx() {
-  U8 lo = MEM[PC++];
-  U8 hi = MEM[PC++];
-  U16 addr = ((((U16)hi) << 8) | lo) + X;
-  return &MEM[addr];
+  U16 addr = PC;
+  PC += 2;
+  return &MEM[addr + X];
 }
 
 U8 *aby() {
-  U8 lo = MEM[PC++];
-  U8 hi = MEM[PC++];
-  U16 addr = ((((U16)hi) << 8) | lo) + Y;
-  return &MEM[addr];
+  U16 addr = PC;
+  PC += 2;
+  return &MEM[addr + Y];
 }
 
 U8 *id() {
@@ -786,11 +788,12 @@ void adc(U8 *val) {
     debug = true;
   }
   U16 sum = A + *val + (P & FLAG_CARRY ? 1 : 0);
+  U8 res = sum & 0xFF;
   flag(FLAG_CARRY, sum > U8_MAX);
   flag(FLAG_ZERO, (sum & 0xFF) == 0);
-  flag(FLAG_OVERFLOW, (~(A ^ *val) & (A ^ (U8)(sum & 0xFF)) & 0x80) != 0);
+  flag(FLAG_OVERFLOW, (~(A ^ *val) & (A ^ res) & 0x80) != 0);
   flag(FLAG_NEGATIVE, (sum & 0x80) != 0);
-  A = (U8)(sum & 0xFF);
+  A = res;
 }
 
 void and(U8 *val) {
@@ -825,8 +828,8 @@ void beq(I8 offset) {
 }
 
 void bit(U8 *val) {
-  U8 result = A & *val;
-  flag(FLAG_ZERO, result == 0);
+  U8 res = A & *val;
+  flag(FLAG_ZERO, res == 0);
   flag(FLAG_OVERFLOW, (*val & 0x40) != 0);
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
@@ -1032,11 +1035,12 @@ void sbc(U8 *val) {
     debug = true;
   }
   U16 diff = A - *val - (P & FLAG_CARRY ? 0 : 1);
+  U8 res = diff & 0xFF;
   flag(FLAG_CARRY, diff <= U8_MAX);
   flag(FLAG_ZERO, (diff & 0xFF) == 0);
-  flag(FLAG_OVERFLOW, ((A ^ *val) & (A ^ (U8)(diff & 0xFF)) & 0x80) != 0);
+  flag(FLAG_OVERFLOW, ((A ^ *val) & (A ^ res) & 0x80) != 0);
   flag(FLAG_NEGATIVE, (diff & 0x80) != 0);
-  A = (U8)(diff & 0xFF);
+  A = res;
 }
 
 void sec() { flag(FLAG_CARRY, true); }
