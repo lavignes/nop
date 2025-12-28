@@ -569,6 +569,10 @@ U8 *idy() {
   return &MEM[addr];
 }
 
+U8 *acc() { return &A; }
+
+U8 *impl() { return NULL; }
+
 void adc(U8 *val) {
   if (P & FLAG_DECIMAL) {
     debug = true;
@@ -595,21 +599,21 @@ void asl(U8 *val) {
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void bcc(I8 offset) {
+void bcc(U8 *val) {
   if (!(P & FLAG_CARRY)) {
-    PC += offset;
+    PC += (I8)*val;
   }
 }
 
-void bcs(I8 offset) {
+void bcs(U8 *val) {
   if (P & FLAG_CARRY) {
-    PC += offset;
+    PC += (I8)*val;
   }
 }
 
-void beq(I8 offset) {
+void beq(U8 *val) {
   if (P & FLAG_ZERO) {
-    PC += offset;
+    PC += (I8)*val;
   }
 }
 
@@ -620,25 +624,26 @@ void bit(U8 *val) {
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void bmi(I8 offset) {
+void bmi(U8 *val) {
   if (P & FLAG_NEGATIVE) {
-    PC += offset;
+    PC += (I8)*val;
   }
 }
 
-void bne(I8 offset) {
+void bne(U8 *val) {
   if (!(P & FLAG_ZERO)) {
-    PC += offset;
+    PC += (I8)*val;
   }
 }
 
-void bpl(I8 offset) {
+void bpl(U8 *val) {
   if (!(P & FLAG_NEGATIVE)) {
-    PC += offset;
+    PC += (I8)*val;
   }
 }
 
-void _brk() {
+void _brk(U8 *val) {
+  (void)val;
   debug = true;
   PC++;
   MEM[0x0100 + SP--] = (U8)((PC >> 8) & 0xFF);
@@ -650,25 +655,37 @@ void _brk() {
   PC = (((U16)hi) << 8) | lo;
 }
 
-void bvc(I8 offset) {
+void bvc(U8 *val) {
   if (!(P & FLAG_OVERFLOW)) {
-    PC += offset;
+    PC += (I8)*val;
   }
 }
 
-void bvs(I8 offset) {
+void bvs(U8 *val) {
   if (P & FLAG_OVERFLOW) {
-    PC += offset;
+    PC += (I8)*val;
   }
 }
 
-void clc() { flag(FLAG_CARRY, false); }
+void clc(U8 *val) {
+  (void)val;
+  flag(FLAG_CARRY, false);
+}
 
-void cld() { flag(FLAG_DECIMAL, false); }
+void cld(U8 *val) {
+  (void)val;
+  flag(FLAG_DECIMAL, false);
+}
 
-void cli() { flag(FLAG_INTERRUPT, false); }
+void cli(U8 *val) {
+  (void)val;
+  flag(FLAG_INTERRUPT, false);
+}
 
-void clv() { flag(FLAG_OVERFLOW, false); }
+void clv(U8 *val) {
+  (void)val;
+  flag(FLAG_OVERFLOW, false);
+}
 
 void cmp(U8 *val) {
   U8 res = A - *val;
@@ -697,13 +714,15 @@ void dec(U8 *val) {
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void dex() {
+void dex(U8 *val) {
+  (void)val;
   --X;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void dey() {
+void dey(U8 *val) {
+  (void)val;
   --Y;
   flag(FLAG_ZERO, Y == 0);
   flag(FLAG_NEGATIVE, (Y & 0x80) != 0);
@@ -721,25 +740,27 @@ void inc(U8 *val) {
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void inx() {
+void inx(U8 *val) {
+  (void)val;
   ++X;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void iny() {
+void iny(U8 *val) {
+  (void)val;
   ++Y;
   flag(FLAG_ZERO, Y == 0);
   flag(FLAG_NEGATIVE, (Y & 0x80) != 0);
 }
 
-void jmp(U16 addr) { PC = addr; }
+void jmp(U8 *val) { PC = *(U16 *)val; }
 
-void jsr(U16 addr) {
+void jsr(U8 *val) {
   U16 ret = PC - 1;
   MEM[0x0100 + SP--] = (U8)((ret >> 8) & 0xFF);
   MEM[0x0100 + SP--] = (U8)(ret & 0xFF);
-  PC = addr;
+  PC = *(U16 *)val;
 }
 
 void lda(U8 *val) {
@@ -767,7 +788,7 @@ void lsr(U8 *val) {
   flag(FLAG_NEGATIVE, false);
 }
 
-void nop() {}
+void nop(U8 *val) { (void)val; }
 
 void ora(U8 *val) {
   A |= *val;
@@ -775,17 +796,27 @@ void ora(U8 *val) {
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void pha() { MEM[0x0100 + SP--] = A; }
+void pha(U8 *val) {
+  (void)val;
+  MEM[0x0100 + SP--] = A;
+}
 
-void php() { MEM[0x0100 + SP--] = P | FLAG_BREAK | FLAG_UNUSED; }
+void php(U8 *val) {
+  (void)val;
+  MEM[0x0100 + SP--] = P | FLAG_BREAK | FLAG_UNUSED;
+}
 
-void pla() {
+void pla(U8 *val) {
+  (void)val;
   A = MEM[0x0100 + ++SP];
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void plp() { P = MEM[0x0100 + ++SP] & ~(FLAG_BREAK | FLAG_UNUSED); }
+void plp(U8 *val) {
+  (void)val;
+  P = MEM[0x0100 + ++SP] & ~(FLAG_BREAK | FLAG_UNUSED);
+}
 
 void rol(U8 *val) {
   bool cy = (P & FLAG_CARRY) != 0;
@@ -803,14 +834,16 @@ void ror(U8 *val) {
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void rti() {
+void rti(U8 *val) {
+  (void)val;
   P = MEM[0x0100 + ++SP] & ~(FLAG_BREAK | FLAG_UNUSED);
   U8 lo = MEM[0x0100 + ++SP];
   U8 hi = MEM[0x0100 + ++SP];
   PC = (((U16)hi) << 8) | lo;
 }
 
-void rts() {
+void rts(U8 *val) {
+  (void)val;
   U8 lo = MEM[0x0100 + ++SP];
   U8 hi = MEM[0x0100 + ++SP];
   PC = ((((U16)hi) << 8) | lo) + 1;
@@ -829,11 +862,20 @@ void sbc(U8 *val) {
   A = res;
 }
 
-void sec() { flag(FLAG_CARRY, true); }
+void sec(U8 *val) {
+  (void)val;
+  flag(FLAG_CARRY, true);
+}
 
-void sed() { flag(FLAG_DECIMAL, true); }
+void sed(U8 *val) {
+  (void)val;
+  flag(FLAG_DECIMAL, true);
+}
 
-void sei() { flag(FLAG_INTERRUPT, true); }
+void sei(U8 *val) {
+  (void)val;
+  flag(FLAG_INTERRUPT, true);
+}
 
 void sta(U8 *addr) { *addr = A; }
 
@@ -841,495 +883,114 @@ void stx(U8 *addr) { *addr = X; }
 
 void sty(U8 *addr) { *addr = Y; }
 
-void tax() {
+void tax(U8 *val) {
+  (void)val;
   X = A;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void tay() {
+void tay(U8 *val) {
+  (void)val;
   Y = A;
   flag(FLAG_ZERO, Y == 0);
   flag(FLAG_NEGATIVE, (Y & 0x80) != 0);
 }
 
-void tsx() {
+void tsx(U8 *val) {
+  (void)val;
   X = SP;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void txa() {
+void txa(U8 *val) {
+  (void)val;
   A = X;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void txs() { SP = X; }
+void txs(U8 *val) {
+  (void)val;
+  SP = X;
+}
 
-void tya() {
+void tya(U8 *val) {
+  (void)val;
   A = Y;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
+typedef void (*ExecFn)(U8 *);
+typedef U8 *(*AddrFn)();
+
+typedef struct {
+  ExecFn exec;
+  AddrFn addr;
+} OpEntry;
+
+OpEntry OP_TABLE[256] = {
+    [0x00] = {_brk, imm}, [0x01] = {ora, idx},  [0x05] = {ora, zp},
+    [0x06] = {asl, zp},   [0x08] = {php, impl}, [0x09] = {ora, imm},
+    [0x0A] = {asl, acc},  [0x0D] = {ora, ab},   [0x0E] = {asl, ab},
+    [0x10] = {bpl, imm},  [0x11] = {ora, idy},  [0x15] = {ora, zpx},
+    [0x16] = {asl, zpx},  [0x18] = {clc, impl}, [0x19] = {ora, aby},
+    [0x1D] = {ora, abx},  [0x1E] = {asl, abx},  [0x20] = {jsr, ab},
+    [0x21] = {and, idx},  [0x24] = {bit, zp},   [0x25] = {and, zp},
+    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = {and, imm},
+    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = {and, ab},
+    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = {and, idy},
+    [0x35] = {and, zpx},  [0x36] = {rol, zpx},  [0x38] = {sec, impl},
+    [0x39] = {and, aby},  [0x3D] = {and, abx},  [0x3E] = {rol, abx},
+    [0x40] = {rti, impl}, [0x41] = {eor, idx},  [0x45] = {eor, zp},
+    [0x46] = {lsr, zp},   [0x48] = {pha, impl}, [0x49] = {eor, imm},
+    [0x4A] = {lsr, acc},  [0x4C] = {jmp, ab},   [0x4D] = {eor, ab},
+    [0x4E] = {lsr, ab},   [0x50] = {bvc, imm},  [0x51] = {eor, idy},
+    [0x55] = {eor, zpx},  [0x56] = {lsr, zpx},  [0x58] = {cli, impl},
+    [0x59] = {eor, aby},  [0x5D] = {eor, abx},  [0x5E] = {lsr, abx},
+    [0x60] = {rts, impl}, [0x61] = {adc, idx},  [0x65] = {adc, zp},
+    [0x66] = {ror, zp},   [0x68] = {pla, impl}, [0x69] = {adc, imm},
+    [0x6A] = {ror, acc},  [0x6C] = {jmp, id},   [0x6D] = {adc, ab},
+    [0x6E] = {ror, ab},   [0x70] = {bvs, imm},  [0x71] = {adc, idy},
+    [0x75] = {adc, zpx},  [0x76] = {ror, zpx},  [0x78] = {sei, impl},
+    [0x79] = {adc, aby},  [0x7D] = {adc, abx},  [0x7E] = {ror, abx},
+    [0x81] = {sta, idx},  [0x84] = {sty, zp},   [0x85] = {sta, zp},
+    [0x86] = {stx, zp},   [0x88] = {dey, impl}, [0x8A] = {txa, impl},
+    [0x8C] = {sty, ab},   [0x8D] = {sta, ab},   [0x8E] = {stx, ab},
+    [0x90] = {bcc, imm},  [0x91] = {sta, idy},  [0x94] = {sty, zpx},
+    [0x95] = {sta, zpx},  [0x96] = {stx, zpy},  [0x98] = {tya, impl},
+    [0x99] = {sta, aby},  [0x9A] = {txs, impl}, [0x9D] = {sta, abx},
+    [0xA0] = {ldy, imm},  [0xA1] = {lda, idx},  [0xA2] = {ldx, imm},
+    [0xA4] = {ldy, zp},   [0xA5] = {lda, zp},   [0xA6] = {ldx, zp},
+    [0xA8] = {tay, impl}, [0xA9] = {lda, imm},  [0xAA] = {tax, impl},
+    [0xAC] = {ldy, ab},   [0xAD] = {lda, ab},   [0xAE] = {ldx, ab},
+    [0xB0] = {bcs, imm},  [0xB1] = {lda, idy},  [0xB4] = {ldy, zpx},
+    [0xB5] = {lda, zpx},  [0xB6] = {ldx, zpy},  [0xB8] = {clv, impl},
+    [0xB9] = {lda, aby},  [0xBA] = {tsx, impl}, [0xBC] = {ldy, abx},
+    [0xBD] = {lda, abx},  [0xBE] = {ldx, aby},  [0xC0] = {cpy, imm},
+    [0xC1] = {cmp, idx},  [0xC4] = {cpy, zp},   [0xC5] = {cmp, zp},
+    [0xC6] = {dec, zp},   [0xC8] = {iny, impl}, [0xC9] = {cmp, imm},
+    [0xCA] = {dex, impl}, [0xCC] = {cpy, ab},   [0xCD] = {cmp, ab},
+    [0xCE] = {dec, ab},   [0xD0] = {bne, imm},  [0xD1] = {cmp, idy},
+    [0xD5] = {cmp, zpx},  [0xD6] = {dec, zpx},  [0xD8] = {cld, impl},
+    [0xD9] = {cmp, aby},  [0xDD] = {cmp, abx},  [0xDE] = {dec, abx},
+    [0xE0] = {cpx, imm},  [0xE1] = {sbc, idx},  [0xE4] = {cpx, zp},
+    [0xE5] = {sbc, zp},   [0xE6] = {inc, zp},   [0xE8] = {inx, impl},
+    [0xE9] = {sbc, imm},  [0xEA] = {nop, impl}, [0xEC] = {cpx, ab},
+    [0xED] = {sbc, ab},   [0xEE] = {inc, ab},   [0xF0] = {beq, imm},
+    [0xF1] = {sbc, idy},  [0xF5] = {sbc, zpx},  [0xF6] = {inc, zpx},
+    [0xF8] = {sed, impl}, [0xF9] = {sbc, aby},  [0xFD] = {sbc, abx},
+    [0xFE] = {inc, abx},
+};
+
 void doop() {
   U8 op = MEM[PC++];
-  switch (op) {
-  case 0x00:
-    _brk();
-    break;
-  case 0x01:
-    adc(idx());
-    break;
-  case 0x05:
-    ora(zp());
-    break;
-  case 0x06:
-    asl(zp());
-    break;
-  case 0x08:
-    php();
-    break;
-  case 0x09:
-    ora(imm());
-    break;
-  case 0x0A:
-    asl(&A);
-    break;
-  case 0x0D:
-    ora(ab());
-    break;
-  case 0x0E:
-    asl(ab());
-    break;
-  case 0x10:
-    bpl((I8)*imm());
-    break;
-  case 0x11:
-    ora(idy());
-    break;
-  case 0x15:
-    ora(zpx());
-    break;
-  case 0x16:
-    asl(zpx());
-    break;
-  case 0x18:
-    clc();
-    break;
-  case 0x19:
-    ora(aby());
-    break;
-  case 0x1D:
-    ora(abx());
-    break;
-  case 0x1E:
-    asl(abx());
-    break;
-  case 0x20:
-    jsr(*(U16 *)ab());
-    break;
-  case 0x21:
-    and(idx());
-    break;
-  case 0x24:
-    bit(zp());
-    break;
-  case 0x25:
-    and(zp());
-    break;
-  case 0x26:
-    rol(zp());
-    break;
-  case 0x28:
-    plp();
-    break;
-  case 0x29:
-    and(imm());
-    break;
-  case 0x2A:
-    rol(&A);
-    break;
-  case 0x2C:
-    bit(ab());
-    break;
-  case 0x2D:
-    and(ab());
-    break;
-  case 0x2E:
-    rol(ab());
-    break;
-  case 0x30:
-    bmi((I8)*imm());
-    break;
-  case 0x31:
-    and(idy());
-    break;
-  case 0x35:
-    and(zpx());
-    break;
-  case 0x36:
-    rol(zpx());
-    break;
-  case 0x38:
-    sec();
-    break;
-  case 0x39:
-    and(aby());
-    break;
-  case 0x3D:
-    and(abx());
-    break;
-  case 0x3E:
-    rol(abx());
-    break;
-  case 0x40:
-    rti();
-    break;
-  case 0x41:
-    eor(idx());
-    break;
-  case 0x45:
-    eor(zp());
-    break;
-  case 0x46:
-    lsr(zp());
-    break;
-  case 0x48:
-    pha();
-    break;
-  case 0x49:
-    eor(imm());
-    break;
-  case 0x4A:
-    lsr(&A);
-    break;
-  case 0x4C:
-    jmp(*(U16 *)ab());
-    break;
-  case 0x4D:
-    eor(ab());
-    break;
-  case 0x4E:
-    lsr(ab());
-    break;
-  case 0x50:
-    bvc((I8)*imm());
-    break;
-  case 0x51:
-    eor(idy());
-    break;
-  case 0x55:
-    eor(zpx());
-    break;
-  case 0x56:
-    lsr(zpx());
-    break;
-  case 0x58:
-    cli();
-    break;
-  case 0x59:
-    eor(aby());
-    break;
-  case 0x5D:
-    eor(abx());
-    break;
-  case 0x5E:
-    lsr(abx());
-    break;
-  case 0x60:
-    rts();
-    break;
-  case 0x61:
-    adc(idx());
-    break;
-  case 0x65:
-    adc(zp());
-    break;
-  case 0x66:
-    ror(zp());
-    break;
-  case 0x68:
-    pla();
-    break;
-  case 0x69:
-    adc(imm());
-    break;
-  case 0x6A:
-    ror(&A);
-    break;
-  case 0x6C:
-    jmp(*(U16 *)id());
-    break;
-  case 0x6D:
-    adc(ab());
-    break;
-  case 0x6E:
-    ror(ab());
-    break;
-  case 0x70:
-    bvs((I8)*imm());
-    break;
-  case 0x71:
-    adc(idy());
-    break;
-  case 0x75:
-    adc(zpx());
-    break;
-  case 0x76:
-    ror(zpx());
-    break;
-  case 0x78:
-    sei();
-    break;
-  case 0x79:
-    adc(aby());
-    break;
-  case 0x7D:
-    adc(abx());
-    break;
-  case 0x7E:
-    ror(abx());
-    break;
-  case 0x81:
-    sta(idx());
-    break;
-  case 0x84:
-    sty(zp());
-    break;
-  case 0x85:
-    sta(zp());
-    break;
-  case 0x86:
-    stx(zp());
-    break;
-  case 0x88:
-    dey();
-    break;
-  case 0x8A:
-    txa();
-    break;
-  case 0x8C:
-    sty(ab());
-    break;
-  case 0x8D:
-    sta(ab());
-    break;
-  case 0x8E:
-    stx(ab());
-    break;
-  case 0x90:
-    bcc((I8)*imm());
-    break;
-  case 0x91:
-    sta(idy());
-    break;
-  case 0x94:
-    sty(zpx());
-    break;
-  case 0x95:
-    sta(zpx());
-    break;
-  case 0x96:
-    stx(zpy());
-    break;
-  case 0x98:
-    tya();
-    break;
-  case 0x99:
-    sta(aby());
-    break;
-  case 0x9A:
-    txs();
-    break;
-  case 0x9D:
-    sta(abx());
-    break;
-  case 0xA0:
-    ldy(imm());
-    break;
-  case 0xA1:
-    lda(idx());
-    break;
-  case 0xA2:
-    ldx(imm());
-    break;
-  case 0xA4:
-    ldy(zp());
-    break;
-  case 0xA5:
-    lda(zp());
-    break;
-  case 0xA6:
-    ldx(zp());
-    break;
-  case 0xA8:
-    tay();
-    break;
-  case 0xA9:
-    lda(imm());
-    break;
-  case 0xAA:
-    tax();
-    break;
-  case 0xAC:
-    ldy(ab());
-    break;
-  case 0xAD:
-    lda(ab());
-    break;
-  case 0xAE:
-    ldx(ab());
-    break;
-  case 0xB0:
-    bcs((I8)*imm());
-    break;
-  case 0xB1:
-    lda(idy());
-    break;
-  case 0xB4:
-    ldy(zpx());
-    break;
-  case 0xB5:
-    lda(zpx());
-    break;
-  case 0xB6:
-    ldx(zpy());
-    break;
-  case 0xB8:
-    clv();
-    break;
-  case 0xB9:
-    lda(aby());
-    break;
-  case 0xBA:
-    tsx();
-    break;
-  case 0xBC:
-    ldy(abx());
-    break;
-  case 0xBD:
-    lda(abx());
-    break;
-  case 0xBE:
-    ldx(aby());
-    break;
-  case 0xC0:
-    cpy(imm());
-    break;
-  case 0xC1:
-    cmp(idx());
-    break;
-  case 0xC4:
-    cpy(zp());
-    break;
-  case 0xC5:
-    cmp(zp());
-    break;
-  case 0xC6:
-    dec(zp());
-    break;
-  case 0xC8:
-    iny();
-    break;
-  case 0xC9:
-    cmp(imm());
-    break;
-  case 0xCA:
-    dex();
-    break;
-  case 0xCC:
-    cpy(ab());
-    break;
-  case 0xCD:
-    cmp(ab());
-    break;
-  case 0xCE:
-    dec(ab());
-    break;
-  case 0xD0:
-    bne((I8)*imm());
-    break;
-  case 0xD1:
-    cmp(idy());
-    break;
-  case 0xD5:
-    cmp(zpx());
-    break;
-  case 0xD6:
-    dec(zpx());
-    break;
-  case 0xD8:
-    cld();
-    break;
-  case 0xD9:
-    cmp(aby());
-    break;
-  case 0xDD:
-    cmp(abx());
-    break;
-  case 0xDE:
-    dec(abx());
-    break;
-  case 0xE0:
-    cpx(imm());
-    break;
-  case 0xE1:
-    sbc(idx());
-    break;
-  case 0xE4:
-    cpx(zp());
-    break;
-  case 0xE5:
-    sbc(zp());
-    break;
-  case 0xE6:
-    inc(zp());
-    break;
-  case 0xE8:
-    inx();
-    break;
-  case 0xE9:
-    sbc(imm());
-    break;
-  case 0xEA:
-    nop();
-    break;
-  case 0xEC:
-    cpx(ab());
-    break;
-  case 0xED:
-    sbc(ab());
-    break;
-  case 0xEE:
-    inc(ab());
-    break;
-  case 0xF0:
-    beq((I8)*imm());
-    break;
-  case 0xF1:
-    sbc(idy());
-    break;
-  case 0xF5:
-    sbc(zpx());
-    break;
-  case 0xF6:
-    inc(zpx());
-    break;
-  case 0xF8:
-    sed();
-    break;
-  case 0xF9:
-    sbc(aby());
-    break;
-  case 0xFD:
-    sbc(abx());
-    break;
-  case 0xFE:
-    inc(abx());
-    break;
-  default:
-    _brk();
+  OpEntry *entry = &OP_TABLE[op];
+  if (entry->exec) {
+    entry->exec(entry->addr());
+  } else {
+    _brk(NULL);
   }
 }
