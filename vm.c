@@ -113,7 +113,7 @@ struct Breakpoint {
   U16 addr;
 };
 
-static U16 bpcount = 0;
+static U16 bpcnt = 0;
 static Breakpoint *bphead = NULL;
 
 void tick() {
@@ -178,7 +178,7 @@ DbgResult dbgbreak() {
     return DBG_CONTINUE;
   }
   Breakpoint *bp = malloc(sizeof(Breakpoint));
-  bp->num = ++bpcount;
+  bp->num = ++bpcnt;
   bp->addr = (U16)addr;
   bp->next = bphead;
   bphead = bp;
@@ -286,13 +286,9 @@ typedef struct {
 } DbgCmd;
 
 static DbgCmd const DEBUG_CMDS[] = {
-    {"q", dbgquit},     {"quit", dbgquit},
-    {"c", dbgcontinue}, {"continue", dbgcontinue},
-    {"s", dbgstep},     {"step", dbgstep},
-    {"b", dbgbreak},    {"break", dbgbreak},
-    {"del", dbgdel},    {"r", dbgregs},
-    {"regs", dbgregs},  {"x", dbgexa},
-    {"dis", dbgdisasm}, {"disasm", dbgdisasm},
+    {"quit", dbgquit},   {"continue", dbgcontinue}, {"step", dbgstep},
+    {"break", dbgbreak}, {"delete", dbgdel},        {"registers", dbgregs},
+    {"x", dbgexa},       {"examine", dbgexa},       {"disasm", dbgdisasm},
     {NULL, NULL}};
 
 void debugger() {
@@ -310,14 +306,32 @@ void debugger() {
     if (!tok) {
       continue;
     }
-    DbgCmd const *cmd = DEBUG_CMDS;
-    while (cmd->name && (strcmp(tok, cmd->name) != 0)) {
-      ++cmd;
+    size_t toklen = strlen(tok);
+    DbgCmd const *match = NULL;
+    int matchcnt = 0;
+    for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
+      if (strncmp(tok, cmd->name, toklen) == 0) {
+        match = cmd;
+        ++matchcnt;
+      }
     }
-    if (!cmd->name) {
+    if (matchcnt == 0) {
       fprintf(stderr, "Unknown command: %s\n", tok);
       continue;
     }
+    if (matchcnt > 1) {
+      fprintf(stderr, "Ambiguous command: %s (", tok);
+      bool first = true;
+      for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
+        if (strncmp(tok, cmd->name, toklen) == 0) {
+          fprintf(stderr, "%s%s", first ? "" : ", ", cmd->name);
+          first = false;
+        }
+      }
+      fprintf(stderr, ")\n");
+      continue;
+    }
+    DbgCmd const *cmd = match;
     DbgResult res = cmd->fn();
     if (res == DBG_BREAK) {
       break;
