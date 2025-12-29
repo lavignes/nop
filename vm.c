@@ -243,7 +243,8 @@ DbgResult dbgdel() {
 }
 
 DbgResult dbgexa() {
-  Int start = PC, end;
+  Int start = PC;
+  Int len = 16;
   char *tok = strtok(NULL, " \t\n");
   if (tok) {
     start = parse(tok);
@@ -252,15 +253,15 @@ DbgResult dbgexa() {
       return DBG_CONTINUE;
     }
   }
-  end = ((start + 15) > U16_MAX) ? U16_MAX : (start + 15);
   tok = strtok(NULL, " \t\n");
   if (tok) {
-    end = parse(tok);
-    if ((end == INT_MAX) || (end > U16_MAX) || (end < start)) {
-      fprintf(stderr, "Invalid end address for examine: %s\n", tok);
+    len = parse(tok);
+    if ((len == INT_MAX) || (len <= 0)) {
+      fprintf(stderr, "Invalid length for examine: %s\n", tok);
       return DBG_CONTINUE;
     }
   }
+  Int end = ((start + len - 1) > U16_MAX) ? U16_MAX : (start + len - 1);
   while (start <= end) {
     fprintf(stderr, "%04X ", (U16)start);
     for (UInt i = 0; i < 16; ++i) {
@@ -285,7 +286,8 @@ DbgResult dbgexa() {
 }
 
 DbgResult dbgdis() {
-  Int start = PC, end = PC;
+  Int start = PC;
+  Int len = 1;
   char *tok = strtok(NULL, " \t\n");
   if (tok) {
     start = parse(tok);
@@ -293,19 +295,20 @@ DbgResult dbgdis() {
       fprintf(stderr, "Invalid address for disasm: %s\n", tok);
       return DBG_CONTINUE;
     }
-    end = start;
   }
   tok = strtok(NULL, " \t\n");
   if (tok) {
-    end = parse(tok);
-    if ((end == INT_MAX) || (end > U16_MAX) || (end < start)) {
-      fprintf(stderr, "Invalid end address for disasm: %s\n", tok);
+    len = parse(tok);
+    if ((len == INT_MAX) || (len <= 0)) {
+      fprintf(stderr, "Invalid length for disasm: %s\n", tok);
       return DBG_CONTINUE;
     }
   }
   U16 addr = (U16)start, cytot = 0;
-  while (addr <= (U16)end) {
+  Int count = 0;
+  while (count < len && addr <= U16_MAX) {
     addr = disasm(addr, &cytot);
+    count++;
   }
   return DBG_CONTINUE;
 }
@@ -682,7 +685,7 @@ void adc(U8 *val) {
   A = res;
 }
 
-void and(U8 *val) {
+void and (U8 * val) {
   A &= *val;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
@@ -1034,12 +1037,12 @@ OpEntry const OP_TABLE[256] = {
     [0x10] = {bpl, imm},  [0x11] = {ora, idy},  [0x15] = {ora, zpx},
     [0x16] = {asl, zpx},  [0x18] = {clc, impl}, [0x19] = {ora, aby},
     [0x1D] = {ora, abx},  [0x1E] = {asl, abx},  [0x20] = {jsr, jab},
-    [0x21] = {and, idx},  [0x24] = {bit, zp},   [0x25] = {and, zp},
-    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = {and, imm},
-    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = {and, ab},
-    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = {and, idy},
-    [0x35] = {and, zpx},  [0x36] = {rol, zpx},  [0x38] = {sec, impl},
-    [0x39] = {and, aby},  [0x3D] = {and, abx},  [0x3E] = {rol, abx},
+    [0x21] = { and, idx}, [0x24] = {bit, zp},   [0x25] = { and, zp},
+    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = { and, imm},
+    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = { and, ab},
+    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = { and, idy},
+    [0x35] = { and, zpx}, [0x36] = {rol, zpx},  [0x38] = {sec, impl},
+    [0x39] = { and, aby}, [0x3D] = { and, abx}, [0x3E] = {rol, abx},
     [0x40] = {rti, impl}, [0x41] = {eor, idx},  [0x45] = {eor, zp},
     [0x46] = {lsr, zp},   [0x48] = {pha, impl}, [0x49] = {eor, imm},
     [0x4A] = {lsr, acc},  [0x4C] = {jmp, jab},  [0x4D] = {eor, ab},
@@ -1088,7 +1091,7 @@ void doop() {
     entry->exec(entry->addr());
   } else {
     --PC;
-    fprintf(stderr, "Illegal instruction: $%02X\n", op)(
+    fprintf(stderr, "Illegal instruction: $%02X\n", op);
     debug = true;
   }
 }
