@@ -52,7 +52,12 @@ static bool debug = false;
 
 static U8 MEM[65536];
 
-void help(char const *name) { (void)name; }
+void help(char const *name) {
+  fprintf(stderr, "Usage: %s [options] <romfile>\n\n", name);
+  fprintf(stderr, "Options:\n\n");
+  fprintf(stderr, "  -h, --help       Show this help message\n");
+  fprintf(stderr, "  -d, --debug      Start in debug mode\n");
+}
 
 void tick();
 void debugger();
@@ -133,16 +138,39 @@ void tick() {
 }
 
 Int parse(char const *str) {
+  bool neg = str[0] == '-';
+  if (neg || (str[0] == '+')) {
+    ++str;
+  }
   long val;
   if (str[0] == '$') {
     val = strtol(str + 1, NULL, 16);
   } else if (str[0] == '%') {
     val = strtol(str + 1, NULL, 2);
-  } else {
+  } else if ((strcmp(str, "a") == 0) || (strcmp(str, "A") == 0)) {
+    val = (unsigned long)A;
+  } else if ((strcmp(str, "x") == 0) || (strcmp(str, "X") == 0)) {
+    val = (unsigned long)X;
+  } else if ((strcmp(str, "y") == 0 || strcmp(str, "Y") == 0)) {
+    val = (unsigned long)Y;
+  } else if ((strcmp(str, "pc") == 0 || strcmp(str, "PC") == 0)) {
+    val = (unsigned long)PC;
+  } else if ((strcmp(str, "sp") == 0 || strcmp(str, "SP") == 0)) {
+    val = (unsigned long)SP;
+  } else if ((strcmp(str, "p") == 0 || strcmp(str, "P") == 0)) {
+    val = (unsigned long)P;
+  } else if ((strcmp(str, "*pc") == 0) || (strcmp(str, "*pc") == 0)) {
+    val = (unsigned long)MEM[PC];
+  } else if ((strcmp(str, "*sp") == 0) || (strcmp(str, "*SP") == 0)) {
+    val = (unsigned long)MEM[SP];
+  } else if (isdigit(str[0])) {
     val = strtol(str, NULL, 10);
   }
   if (val == LONG_MAX) {
     return INT_MAX;
+  }
+  if (neg) {
+    val = -val;
   }
   return (Int)val;
 }
@@ -154,7 +182,7 @@ typedef enum { DBG_CONTINUE, DBG_BREAK, DBG_EXIT } DbgResult;
 
 DbgResult dbgquit() { exit(EXIT_SUCCESS); }
 
-DbgResult dbgcontinue() {
+DbgResult dbgcont() {
   debug = false;
   return DBG_EXIT;
 }
@@ -255,7 +283,7 @@ DbgResult dbgexa() {
   return DBG_CONTINUE;
 }
 
-DbgResult dbgdisasm() {
+DbgResult dbgdis() {
   Int start = PC, end = PC;
   char *tok = strtok(NULL, " \t\n");
   if (tok) {
@@ -285,15 +313,16 @@ typedef struct {
   DbgResult (*fn)();
 } DbgCmd;
 
-static DbgCmd const DEBUG_CMDS[] = {
-    {"quit", dbgquit},   {"continue", dbgcontinue}, {"step", dbgstep},
-    {"break", dbgbreak}, {"delete", dbgdel},        {"registers", dbgregs},
-    {"x", dbgexa},       {"examine", dbgexa},       {"disasm", dbgdisasm},
-    {NULL, NULL}};
+static DbgCmd const DEBUG_CMDS[] = {{"quit", dbgquit},  {"continue", dbgcont},
+                                    {"step", dbgstep},  {"break", dbgbreak},
+                                    {"delete", dbgdel}, {"registers", dbgregs},
+                                    {"x", dbgexa},      {"examine", dbgexa},
+                                    {"disasm", dbgdis}, {NULL, NULL}};
 
 void debugger() {
   static char *line = NULL;
   static size_t len = 0;
+  static char *prevline = NULL;
   regs();
   U16 cytot = 0;
   disasm(PC, &cytot);
@@ -302,9 +331,19 @@ void debugger() {
     if (getline(&line, &len, stdin) == -1) {
       exit(EXIT_FAILURE);
     }
-    char *tok = strtok(line, " \t\n");
+    char *workline = line;
+    char *tok = strtok(workline, " \t\n");
     if (!tok) {
-      continue;
+      if (prevline) {
+        workline = prevline;
+        tok = strtok(workline, " \t\n");
+      }
+      if (!tok) {
+        continue;
+      }
+    } else {
+      free(prevline);
+      prevline = strdup(line);
     }
     size_t toklen = strlen(tok);
     DbgCmd const *match = NULL;
@@ -343,7 +382,7 @@ void debugger() {
 }
 
 void regs() {
-  fprintf(stderr, "PC:$%04X S:$%02X A:$%02X X:$%02X Y:$%02X P:$%02X |", PC, SP,
+  fprintf(stderr, "PC:$%04X SP:$%02X A:$%02X X:$%02X Y:$%02X P:$%02X |", PC, SP,
           A, X, Y, P);
   fprintf(stderr, "%c%c%c%c%c%c%c%c|\n", (P & FLAG_NEGATIVE) ? 'N' : '.',
           (P & FLAG_OVERFLOW) ? 'V' : '.', (P & FLAG_UNUSED) ? '1' : '.',
@@ -575,30 +614,23 @@ U8 *zpy() {
 }
 
 U8 *ab() {
-  U16 addr = PC;
-  PC += 2;
+  U8 lo = MEM[PC++];
+  U8 hi = MEM[PC++];
+  U16 addr = (((U16)hi) << 8) | lo;
   return &MEM[addr];
 }
 
 U8 *abx() {
-  U16 addr = PC;
-  PC += 2;
-  return &MEM[addr + X];
+  U8 lo = MEM[PC++];
+  U8 hi = MEM[PC++];
+  U16 addr = ((((U16)hi) << 8) | lo) + X;
+  return &MEM[addr];
 }
 
 U8 *aby() {
-  U16 addr = PC;
-  PC += 2;
-  return &MEM[addr + Y];
-}
-
-U8 *id() {
-  U8 idlo = MEM[PC++];
-  U8 idhi = MEM[PC++];
-  U16 ptr = (((U16)idhi) << 8) | idlo;
-  U8 lo = MEM[ptr];
-  U8 hi = MEM[(U8)(ptr + 1)]; // Page wrapping
-  U16 addr = (((U16)hi) << 8) | lo;
+  U8 lo = MEM[PC++];
+  U8 hi = MEM[PC++];
+  U16 addr = ((((U16)hi) << 8) | lo) + Y;
   return &MEM[addr];
 }
 
@@ -615,6 +647,22 @@ U8 *idy() {
   U8 lo = MEM[zpaddr];
   U8 hi = MEM[(U8)(zpaddr + 1)];
   U16 addr = ((((U16)hi) << 8) | lo) + Y;
+  return &MEM[addr];
+}
+
+U8 *jab() {
+  U16 addr = PC;
+  PC += 2;
+  return &MEM[addr];
+}
+
+U8 *jid() {
+  U8 idlo = MEM[PC++];
+  U8 idhi = MEM[PC++];
+  U16 ptr = (((U16)idhi) << 8) | idlo;
+  U8 lo = MEM[ptr];
+  U8 hi = MEM[(U8)(ptr + 1)]; // Page wrapping
+  U16 addr = (((U16)hi) << 8) | lo;
   return &MEM[addr];
 }
 
@@ -982,7 +1030,7 @@ OpEntry const OP_TABLE[256] = {
     [0x0A] = {asl, acc},  [0x0D] = {ora, ab},   [0x0E] = {asl, ab},
     [0x10] = {bpl, imm},  [0x11] = {ora, idy},  [0x15] = {ora, zpx},
     [0x16] = {asl, zpx},  [0x18] = {clc, impl}, [0x19] = {ora, aby},
-    [0x1D] = {ora, abx},  [0x1E] = {asl, abx},  [0x20] = {jsr, ab},
+    [0x1D] = {ora, abx},  [0x1E] = {asl, abx},  [0x20] = {jsr, jab},
     [0x21] = {and, idx},  [0x24] = {bit, zp},   [0x25] = {and, zp},
     [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = {and, imm},
     [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = {and, ab},
@@ -991,13 +1039,13 @@ OpEntry const OP_TABLE[256] = {
     [0x39] = {and, aby},  [0x3D] = {and, abx},  [0x3E] = {rol, abx},
     [0x40] = {rti, impl}, [0x41] = {eor, idx},  [0x45] = {eor, zp},
     [0x46] = {lsr, zp},   [0x48] = {pha, impl}, [0x49] = {eor, imm},
-    [0x4A] = {lsr, acc},  [0x4C] = {jmp, ab},   [0x4D] = {eor, ab},
+    [0x4A] = {lsr, acc},  [0x4C] = {jmp, jab},  [0x4D] = {eor, ab},
     [0x4E] = {lsr, ab},   [0x50] = {bvc, imm},  [0x51] = {eor, idy},
     [0x55] = {eor, zpx},  [0x56] = {lsr, zpx},  [0x58] = {cli, impl},
     [0x59] = {eor, aby},  [0x5D] = {eor, abx},  [0x5E] = {lsr, abx},
     [0x60] = {rts, impl}, [0x61] = {adc, idx},  [0x65] = {adc, zp},
     [0x66] = {ror, zp},   [0x68] = {pla, impl}, [0x69] = {adc, imm},
-    [0x6A] = {ror, acc},  [0x6C] = {jmp, id},   [0x6D] = {adc, ab},
+    [0x6A] = {ror, acc},  [0x6C] = {jmp, jid},  [0x6D] = {adc, ab},
     [0x6E] = {ror, ab},   [0x70] = {bvs, imm},  [0x71] = {adc, idy},
     [0x75] = {adc, zpx},  [0x76] = {ror, zpx},  [0x78] = {sei, impl},
     [0x79] = {adc, aby},  [0x7D] = {adc, abx},  [0x7E] = {ror, abx},

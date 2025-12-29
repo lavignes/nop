@@ -4,6 +4,9 @@
 #define FLAG_NONE      $00
 #define FLAG_IMMEDIATE $10
 
+#define STATE_INTERPRET 0
+#define STATE_COMPILE   1
+
 ; Increment parameter top indirect
 #define INPS   \
     INC $00, X \
@@ -29,23 +32,22 @@ ADRH = $06
 
 * = $0200
 
-Init:
-    LDA #$6C
-    STA ADRJ
-    LDX #$00
-    JMP _Quit
+    JMP _Abort
 
 SYSVARS = *
-ERRNO:   .word 0
-CURRENT: .word _Quit-2
+CURRENT: .word _Abort-2
 HERE:    .word HERESTART
+STATE:   .byt 0
+ERRNO:   .byt 0
+W:       .word 0
 Z:       .word 0
-N:       .word 0
-RDLN     .word 0
-EMIT     .word 0
-KEY      .word 0
-INPTR    .word 0
-INBUF    .dsb  40,0
+EMIT:    .word 0
+KEY:     .word 0
+RDIN:    .word ReadSysTxt
+INOFF:   .byt  40
+INBUF:   .dsb  40,0
+
+SYSTXT:  .word SYSTXTSTART
 
 DoCell:
     DEX
@@ -59,16 +61,72 @@ DoCell:
 
 ; Jump to (IP) and increment IP by 2
 DoNext:
-    LDY IPL
+    LDA IPL
     STA ADRL
     LDA IPH
     STA ADRH
     CLC
-    ADC #$02
+    ADC #2
     BCC :+
     INC IPH
 :   STA IPL
     JMP ADRJ
+
+ReadSysTxt:
+    TXA
+    PHA
+    ; Shift INBUF backwards
+    LDA #40
+    TAY
+    SEC
+    SBC INOFF
+    TAX
+    
+    LDA INBUF, Y
+    STA INBUF, X
+     
+
+:   INX
+    STX INOFF
+
+    ; Y = 40 - INOFF
+    ; LDA #40
+    ; SEC
+    ; SBC INOFF
+    ; TAY
+    ; Read Y bytes from (SYSTXT) to INBUF,X
+    LDA SYSTXT+0
+    STA ADRL
+    LDA SYSTXT+1
+    STA ADRH
+:   LDA (ADRL), Y
+    STA INBUF, X
+    INX
+    DEY
+    BNE :-
+    ; Advance SYSTXT by X
+    CLC
+    TAX
+    ADC SYSTXT+0
+    BCC :+
+    INC SYSTXT+1
+:   PLA
+    TAX
+    RTS
+
+Word:
+    JSR ReadSysTxt
+    LDY INOFF
+    ; Skip leading spaces
+:   LDA INBUF, Y
+    INY
+    CMP #' '
+    BEQ :-
+
+    RTS
+
+Interpret:
+    JSR Word
 
 ; ( addr -- n )
 .byt "@", 1 | FLAG_NONE
@@ -277,16 +335,27 @@ _Goto:
     JMP (ADRL)
 
 .byt "quit", 4 | FLAG_NONE
-.word 0
+.word _Goto-2
 _Quit:
     TXA
     LDX #$FF
     TXS
     TAX
-    ;JSR _Read
-    ;JSR _Eval
+    ; TODO: switch to INTERPRET mode
+:   JSR Interpret
+    JMP :-
+
+.byt "abort", 5 | FLAG_NONE
+.word _Quit-2
+_Abort:
+    CLD
+    ; TODO: reset SYSVARS
+    LDA #$6C
+    STA ADRJ
+    LDX #$00
     JMP _Quit
 
+SYSTXTSTART:
 .bin 0, 0, "fs/sysvm.n"
 
 HERESTART = *
