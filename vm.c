@@ -123,11 +123,12 @@ static Breakpoint *bphead = NULL;
 
 void tick() {
   for (Breakpoint const *bp = bphead; bp != NULL; bp = bp->next) {
-    if (PC == bp->addr) {
-      fprintf(stderr, "Hit breakpoint %d at $%04X\n", bp->num, bp->addr);
-      debug = true;
-      break;
+    if (PC != bp->addr) {
+      continue;
     }
+    fprintf(stderr, "Hit breakpoint %d at $%04X\n", bp->num, bp->addr);
+    debug = true;
+    break;
   }
   if (debug) {
     debugger();
@@ -303,8 +304,9 @@ DbgResult dbgdis() {
     }
   }
   U16 addr = (U16)start, cytot = 0;
-  while (addr <= (U16)end)
+  while (addr <= (U16)end) {
     addr = disasm(addr, &cytot);
+  }
   return DBG_CONTINUE;
 }
 
@@ -349,10 +351,11 @@ void debugger() {
     DbgCmd const *match = NULL;
     int matchcnt = 0;
     for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
-      if (strncmp(tok, cmd->name, toklen) == 0) {
-        match = cmd;
-        ++matchcnt;
+      if (strncmp(tok, cmd->name, toklen) != 0) {
+        continue;
       }
+      match = cmd;
+      ++matchcnt;
     }
     if (matchcnt == 0) {
       fprintf(stderr, "Unknown command: %s\n", tok);
@@ -579,7 +582,7 @@ U16 disasm(U16 addr, U16 *cytot) {
     addr = entry->fn(op, addr, entry->mne);
     cycles = entry->cycles;
   } else {
-    addr = disimpl(op, addr, "JAM");
+    addr = disimpl(op, addr, "ILL");
     cycles = 2;
   }
   *cytot += cycles;
@@ -735,10 +738,10 @@ void bpl(U8 *val) {
   }
 }
 
-void _brk(U8 *val) {
+void brk_(U8 *val) {
   (void)val;
   debug = true;
-  PC++;
+  ++PC;
   MEM[0x0100 + SP--] = (U8)((PC >> 8) & 0xFF);
   MEM[0x0100 + SP--] = (U8)(PC & 0xFF);
   MEM[0x0100 + SP--] = P | FLAG_BREAK | FLAG_UNUSED;
@@ -1025,7 +1028,7 @@ typedef struct {
 } OpEntry;
 
 OpEntry const OP_TABLE[256] = {
-    [0x00] = {_brk, imm}, [0x01] = {ora, idx},  [0x05] = {ora, zp},
+    [0x00] = {brk_, imm}, [0x01] = {ora, idx},  [0x05] = {ora, zp},
     [0x06] = {asl, zp},   [0x08] = {php, impl}, [0x09] = {ora, imm},
     [0x0A] = {asl, acc},  [0x0D] = {ora, ab},   [0x0E] = {asl, ab},
     [0x10] = {bpl, imm},  [0x11] = {ora, idy},  [0x15] = {ora, zpx},
@@ -1084,6 +1087,8 @@ void doop() {
   if (entry->exec) {
     entry->exec(entry->addr());
   } else {
-    _brk(NULL);
+    --PC;
+    fprintf(stderr, "Illegal instruction: $%02X\n", op)(
+    debug = true;
   }
 }
