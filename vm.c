@@ -120,9 +120,14 @@ struct Breakpoint {
 
 static U16 bpcnt = 0;
 static Breakpoint *bphead = NULL;
+static Breakpoint nextpoint = {NULL, 0, 0};
 
 void tick() {
-  for (Breakpoint const *bp = bphead; bp != NULL; bp = bp->next) {
+  if (nextpoint.next && (PC == nextpoint.addr)) {
+    debug = true;
+    nextpoint.next = NULL;
+  }
+  for (Breakpoint const *bp = bphead; bp; bp = bp->next) {
     if (PC != bp->addr) {
       continue;
     }
@@ -179,32 +184,40 @@ Int parse(char const *str) {
 U16 disasm(U16 addr, U16 *cytot);
 void regs();
 
-typedef enum { DBG_CONTINUE, DBG_BREAK, DBG_EXIT } DbgResult;
+typedef enum { DBG_DEBUG, DBG_BREAK, DBG_CONTINUE } DbgResult;
 
 DbgResult dbgquit() { exit(EXIT_SUCCESS); }
 
-DbgResult dbgcont() {
-  debug = false;
-  return DBG_EXIT;
-}
+DbgResult dbgcont() { return DBG_CONTINUE; }
 
 DbgResult dbgstep() { return DBG_BREAK; }
 
+DbgResult dbgnext() {
+  U16 cytot = 0;
+  U8 op = MEM[PC];
+  if (op == 0x20) {
+    nextpoint.addr = PC + 3;
+    nextpoint.next = bphead; // to mark it active
+    return DBG_CONTINUE;
+  }
+  return DBG_BREAK;
+}
+
 DbgResult dbgregs() {
   regs();
-  return DBG_CONTINUE;
+  return DBG_DEBUG;
 }
 
 DbgResult dbgbreak() {
   char *tok = strtok(NULL, " \t\n");
   if (!tok) {
     fprintf(stderr, "No address provided for breakpoint\n");
-    return DBG_CONTINUE;
+    return DBG_DEBUG;
   }
   Int addr = parse(tok);
   if ((addr == INT_MAX) || (addr > U16_MAX)) {
     fprintf(stderr, "Invalid address for breakpoint: %s\n", tok);
-    return DBG_CONTINUE;
+    return DBG_DEBUG;
   }
   Breakpoint *bp = malloc(sizeof(Breakpoint));
   bp->num = ++bpcnt;
@@ -212,34 +225,34 @@ DbgResult dbgbreak() {
   bp->next = bphead;
   bphead = bp;
   fprintf(stderr, "Breakpoint %d set at $%04X\n", bp->num, bp->addr);
-  return DBG_CONTINUE;
+  return DBG_DEBUG;
 }
 
 DbgResult dbgdel() {
   char *tok = strtok(NULL, " \t\n");
   if (!tok) {
     fprintf(stderr, "No breakpoint number provided for deletion\n");
-    return DBG_CONTINUE;
+    return DBG_DEBUG;
   }
   Int num = parse(tok);
   if ((num == INT_MAX) || (num > U16_MAX)) {
     fprintf(stderr, "Invalid breakpoint number: %s\n", tok);
-    return DBG_CONTINUE;
+    return DBG_DEBUG;
   }
   Breakpoint **prev = &bphead;
   Breakpoint *bp = bphead;
-  while (bp != NULL) {
+  while (bp) {
     if (bp->num == (U16)num) {
       *prev = bp->next;
       free(bp);
       fprintf(stderr, "Breakpoint %d deleted\n", (U16)num);
-      return DBG_CONTINUE;
+      return DBG_DEBUG;
     }
     prev = &bp->next;
     bp = bp->next;
   }
   fprintf(stderr, "No breakpoint with number %d\n", (U16)num);
-  return DBG_CONTINUE;
+  return DBG_DEBUG;
 }
 
 DbgResult dbgexa() {
@@ -250,7 +263,7 @@ DbgResult dbgexa() {
     start = parse(tok);
     if ((start == INT_MAX) || (start > U16_MAX)) {
       fprintf(stderr, "Invalid address for examine: %s\n", tok);
-      return DBG_CONTINUE;
+      return DBG_DEBUG;
     }
   }
   tok = strtok(NULL, " \t\n");
@@ -258,7 +271,7 @@ DbgResult dbgexa() {
     len = parse(tok);
     if ((len == INT_MAX) || (len <= 0)) {
       fprintf(stderr, "Invalid length for examine: %s\n", tok);
-      return DBG_CONTINUE;
+      return DBG_DEBUG;
     }
   }
   Int end = ((start + len - 1) > U16_MAX) ? U16_MAX : (start + len - 1);
@@ -282,7 +295,7 @@ DbgResult dbgexa() {
     fprintf(stderr, "|\n");
     start += 16;
   }
-  return DBG_CONTINUE;
+  return DBG_DEBUG;
 }
 
 DbgResult dbgdis() {
@@ -293,7 +306,7 @@ DbgResult dbgdis() {
     start = parse(tok);
     if ((start == INT_MAX) || (start > U16_MAX)) {
       fprintf(stderr, "Invalid address for disasm: %s\n", tok);
-      return DBG_CONTINUE;
+      return DBG_DEBUG;
     }
   }
   tok = strtok(NULL, " \t\n");
@@ -301,7 +314,7 @@ DbgResult dbgdis() {
     len = parse(tok);
     if ((len == INT_MAX) || (len <= 0)) {
       fprintf(stderr, "Invalid length for disasm: %s\n", tok);
-      return DBG_CONTINUE;
+      return DBG_DEBUG;
     }
   }
   U16 addr = (U16)start, cytot = 0;
@@ -310,7 +323,7 @@ DbgResult dbgdis() {
     addr = disasm(addr, &cytot);
     count++;
   }
-  return DBG_CONTINUE;
+  return DBG_DEBUG;
 }
 
 typedef struct {
@@ -318,11 +331,11 @@ typedef struct {
   DbgResult (*fn)();
 } DbgCmd;
 
-static DbgCmd const DEBUG_CMDS[] = {{"quit", dbgquit},  {"continue", dbgcont},
-                                    {"step", dbgstep},  {"break", dbgbreak},
-                                    {"delete", dbgdel}, {"registers", dbgregs},
-                                    {"x", dbgexa},      {"examine", dbgexa},
-                                    {"disasm", dbgdis}, {NULL, NULL}};
+static DbgCmd const DEBUG_CMDS[] = {
+    {"quit", dbgquit},      {"continue", dbgcont}, {"step", dbgstep},
+    {"next", dbgnext},      {"break", dbgbreak},   {"delete", dbgdel},
+    {"registers", dbgregs}, {"x", dbgexa},         {"examine", dbgexa},
+    {"disasm", dbgdis},     {NULL, NULL}};
 
 void debugger() {
   static char *line = NULL;
@@ -381,7 +394,8 @@ void debugger() {
     if (res == DBG_BREAK) {
       break;
     }
-    if (res == DBG_EXIT) {
+    if (res == DBG_CONTINUE) {
+      debug = false;
       return;
     }
   }
@@ -685,7 +699,7 @@ void adc(U8 *val) {
   A = res;
 }
 
-void and (U8 * val) {
+void and(U8 *val) {
   A &= *val;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
@@ -1037,12 +1051,12 @@ OpEntry const OP_TABLE[256] = {
     [0x10] = {bpl, imm},  [0x11] = {ora, idy},  [0x15] = {ora, zpx},
     [0x16] = {asl, zpx},  [0x18] = {clc, impl}, [0x19] = {ora, aby},
     [0x1D] = {ora, abx},  [0x1E] = {asl, abx},  [0x20] = {jsr, jab},
-    [0x21] = { and, idx}, [0x24] = {bit, zp},   [0x25] = { and, zp},
-    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = { and, imm},
-    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = { and, ab},
-    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = { and, idy},
-    [0x35] = { and, zpx}, [0x36] = {rol, zpx},  [0x38] = {sec, impl},
-    [0x39] = { and, aby}, [0x3D] = { and, abx}, [0x3E] = {rol, abx},
+    [0x21] = {and, idx},  [0x24] = {bit, zp},   [0x25] = {and, zp},
+    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = {and, imm},
+    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = {and, ab},
+    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = {and, idy},
+    [0x35] = {and, zpx},  [0x36] = {rol, zpx},  [0x38] = {sec, impl},
+    [0x39] = {and, aby},  [0x3D] = {and, abx},  [0x3E] = {rol, abx},
     [0x40] = {rti, impl}, [0x41] = {eor, idx},  [0x45] = {eor, zp},
     [0x46] = {lsr, zp},   [0x48] = {pha, impl}, [0x49] = {eor, imm},
     [0x4A] = {lsr, acc},  [0x4C] = {jmp, jab},  [0x4D] = {eor, ab},
