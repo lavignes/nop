@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <histedit.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -337,29 +338,85 @@ static DbgCmd const DEBUG_CMDS[] = {
     {"registers", dbgregs}, {"x", dbgexa},         {"examine", dbgexa},
     {"disasm", dbgdis},     {NULL, NULL}};
 
+char *dbgprompt(EditLine *el) {
+  (void)el;
+  return "> ";
+}
+
+unsigned char dbgcompl(EditLine *el, int ch) {
+  (void)ch;
+  LineInfo const *li = el_line(el);
+  int len = li->cursor - li->buffer;
+  if (len <= 0) {
+    return CC_REFRESH;
+  }
+  int matchcnt = 0;
+  DbgCmd const *match = NULL;
+  for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
+    if (strncmp(li->buffer, cmd->name, len) == 0) {
+      match = cmd;
+      ++matchcnt;
+    }
+  }
+  if (matchcnt == 1) {
+    el_deletestr(el, len);
+    el_insertstr(el, match->name);
+    return CC_REFRESH;
+  }
+  if (matchcnt > 1) {
+    fprintf(stderr, "\n");
+    bool first = true;
+    for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
+      if (strncmp(li->buffer, cmd->name, len) == 0) {
+        fprintf(stderr, "%s%s", first ? "" : ", ", cmd->name);
+        first = false;
+      }
+    }
+    fprintf(stderr, "\n");
+    return CC_REDISPLAY;
+  }
+  return CC_REFRESH;
+}
+
 void debugger() {
-  static char *line = NULL;
-  static size_t len = 0;
+  static EditLine *el = NULL;
+  static History *hist = NULL;
+  static HistEvent ev;
   static char *prevline = NULL;
+  static char *workline = NULL;
+  if (!el) {
+    el = el_init("vm", stdin, stderr, stderr);
+    el_set(el, EL_PROMPT, &dbgprompt);
+    el_set(el, EL_EDITOR, "emacs");
+    el_set(el, EL_ADDFN, "ed-complete", "Complete command", dbgcompl);
+    el_set(el, EL_BIND, "^I", "ed-complete", NULL);
+    hist = history_init();
+    history(hist, &ev, H_SETSIZE, 100);
+    el_set(el, EL_HIST, history, hist);
+  }
   regs();
   U16 cytot = 0;
   disasm(PC, &cytot);
   while (true) {
-    fprintf(stderr, "> ");
-    if (getline(&line, &len, stdin) == -1) {
+    free(workline);
+    int count;
+    char const *line = el_gets(el, &count);
+    if (!line || (count <= 0)) {
       exit(EXIT_FAILURE);
     }
-    char *workline = line;
+    workline = strdup(line);
     char *tok = strtok(workline, " \t\n");
     if (!tok) {
       if (prevline) {
-        workline = prevline;
+        free(workline);
+        workline = strdup(prevline);
         tok = strtok(workline, " \t\n");
       }
       if (!tok) {
         continue;
       }
     } else {
+      history(hist, &ev, H_ENTER, line);
       free(prevline);
       prevline = strdup(line);
     }
