@@ -140,9 +140,19 @@ _Load:
     STA $01, X
     RTS
 
+.byt "@b", 2 | FLAG_NONE
+.word _Load-2
+_LoadByte:
+		LDA ($00, X)
+    STA $00, X
+    BPL :+
+	  DEC
+:   STA $01, X
+		RTS
+
 ; ( addr -- b )
 .byt "@bu", 2 | FLAG_NONE
-.word _Load-2
+.word _LoadByte-2
 _LoadByteUnsigned:
     LDA ($00, X)
     STA $00, X
