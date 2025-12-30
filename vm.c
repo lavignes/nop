@@ -2,6 +2,7 @@
 #include <histedit.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -343,14 +344,24 @@ char *dbgprompt(EditLine *el) {
   return "> ";
 }
 
+void printmatches(char const *prefix, size_t len) {
+  bool first = true;
+  for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
+    if (strncmp(prefix, cmd->name, len) == 0) {
+      fprintf(stderr, "%s%s", first ? "" : ", ", cmd->name);
+      first = false;
+    }
+  }
+}
+
 unsigned char dbgcompl(EditLine *el, int ch) {
   (void)ch;
   LineInfo const *li = el_line(el);
-  int len = li->cursor - li->buffer;
+  ptrdiff_t len = li->cursor - li->buffer;
   if (len <= 0) {
     return CC_REFRESH;
   }
-  int matchcnt = 0;
+  UInt matchcnt = 0;
   DbgCmd const *match = NULL;
   for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
     if (strncmp(li->buffer, cmd->name, len) == 0) {
@@ -365,14 +376,8 @@ unsigned char dbgcompl(EditLine *el, int ch) {
   }
   if (matchcnt > 1) {
     fprintf(stderr, "\n");
-    bool first = true;
-    for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
-      if (strncmp(li->buffer, cmd->name, len) == 0) {
-        fprintf(stderr, "%s%s", first ? "" : ", ", cmd->name);
-        first = false;
-      }
-    }
-    fprintf(stderr, "\n");
+    printmatches(li->buffer, (size_t)len);
+    fprintf(stderr, " ?\n");
     return CC_REDISPLAY;
   }
   return CC_REFRESH;
@@ -420,11 +425,11 @@ void debugger() {
       free(prevline);
       prevline = strdup(line);
     }
-    size_t toklen = strlen(tok);
+    size_t len = strlen(tok);
     DbgCmd const *match = NULL;
-    int matchcnt = 0;
+    UInt matchcnt = 0;
     for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
-      if (strncmp(tok, cmd->name, toklen) != 0) {
+      if (strncmp(tok, cmd->name, len) != 0) {
         continue;
       }
       match = cmd;
@@ -436,13 +441,7 @@ void debugger() {
     }
     if (matchcnt > 1) {
       fprintf(stderr, "Ambiguous command: %s (", tok);
-      bool first = true;
-      for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
-        if (strncmp(tok, cmd->name, toklen) == 0) {
-          fprintf(stderr, "%s%s", first ? "" : ", ", cmd->name);
-          first = false;
-        }
-      }
+      printmatches(tok, len);
       fprintf(stderr, ")\n");
       continue;
     }
