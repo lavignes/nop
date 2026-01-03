@@ -1,11 +1,13 @@
 ; vim: ft=a65
 
-#define FLAG_MASK      $E0
-#define FLAG_NONE      $00
-#define FLAG_IMMEDIATE $10
+#define FLAG_MASK      %00111111
+#define FLAG_NONE      %00000000
+#define FLAG_IMMEDIATE %10000000
 
-#define STATE_INTERPRET 0
-#define STATE_COMPILE   1
+#define STATE_COMPILE   %0
+#define STATE_INTERPRET %1
+
+#define INLEN 40
 
 ; Increment parameter top indirect
 #define INPS   \
@@ -35,17 +37,17 @@ ADRH = $06
     JMP _Abort
 
 SYSVARS = *
-CURRENT: .word _Abort-2
+CURRENT: .word _Abort-3
 HERE:    .word HERESTART
 STATE:   .byt 0
 ERRNO:   .byt 0
-W:       .word 0
-Z:       .word 0
+M:       .word 0
+Q:       .word 0
 EMIT:    .word 0
 KEY:     .word 0
-RDIN:    .word ReadSysTxt
-INOFF:   .byt  40
-INBUF:   .dsb  40,0
+RDIN:    .word SysRefill
+INOFF:   .byt  INLEN
+INBUF:   .dsb  INLEN,0
 
 SYSTXT:  .word SYSTXTSTART
 
@@ -72,65 +74,97 @@ DoNext:
 :   STA IPL
     JMP ADRJ
 
-ReadSysTxt:
+SysRefill:
+    LDY INOFF
+    BEQ :++++++
     TXA
     PHA
-    ; Shift INBUF backwards
-    LDA #40
-    TAY
-    SEC
-    SBC INOFF
-    TAX
-    
+    ; Move all bytes backwards
+    LDX #0
+    STX INOFF
+:   CPY #INLEN
+    BEQ :+
     LDA INBUF, Y
     STA INBUF, X
-     
-
-:   INX
-    STX INOFF
-
-    ; Y = 40 - INOFF
-    ; LDA #40
-    ; SEC
-    ; SBC INOFF
-    ; TAY
-    ; Read Y bytes from (SYSTXT) to INBUF,X
-    LDA SYSTXT+0
+    INX
+    INY
+    BNE :-
+    ; X is (INLEN - INOFF), read that many bytes
+:   LDA SYSTXT+0
     STA ADRL
     LDA SYSTXT+1
     STA ADRH
-:   LDA (ADRL), Y
+    LDY #0
+:   CPX #INLEN
+    BEQ :+
+    LDA (ADRL), Y
     STA INBUF, X
     INX
-    DEY
+    INY
     BNE :-
-    ; Advance SYSTXT by X
-    CLC
-    TAX
-    ADC SYSTXT+0
+    ; SYSTXT += Y
+:   CLC
+    TYA
+    ADC ADRL
+    STA SYSTXT+0
     BCC :+
-    INC SYSTXT+1
-:   PLA
+:   INC SYSTXT+1
+    PLA
     TAX
-    RTS
+:   RTS
 
-Word:
-    JSR ReadSysTxt
-    LDY INOFF
+SysWord:
+    JSR SysRefill
+    LDY #0
     ; Skip leading spaces
 :   LDA INBUF, Y
     INY
     CMP #' '
     BEQ :-
+    DEY
+    ; INOFF is start of word
+    STY INOFF
+    LDA INBUF, Y
+    INY
+    CMP #'"'
+    BEQ :++
+    CMP #' '
+    BNE :-
+:   DEY
+:   DEY
+    RTS ; Y is end of word
 
+; .byt  name, ...
+; .word prev
+; .byt  flaglen
+; native code / JSR to DTC routine
+
+SysFind:
+    TXA
+    PHA
+    TYA
+    TAX ; X is end of word
+    PHA ; Save it for later words
+    LDA CURRENT+0
+    STA ADRL
+    LDA CURRENT+1
+    STA ADRH
+
+
+
+    PLA
+    TAX
     RTS
 
-Interpret:
-    JSR Word
+SysInterpret:
+    JSR SysWord
+    JSR SysFind
+    RTS
 
 ; ( addr -- n )
-.byt "@", 1 | FLAG_NONE
+.byt "@"
 .word 0
+.byt 1 | FLAG_NONE
 _Load:
     LDA ($00, X)
     TAY
@@ -141,8 +175,9 @@ _Load:
     RTS
 
 ; ( addr -- b )
-.byt "@b", 2 | FLAG_NONE
-.word _Load-2
+.byt "@b"
+.word _Load-3
+.byt 2 | FLAG_NONE
 _LoadByte:
     LDY #0
     LDA ($00, X)
@@ -153,8 +188,9 @@ _LoadByte:
     RTS
 
 ; ( addr -- bu )
-.byt "@bu", 2 | FLAG_NONE
-.word _LoadByte-2
+.byt "@bu"
+.word _LoadByte-3
+.byt 3 | FLAG_NONE
 _LoadByteUnsigned:
     LDA ($00, X)
     STA $00, X
@@ -163,8 +199,9 @@ _LoadByteUnsigned:
     RTS
 
 ; ( n addr -- )
-.byt "!", 1 | FLAG_NONE
-.word _Load-2
+.byt "!"
+.word _LoadByteUnsigned-3
+.byt 1 | FLAG_NONE
 _Store:
     LDA $02, X
     STA ($00, X)
@@ -178,8 +215,9 @@ _Store:
     RTS
 
 ; ( b addr -- )
-.byt "!b", 2 | FLAG_NONE
-.word _Store-2
+.byt "!b"
+.word _Store-3
+.byt 2 | FLAG_NONE
 _StoreByte:
     LDA $02, X
     STA ($00, X)
@@ -189,9 +227,10 @@ _StoreByte:
     INX
     RTS
 
-; ( n -- R: n )
-.byt ">R", 2 | FLAG_NONE
-.word _Store-2
+; P: ( n -- ) R: ( -- n )
+.byt ">R"
+.word _StoreByte-3
+.byt 2 | FLAG_NONE
 _PushR:
     LDA $01, X
     PHA
@@ -201,9 +240,10 @@ _PushR:
     INX
     RTS
 
-; ( R: n -- n )
-.byt "R>", 2 | FLAG_NONE
-.word _PushR-2
+; R: ( n -- ) P: ( -- n )
+.byt "R>"
+.word _PushR-3
+.byt 2 | FLAG_NONE
 _PullR:
     DEX
     DEX
@@ -214,16 +254,18 @@ _PullR:
     RTS
 
 ; ( n -- )
-.byt "drop", 4 | FLAG_NONE
-.word _PullR-2
+.byt "drop"
+.word _PullR-3
+.byt 4 | FLAG_NONE
 _Drop:
     INX
     INX
     RTS
 
 ; ( n -- n n )
-.byt "dup", 3 | FLAG_NONE
-.word _Drop-2
+.byt "dup"
+.word _Drop-3
+.byt 3 | FLAG_NONE
 _Dup:
     LDA $00, X
     LDY $01, X
@@ -234,8 +276,9 @@ _Dup:
     RTS
 
 ; ( n1 n2 -- n2 n1 )
-.byt "swap", 4 | FLAG_NONE
-.word _Dup-2
+.byt "swap"
+.word _Dup-3
+.byt 4 | FLAG_NONE
 _Swap:
     LDA $00, X
     TAY
@@ -251,8 +294,9 @@ _Swap:
 
 ; ( n1 n2 -- n1 n2 n1 )
 ; TODO: >R dup R> swap
-.byt "over", 4 | FLAG_NONE
-.word _Swap-2
+.byt "over"
+.word _Swap-3
+.byt 4 | FLAG_NONE
 _Over:
     LDA $02, X
     LDY $03, X
@@ -263,8 +307,9 @@ _Over:
     RTS
 
 ; ( n1 n2 -- n1 & n2 )
-.byt "and", 3 | FLAG_NONE
-.word _Over-2
+.byt "and"
+.word _Over-3
+.byt 3 | FLAG_NONE
 _And:
     LDA $02, X
     AND $00, X
@@ -277,8 +322,9 @@ _And:
     RTS
 
 ; ( n1 n2 -- n1 | n2 )
-.byt "or", 2 | FLAG_NONE
-.word _And-2
+.byt "or"
+.word _And-3
+.byt 2 | FLAG_NONE
 _Or:
     LDA $02, X
     ORA $00, X
@@ -291,8 +337,9 @@ _Or:
     RTS
 
 ; ( n1 n2 -- n1 ^ n2 )
-.byt "xor", 3 | FLAG_NONE
-.word _Or-2
+.byt "xor"
+.word _Or-3
+.byt 3 | FLAG_NONE
 _Xor:
     LDA $02, X
     EOR $00, X
@@ -305,8 +352,9 @@ _Xor:
     RTS
 
 ; ( n1 n2 -- n1 + n2 )
-.byt "+", 1 | FLAG_NONE
-.word _Xor-2
+.byt "+"
+.word _Xor-3
+.byt 1 | FLAG_NONE
 _Add:
     CLC
     LDA $02, X
@@ -320,8 +368,9 @@ _Add:
     RTS
 
 ; ( n1 n2 -- n1 - n2 )
-.byt "-", 1 | FLAG_NONE
-.word _Add-2
+.byt "-"
+.word _Add-3
+.byt 1 | FLAG_NONE
 _Sub:
     SEC
     LDA $02, X
@@ -335,8 +384,9 @@ _Sub:
     RTS
 
 ; ( addr -- )
-.byt "goto", 4 | FLAG_NONE
-.word _Sub-2
+.byt "goto"
+.word _Sub-3
+.byt 4 | FLAG_NONE
 _Goto:
     LDA $00, X
     STA ADRL
@@ -346,19 +396,22 @@ _Goto:
     INX
     JMP (ADRL)
 
-.byt "quit", 4 | FLAG_NONE
-.word _Goto-2
+.byt "quit"
+.word _Goto-3
+.byt 4 | FLAG_NONE
 _Quit:
     TXA
     LDX #$FF
     TXS
     TAX
-    ; TODO: switch to INTERPRET mode
-:   JSR Interpret
+    LDA #STATE_INTERPRET
+    STA STATE
+:   JSR SysInterpret
     JMP :-
 
-.byt "abort", 5 | FLAG_NONE
-.word _Quit-2
+.byt "abort"
+.word _Quit-3
+.byt 5 | FLAG_NONE
 _Abort:
     CLD
     ; TODO: reset SYSVARS
