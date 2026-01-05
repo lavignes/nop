@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <histedit.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -32,6 +33,10 @@ typedef intptr_t Int;
 #define INT_MAX INTPTR_MAX
 #define INT_MIN INTPTR_MIN
 
+#define UINT_FMT PRIuPTR
+#define INT_FMT PRIiPTR
+#define INT_FMTx PRIxPTR
+
 enum {
   FLAG_CARRY = 1 << 0,
   FLAG_ZERO = 1 << 1,
@@ -54,18 +59,21 @@ static bool debug = false;
 
 static U8 MEM[65536];
 
-void help(char const *name) {
+static void help(char const *name) {
   fprintf(stderr, "Usage: %s [options] <romfile>\n\n", name);
   fprintf(stderr, "Options:\n\n");
   fprintf(stderr, "  -h, --help       Show this help message\n");
   fprintf(stderr, "  -d, --debug      Start in debug mode\n");
+  fprintf(stderr, "  -l, --labellist  Load symbol labellist from file\n");
 }
 
-void tick();
-void debugger();
+static void tick();
+static void debugger();
+static void symload(char const *filename);
 
 int main(int argc, char *argv[]) {
   FILE *rom;
+  char const *labellist = NULL;
   if (argc < 2) {
     help(argv[0]);
     return EXIT_FAILURE;
@@ -81,6 +89,16 @@ int main(int argc, char *argv[]) {
       debug = true;
       continue;
     }
+    if ((strcmp(argv[argi], "-l") == 0) ||
+        (strcmp(argv[argi], "--labellist") == 0)) {
+      ++argi;
+      if (argi == argc) {
+        fprintf(stderr, "No labellist file specified\n");
+        return EXIT_FAILURE;
+      }
+      labellist = argv[argi];
+      continue;
+    }
     rom = fopen(argv[argi], "rb");
     if (!rom) {
       fprintf(stderr, "Could not open ROM file: %s\n", argv[argi]);
@@ -93,7 +111,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  long read = fread(MEM + PC, 1, sizeof(MEM) - PC, rom);
+  size_t read = fread(MEM + PC, 1, sizeof(MEM) - PC, rom);
   if (read != (sizeof(MEM) - PC)) {
     int err = ferror(rom);
     if (err) {
@@ -103,6 +121,10 @@ int main(int argc, char *argv[]) {
   }
   fclose(rom);
 
+  if (labellist) {
+    symload(labellist);
+  }
+
   while (true) {
     tick();
   }
@@ -110,7 +132,7 @@ int main(int argc, char *argv[]) {
   return EXIT_SUCCESS;
 }
 
-void doop();
+static void doop();
 
 typedef struct Breakpoint Breakpoint;
 
@@ -124,7 +146,7 @@ static U16 bpcnt = 0;
 static Breakpoint *bphead = NULL;
 static Breakpoint nextpoint = {NULL, 0, 0};
 
-void tick() {
+static void tick() {
   if (nextpoint.next && (PC == nextpoint.addr)) {
     debug = true;
     nextpoint.next = NULL;
@@ -133,7 +155,7 @@ void tick() {
     if (PC != bp->addr) {
       continue;
     }
-    fprintf(stderr, "Hit breakpoint %d at $%04X\n", bp->num, bp->addr);
+    fprintf(stderr, "Hit breakpoint %u at $%04X\n", bp->num, bp->addr);
     debug = true;
     break;
   }
@@ -145,34 +167,93 @@ void tick() {
   // TODO: read/write memory-mapped IO here
 }
 
-Int parse(char const *str) {
+typedef struct Symbol Symbol;
+
+struct Symbol {
+  Symbol *next;
+  char const *name;
+  Int val;
+};
+
+static U16 symcnt = 0;
+static Symbol *symhead = NULL;
+
+static Symbol *symadd(char const *name, Int val) {
+  Symbol *sym = malloc(sizeof(Symbol));
+  sym->name = strdup(name);
+  sym->val = val;
+  sym->next = symhead;
+  symhead = sym;
+  ++symcnt;
+  return sym;
+}
+
+static void symload(char const *filename) {
+  FILE *file = fopen(filename, "r");
+  if (!file) {
+    fprintf(stderr, "Could not open labellist file: %s\n", filename);
+    return;
+  }
+  char line[256];
+  for (UInt lineno = 0; fgets(line, sizeof(line), file); ++lineno) {
+    char name[64];
+    Int val;
+    if (sscanf(line, "%63[^,], 0x%" INT_FMTx, name, &val) != 2) {
+      fprintf(stderr, "Invalid labellist line %" UINT_FMT ": %s", lineno, line);
+      continue;
+    }
+    // filter out invalid names
+    if (!isalpha(name[0]) && (name[0] != '_')) {
+      continue;
+    }
+    symadd(name, val);
+  }
+  fclose(file);
+}
+
+static Symbol const *symfind(char const *name) {
+  for (Symbol const *sym = symhead; sym; sym = sym->next) {
+    if (strcmp(name, sym->name) == 0) {
+      return sym;
+    }
+  }
+  return NULL;
+}
+
+static Symbol const *symvalfind(Int val) {
+  for (Symbol const *sym = symhead; sym; sym = sym->next) {
+    if (val == sym->val) {
+      return sym;
+    }
+  }
+  return NULL;
+}
+
+static Int parse(char const *str) {
   bool neg = str[0] == '-';
   if (neg || (str[0] == '+')) {
     ++str;
   }
-  long val;
+  long val = LONG_MAX;
   if (str[0] == '$') {
     val = strtol(str + 1, NULL, 16);
   } else if (str[0] == '%') {
     val = strtol(str + 1, NULL, 2);
-  } else if ((strcmp(str, "a") == 0) || (strcmp(str, "A") == 0)) {
-    val = (unsigned long)A;
-  } else if ((strcmp(str, "x") == 0) || (strcmp(str, "X") == 0)) {
-    val = (unsigned long)X;
-  } else if ((strcmp(str, "y") == 0 || strcmp(str, "Y") == 0)) {
-    val = (unsigned long)Y;
   } else if ((strcmp(str, "pc") == 0 || strcmp(str, "PC") == 0)) {
     val = (unsigned long)PC;
   } else if ((strcmp(str, "sp") == 0 || strcmp(str, "SP") == 0)) {
     val = (unsigned long)SP;
-  } else if ((strcmp(str, "p") == 0 || strcmp(str, "P") == 0)) {
-    val = (unsigned long)P;
   } else if ((strcmp(str, "*pc") == 0) || (strcmp(str, "*pc") == 0)) {
     val = (unsigned long)MEM[PC];
   } else if ((strcmp(str, "*sp") == 0) || (strcmp(str, "*SP") == 0)) {
     val = (unsigned long)MEM[SP];
   } else if (isdigit(str[0])) {
     val = strtol(str, NULL, 10);
+  } else {
+    Symbol const *sym = symfind(str);
+    if (sym) {
+      val = (long)sym->val;
+    }
   }
   if (val == LONG_MAX) {
     return INT_MAX;
@@ -183,18 +264,18 @@ Int parse(char const *str) {
   return (Int)val;
 }
 
-U16 disasm(U16 addr, U16 *cytot);
-void regs();
+static U16 disasm(U16 addr, U16 *cytot);
+static void regs();
 
 typedef enum { DBG_DEBUG, DBG_BREAK, DBG_CONTINUE } DbgResult;
 
-DbgResult dbgquit() { exit(EXIT_SUCCESS); }
+static DbgResult dbgquit() { exit(EXIT_SUCCESS); }
 
-DbgResult dbgcont() { return DBG_CONTINUE; }
+static DbgResult dbgcont() { return DBG_CONTINUE; }
 
-DbgResult dbgstep() { return DBG_BREAK; }
+static DbgResult dbgstep() { return DBG_BREAK; }
 
-DbgResult dbgnext() {
+static DbgResult dbgnext() {
   U16 cytot = 0;
   U8 op = MEM[PC];
   if (op == 0x20) {
@@ -205,12 +286,12 @@ DbgResult dbgnext() {
   return DBG_BREAK;
 }
 
-DbgResult dbgregs() {
+static DbgResult dbgregs() {
   regs();
   return DBG_DEBUG;
 }
 
-DbgResult dbgbreak() {
+static DbgResult dbgbreak() {
   char *tok = strtok(NULL, " \t\n");
   if (!tok) {
     fprintf(stderr, "No address provided for breakpoint\n");
@@ -226,11 +307,11 @@ DbgResult dbgbreak() {
   bp->addr = (U16)addr;
   bp->next = bphead;
   bphead = bp;
-  fprintf(stderr, "Breakpoint %d set at $%04X\n", bp->num, bp->addr);
+  fprintf(stderr, "Breakpoint %u set at $%04X\n", bp->num, bp->addr);
   return DBG_DEBUG;
 }
 
-DbgResult dbgdel() {
+static DbgResult dbgdel() {
   char *tok = strtok(NULL, " \t\n");
   if (!tok) {
     fprintf(stderr, "No breakpoint number provided for deletion\n");
@@ -247,17 +328,17 @@ DbgResult dbgdel() {
     if (bp->num == (U16)num) {
       *prev = bp->next;
       free(bp);
-      fprintf(stderr, "Breakpoint %d deleted\n", (U16)num);
+      fprintf(stderr, "Breakpoint %u deleted\n", (U16)num);
       return DBG_DEBUG;
     }
     prev = &bp->next;
     bp = bp->next;
   }
-  fprintf(stderr, "No breakpoint with number %d\n", (U16)num);
+  fprintf(stderr, "No breakpoint with number %u\n", (U16)num);
   return DBG_DEBUG;
 }
 
-DbgResult dbgexa() {
+static DbgResult dbgexa() {
   Int start = PC;
   Int len = 16;
   char *tok = strtok(NULL, " \t\n");
@@ -280,8 +361,9 @@ DbgResult dbgexa() {
   while (start <= end) {
     fprintf(stderr, "%04X ", (U16)start);
     for (UInt i = 0; i < 16; ++i) {
-      if (i == 8)
+      if (i == 8) {
         fprintf(stderr, " ");
+      }
       fprintf(stderr, (start + i) > end ? "   " : " %02X",
               MEM[(U16)(start + i)]);
     }
@@ -300,7 +382,7 @@ DbgResult dbgexa() {
   return DBG_DEBUG;
 }
 
-DbgResult dbgdis() {
+static DbgResult dbgdis() {
   Int start = PC;
   Int len = 1;
   char *tok = strtok(NULL, " \t\n");
@@ -339,12 +421,12 @@ static DbgCmd const DEBUG_CMDS[] = {
     {"registers", dbgregs}, {"x", dbgexa},         {"examine", dbgexa},
     {"disasm", dbgdis},     {NULL, NULL}};
 
-char *dbgprompt(EditLine *el) {
+static char *dbgprompt(EditLine *el) {
   (void)el;
   return "> ";
 }
 
-void printmatches(char const *prefix, size_t len) {
+static void printmatches(char const *prefix, size_t len) {
   bool first = true;
   for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
     if (strncmp(prefix, cmd->name, len) == 0) {
@@ -354,7 +436,7 @@ void printmatches(char const *prefix, size_t len) {
   }
 }
 
-unsigned char dbgcompl(EditLine *el, int ch) {
+static unsigned char dbgcompl(EditLine *el, int ch) {
   (void)ch;
   LineInfo const *li = el_line(el);
   ptrdiff_t len = li->cursor - li->buffer;
@@ -383,7 +465,7 @@ unsigned char dbgcompl(EditLine *el, int ch) {
   return CC_REFRESH;
 }
 
-void debugger() {
+static void debugger() {
   static EditLine *el = NULL;
   static History *hist = NULL;
   static HistEvent ev;
@@ -457,7 +539,7 @@ void debugger() {
   }
 }
 
-void regs() {
+static void regs() {
   fprintf(stderr, "PC:$%04X SP:$%02X A:$%02X X:$%02X Y:$%02X P:$%02X |", PC, SP,
           A, X, Y, P);
   fprintf(stderr, "%c%c%c%c%c%c%c%c|\n", (P & FLAG_NEGATIVE) ? 'N' : '.',
@@ -467,95 +549,135 @@ void regs() {
           (P & FLAG_CARRY) ? 'C' : '.');
 }
 
-U16 disimpl(U8 op, U16 addr, char const *mne) {
+static U16 disimpl(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, " %02X      ", op);
   fprintf(stderr, "  %s            ", mne);
   return addr;
 }
 
-U16 disimm(U8 op, U16 addr, char const *mne) {
+static U16 disimm(U8 op, U16 addr, char const *mne) {
   U8 val = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, val);
   fprintf(stderr, "  %s #$%02X       ", mne, val);
   return addr;
 }
 
-U16 diszp(U8 op, U16 addr, char const *mne) {
+static U16 diszp(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s $%02X        ", mne, zp);
+  Symbol const *sym = symvalfind((UInt)zp);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 diszpx(U8 op, U16 addr, char const *mne) {
+static U16 diszpx(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s $%02X,X      ", mne, zp);
+  Symbol const *sym = symvalfind((UInt)zp);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 diszpy(U8 op, U16 addr, char const *mne) {
+static U16 diszpy(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s $%02X,Y      ", mne, zp);
+  Symbol const *sym = symvalfind((UInt)zp);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 disab(U8 op, U16 addr, char const *mne) {
+static U16 disab(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  %s $%04X      ", mne, ab);
+  Symbol const *sym = symvalfind((UInt)ab);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 disabx(U8 op, U16 addr, char const *mne) {
+static U16 disabx(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  %s $%04X,X    ", mne, ab);
+  Symbol const *sym = symvalfind((UInt)ab);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 disaby(U8 op, U16 addr, char const *mne) {
+static U16 disaby(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  %s $%04X,Y    ", mne, ab);
+  Symbol const *sym = symvalfind((UInt)ab);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 disid(U8 op, U16 addr, char const *mne) {
+static U16 disid(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
   U16 ptr = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  %s ($%04X)    ", mne, ptr);
+  Symbol const *sym = symvalfind((UInt)ptr);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 disidx(U8 op, U16 addr, char const *mne) {
+static U16 disidx(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s ($%02X,X)    ", mne, zp);
+  Symbol const *sym = symvalfind((UInt)zp);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 disidy(U8 op, U16 addr, char const *mne) {
+static U16 disidy(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s ($%02X),Y    ", mne, zp);
+  Symbol const *sym = symvalfind((UInt)zp);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
-U16 disrel(U8 op, U16 addr, char const *mne) {
+static U16 disrel(U8 op, U16 addr, char const *mne) {
   I8 offset = (I8)MEM[addr++];
   U16 target = addr + offset;
   fprintf(stderr, " %02X %02X   ", op, (U8)offset);
   fprintf(stderr, "  %s $%04X      ", mne, target);
+  Symbol const *sym = symvalfind((UInt)target);
+  if (sym) {
+    fprintf(stderr, " ; %s", sym->name);
+  }
   return addr;
 }
 
@@ -646,7 +768,7 @@ static DisEntry const DISASM_TABLE[256] = {
     [0xFE] = {"INC", disabx, 7},
 };
 
-U16 disasm(U16 addr, U16 *cytot) {
+static U16 disasm(U16 addr, U16 *cytot) {
   fprintf(stderr, "%04X ", addr);
   U8 op = MEM[addr++];
   DisEntry const *entry = &DISASM_TABLE[op];
@@ -659,11 +781,13 @@ U16 disasm(U16 addr, U16 *cytot) {
     cycles = 2;
   }
   *cytot += cycles;
-  fprintf(stderr, "/  %4d  +%d\n", *cytot, cycles);
+  fprintf(stderr, "\n");
+  // TODO: how to re-add cycle counter?
+  // fprintf(stderr, "/  %4u  +%u\n", *cytot, cycles);
   return addr;
 }
 
-void flag(U8 flag, bool condition) {
+static void flag(U8 flag, bool condition) {
   if (condition) {
     P |= flag;
   } else {
@@ -671,46 +795,46 @@ void flag(U8 flag, bool condition) {
   }
 }
 
-U8 *impl() { return NULL; }
+static U8 *impl() { return NULL; }
 
-U8 *acc() { return &A; }
+static U8 *acc() { return &A; }
 
-U8 *imm() { return &MEM[PC++]; }
+static U8 *imm() { return &MEM[PC++]; }
 
-U8 *zp() { return &MEM[MEM[PC++]]; }
+static U8 *zp() { return &MEM[MEM[PC++]]; }
 
-U8 *zpx() {
+static U8 *zpx() {
   U8 addr = MEM[PC++] + X;
   return &MEM[addr];
 }
 
-U8 *zpy() {
+static U8 *zpy() {
   U8 addr = MEM[PC++] + Y;
   return &MEM[addr];
 }
 
-U8 *ab() {
+static U8 *ab() {
   U8 lo = MEM[PC++];
   U8 hi = MEM[PC++];
   U16 addr = (((U16)hi) << 8) | lo;
   return &MEM[addr];
 }
 
-U8 *abx() {
+static U8 *abx() {
   U8 lo = MEM[PC++];
   U8 hi = MEM[PC++];
   U16 addr = ((((U16)hi) << 8) | lo) + X;
   return &MEM[addr];
 }
 
-U8 *aby() {
+static U8 *aby() {
   U8 lo = MEM[PC++];
   U8 hi = MEM[PC++];
   U16 addr = ((((U16)hi) << 8) | lo) + Y;
   return &MEM[addr];
 }
 
-U8 *idx() {
+static U8 *idx() {
   U8 zpaddr = MEM[PC++] + X;
   U8 lo = MEM[zpaddr];
   U8 hi = MEM[(U8)(zpaddr + 1)];
@@ -718,7 +842,7 @@ U8 *idx() {
   return &MEM[addr];
 }
 
-U8 *idy() {
+static U8 *idy() {
   U8 zpaddr = MEM[PC++];
   U8 lo = MEM[zpaddr];
   U8 hi = MEM[(U8)(zpaddr + 1)];
@@ -726,13 +850,13 @@ U8 *idy() {
   return &MEM[addr];
 }
 
-U8 *jab() {
+static U8 *jab() {
   U16 addr = PC;
   PC += 2;
   return &MEM[addr];
 }
 
-U8 *jid() {
+static U8 *jid() {
   U8 idlo = MEM[PC++];
   U8 idhi = MEM[PC++];
   U16 ptr = (((U16)idhi) << 8) | idlo;
@@ -742,7 +866,7 @@ U8 *jid() {
   return &MEM[addr];
 }
 
-void adc(U8 *val) {
+static void adc(U8 *val) {
   if (P & FLAG_DECIMAL) {
     debug = true;
   }
@@ -755,63 +879,63 @@ void adc(U8 *val) {
   A = res;
 }
 
-void and(U8 *val) {
+static void and(U8 *val) {
   A &= *val;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void asl(U8 *val) {
+static void asl(U8 *val) {
   flag(FLAG_CARRY, (*val & 0x80) != 0);
   *val <<= 1;
   flag(FLAG_ZERO, *val == 0);
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void bcc(U8 *val) {
+static void bcc(U8 *val) {
   if (!(P & FLAG_CARRY)) {
     PC += (I8)*val;
   }
 }
 
-void bcs(U8 *val) {
+static void bcs(U8 *val) {
   if (P & FLAG_CARRY) {
     PC += (I8)*val;
   }
 }
 
-void beq(U8 *val) {
+static void beq(U8 *val) {
   if (P & FLAG_ZERO) {
     PC += (I8)*val;
   }
 }
 
-void bit(U8 *val) {
+static void bit(U8 *val) {
   U8 res = A & *val;
   flag(FLAG_ZERO, res == 0);
   flag(FLAG_OVERFLOW, (*val & 0x40) != 0);
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void bmi(U8 *val) {
+static void bmi(U8 *val) {
   if (P & FLAG_NEGATIVE) {
     PC += (I8)*val;
   }
 }
 
-void bne(U8 *val) {
+static void bne(U8 *val) {
   if (!(P & FLAG_ZERO)) {
     PC += (I8)*val;
   }
 }
 
-void bpl(U8 *val) {
+static void bpl(U8 *val) {
   if (!(P & FLAG_NEGATIVE)) {
     PC += (I8)*val;
   }
 }
 
-void brk_(U8 *val) {
+static void brk_(U8 *val) {
   (void)val;
   debug = true;
   ++PC;
@@ -824,170 +948,170 @@ void brk_(U8 *val) {
   PC = (((U16)hi) << 8) | lo;
 }
 
-void bvc(U8 *val) {
+static void bvc(U8 *val) {
   if (!(P & FLAG_OVERFLOW)) {
     PC += (I8)*val;
   }
 }
 
-void bvs(U8 *val) {
+static void bvs(U8 *val) {
   if (P & FLAG_OVERFLOW) {
     PC += (I8)*val;
   }
 }
 
-void clc(U8 *val) {
+static void clc(U8 *val) {
   (void)val;
   flag(FLAG_CARRY, false);
 }
 
-void cld(U8 *val) {
+static void cld(U8 *val) {
   (void)val;
   flag(FLAG_DECIMAL, false);
 }
 
-void cli(U8 *val) {
+static void cli(U8 *val) {
   (void)val;
   flag(FLAG_INTERRUPT, false);
 }
 
-void clv(U8 *val) {
+static void clv(U8 *val) {
   (void)val;
   flag(FLAG_OVERFLOW, false);
 }
 
-void cmp(U8 *val) {
+static void cmp(U8 *val) {
   U8 res = A - *val;
   flag(FLAG_CARRY, A >= *val);
   flag(FLAG_ZERO, res == 0);
   flag(FLAG_NEGATIVE, (res & 0x80) != 0);
 }
 
-void cpx(U8 *val) {
+static void cpx(U8 *val) {
   U8 res = X - *val;
   flag(FLAG_CARRY, X >= *val);
   flag(FLAG_ZERO, res == 0);
   flag(FLAG_NEGATIVE, (res & 0x80) != 0);
 }
 
-void cpy(U8 *val) {
+static void cpy(U8 *val) {
   U8 res = Y - *val;
   flag(FLAG_CARRY, Y >= *val);
   flag(FLAG_ZERO, res == 0);
   flag(FLAG_NEGATIVE, (res & 0x80) != 0);
 }
 
-void dec(U8 *val) {
+static void dec(U8 *val) {
   --(*val);
   flag(FLAG_ZERO, *val == 0);
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void dex(U8 *val) {
+static void dex(U8 *val) {
   (void)val;
   --X;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void dey(U8 *val) {
+static void dey(U8 *val) {
   (void)val;
   --Y;
   flag(FLAG_ZERO, Y == 0);
   flag(FLAG_NEGATIVE, (Y & 0x80) != 0);
 }
 
-void eor(U8 *val) {
+static void eor(U8 *val) {
   A ^= *val;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void inc(U8 *val) {
+static void inc(U8 *val) {
   ++(*val);
   flag(FLAG_ZERO, *val == 0);
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void inx(U8 *val) {
+static void inx(U8 *val) {
   (void)val;
   ++X;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void iny(U8 *val) {
+static void iny(U8 *val) {
   (void)val;
   ++Y;
   flag(FLAG_ZERO, Y == 0);
   flag(FLAG_NEGATIVE, (Y & 0x80) != 0);
 }
 
-void jmp(U8 *val) { PC = *(U16 *)val; }
+static void jmp(U8 *val) { PC = *(U16 *)val; }
 
-void jsr(U8 *val) {
+static void jsr(U8 *val) {
   U16 ret = PC - 1;
   MEM[0x0100 + SP--] = (U8)((ret >> 8) & 0xFF);
   MEM[0x0100 + SP--] = (U8)(ret & 0xFF);
   PC = *(U16 *)val;
 }
 
-void lda(U8 *val) {
+static void lda(U8 *val) {
   A = *val;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void ldx(U8 *val) {
+static void ldx(U8 *val) {
   X = *val;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void ldy(U8 *val) {
+static void ldy(U8 *val) {
   Y = *val;
   flag(FLAG_ZERO, Y == 0);
   flag(FLAG_NEGATIVE, (Y & 0x80) != 0);
 }
 
-void lsr(U8 *val) {
+static void lsr(U8 *val) {
   flag(FLAG_CARRY, (*val & 0x01) != 0);
   *val >>= 1;
   flag(FLAG_ZERO, *val == 0);
   flag(FLAG_NEGATIVE, false);
 }
 
-void nop(U8 *val) { (void)val; }
+static void nop(U8 *val) { (void)val; }
 
-void ora(U8 *val) {
+static void ora(U8 *val) {
   A |= *val;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void pha(U8 *val) {
+static void pha(U8 *val) {
   (void)val;
   MEM[0x0100 + SP--] = A;
 }
 
-void php(U8 *val) {
+static void php(U8 *val) {
   (void)val;
   MEM[0x0100 + SP--] = P | FLAG_BREAK | FLAG_UNUSED;
 }
 
-void pla(U8 *val) {
+static void pla(U8 *val) {
   (void)val;
   A = MEM[0x0100 + ++SP];
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void plp(U8 *val) {
+static void plp(U8 *val) {
   (void)val;
   P = MEM[0x0100 + ++SP] & ~(FLAG_BREAK | FLAG_UNUSED);
 }
 
-void rol(U8 *val) {
+static void rol(U8 *val) {
   bool cy = (P & FLAG_CARRY) != 0;
   flag(FLAG_CARRY, (*val & 0x80) != 0);
   *val = (*val << 1) | (cy ? 1 : 0);
@@ -995,7 +1119,7 @@ void rol(U8 *val) {
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void ror(U8 *val) {
+static void ror(U8 *val) {
   bool cy = (P & FLAG_CARRY) != 0;
   flag(FLAG_CARRY, (*val & 0x01) != 0);
   *val = (*val >> 1) | (cy ? 0x80 : 0);
@@ -1003,7 +1127,7 @@ void ror(U8 *val) {
   flag(FLAG_NEGATIVE, (*val & 0x80) != 0);
 }
 
-void rti(U8 *val) {
+static void rti(U8 *val) {
   (void)val;
   P = MEM[0x0100 + ++SP] & ~(FLAG_BREAK | FLAG_UNUSED);
   U8 lo = MEM[0x0100 + ++SP];
@@ -1011,14 +1135,14 @@ void rti(U8 *val) {
   PC = (((U16)hi) << 8) | lo;
 }
 
-void rts(U8 *val) {
+static void rts(U8 *val) {
   (void)val;
   U8 lo = MEM[0x0100 + ++SP];
   U8 hi = MEM[0x0100 + ++SP];
   PC = ((((U16)hi) << 8) | lo) + 1;
 }
 
-void sbc(U8 *val) {
+static void sbc(U8 *val) {
   if (P & FLAG_DECIMAL) {
     debug = true;
   }
@@ -1031,61 +1155,61 @@ void sbc(U8 *val) {
   A = res;
 }
 
-void sec(U8 *val) {
+static void sec(U8 *val) {
   (void)val;
   flag(FLAG_CARRY, true);
 }
 
-void sed(U8 *val) {
+static void sed(U8 *val) {
   (void)val;
   flag(FLAG_DECIMAL, true);
 }
 
-void sei(U8 *val) {
+static void sei(U8 *val) {
   (void)val;
   flag(FLAG_INTERRUPT, true);
 }
 
-void sta(U8 *addr) { *addr = A; }
+static void sta(U8 *addr) { *addr = A; }
 
-void stx(U8 *addr) { *addr = X; }
+static void stx(U8 *addr) { *addr = X; }
 
-void sty(U8 *addr) { *addr = Y; }
+static void sty(U8 *addr) { *addr = Y; }
 
-void tax(U8 *val) {
+static void tax(U8 *val) {
   (void)val;
   X = A;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void tay(U8 *val) {
+static void tay(U8 *val) {
   (void)val;
   Y = A;
   flag(FLAG_ZERO, Y == 0);
   flag(FLAG_NEGATIVE, (Y & 0x80) != 0);
 }
 
-void tsx(U8 *val) {
+static void tsx(U8 *val) {
   (void)val;
   X = SP;
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
-void txa(U8 *val) {
+static void txa(U8 *val) {
   (void)val;
   A = X;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
-void txs(U8 *val) {
+static void txs(U8 *val) {
   (void)val;
   SP = X;
 }
 
-void tya(U8 *val) {
+static void tya(U8 *val) {
   (void)val;
   A = Y;
   flag(FLAG_ZERO, A == 0);
@@ -1100,7 +1224,7 @@ typedef struct {
   AddrFn addr;
 } OpEntry;
 
-OpEntry const OP_TABLE[256] = {
+static OpEntry const OP_TABLE[256] = {
     [0x00] = {brk_, imm}, [0x01] = {ora, idx},  [0x05] = {ora, zp},
     [0x06] = {asl, zp},   [0x08] = {php, impl}, [0x09] = {ora, imm},
     [0x0A] = {asl, acc},  [0x0D] = {ora, ab},   [0x0E] = {asl, ab},
@@ -1154,7 +1278,7 @@ OpEntry const OP_TABLE[256] = {
     [0xFE] = {inc, abx},
 };
 
-void doop() {
+static void doop() {
   U8 op = MEM[PC++];
   OpEntry const *entry = &OP_TABLE[op];
   if (entry->exec) {

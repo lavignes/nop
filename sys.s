@@ -11,24 +11,26 @@
 
 ; Increment parameter top indirect
 #define INPS   \
-    INC $00, X \
-    BNE :+     \
-    INC $01, X \
+    inc $00, x \
+    bne :+     \
+    inc $01, x \
 :              \
 
 ; Increment instruction pointer
 #define INIP   \
-    INC IPL    \
-    BNE :+     \
-    INC IPH    \
+    inc IPL    \
+    bne :+     \
+    inc IPH    \
 :              \
 
 ; Instruction Pointer
+IP  = $02
 IPL = $02
 IPH = $03
 
 ; Indirect Address Pointer
 ADRJ = $04
+ADR  = $05
 ADRL = $05
 ADRH = $06
 
@@ -37,260 +39,315 @@ ADRH = $06
     JMP _Abort
 
 SYSVARS = *
-CURRENT: .word _Abort-3
-HERE:    .word HERESTART
-STATE:   .byt 0
-ERRNO:   .byt 0
-M:       .word 0
-Q:       .word 0
-EMIT:    .word 0
-KEY:     .word 0
-RDIN:    .word SysRefill
-INOFF:   .byt  INLEN
-INBUF:   .dsb  INLEN,0
+CURRENT: .word _Abort-3  ; Current dictionary pointer
+HERE:    .word HERESTART ; Heap pointer
+STATE:   .byt 0          ; Interpreter state
+ERRNO:   .byt 0          ; General-purpose error register
+M:       .word 0         ; Native scratch register
+Q:       .word 0         ; Nop scratch register
+EMIT:    .word 0         ; 'emit' routine
+KEY:     .word 0         ; 'key?' routine
+RDIN:    .word SysRefill ; 'refill' routine
+INOFF:   .byt  INLEN     ; Offset into INBUF
+INBUF:   .dsb  INLEN,0   ; Input buffer
 
 SYSTXT:  .word SYSTXTSTART
 
 DoCell:
-    DEX
-    DEX
-    PLA
-    STA $00, X
-    PLA
-    STA $01, X
+    dex
+    dex
+    pla
+    sta $00, x
+    pla
+    sta $01, x
     INPS
     ; Fall through to DoNext
 
 ; Jump to (IP) and increment IP by 2
 DoNext:
-    LDA IPL
-    STA ADRL
-    LDA IPH
-    STA ADRH
-    CLC
-    ADC #2
-    BCC :+
-    INC IPH
-:   STA IPL
-    JMP ADRJ
+    lda IPL
+    sta ADRL
+    lda IPH
+    sta ADRH
+    clc
+    adc #2
+    bcc :+
+    inc IPH
+:   sta IPL
+    jmp ADRJ
 
 SysRefill:
-    LDY INOFF
-    BEQ :++++++
-    TXA
-    PHA
+    ldy INOFF
+    beq :++++++
+    txa
+    pha
     ; Move all bytes backwards
-    LDX #0
-    STX INOFF
-:   CPY #INLEN
-    BEQ :+
-    LDA INBUF, Y
-    STA INBUF, X
-    INX
-    INY
-    BNE :-
+    ldx #0
+    stx INOFF
+:   cpy #INLEN
+    beq :+
+    lda INBUF, y
+    sta INBUF, x
+    inx
+    iny
+    bne :-
     ; X is (INLEN - INOFF), read that many bytes
-:   LDA SYSTXT+0
-    STA ADRL
-    LDA SYSTXT+1
-    STA ADRH
-    LDY #0
-:   CPX #INLEN
-    BEQ :+
-    LDA (ADRL), Y
-    STA INBUF, X
-    INX
-    INY
-    BNE :-
+:   lda SYSTXT+0
+    sta ADRL
+    lda SYSTXT+1
+    sta ADRH
+    ldy #0
+:   cpx #INLEN
+    beq :+
+    lda (ADR), y
+    sta INBUF, x
+    inx
+    iny
+    bne :-
     ; SYSTXT += Y
-:   CLC
-    TYA
-    ADC ADRL
-    STA SYSTXT+0
-    BCC :+
-:   INC SYSTXT+1
-    PLA
-    TAX
-:   RTS
+:   clc
+    tya
+    adc ADRL
+    sta SYSTXT+0
+    bcc :+
+:   inc SYSTXT+1
+    pla
+    tax
+:   rts
 
+; Returns word with range (INOFF, Y] in INBUF
 SysWord:
-    JSR SysRefill
-    LDY #0
+    jsr SysRefill
+    ldy #0
     ; Skip leading spaces
-:   LDA INBUF, Y
-    INY
-    CMP #' '
-    BEQ :-
-    DEY
+:   lda INBUF, y
+    iny
+    cmp #' '
+    beq :-
+    dey
     ; INOFF is start of word
-    STY INOFF
-    LDA INBUF, Y
-    INY
-    CMP #'"'
-    BEQ :++
-    CMP #' '
-    BNE :-
-:   DEY
-:   DEY
-    RTS ; Y is end of word
+    sty INOFF
+:   lda INBUF, y
+    iny
+    cmp #'"'
+    beq :++
+    cmp #' '
+    bne :-
+:   dey
+:   dey
+    rts ; Y is end of word
 
 ; .byt  name, ...
 ; .word prev
 ; .byt  flaglen
 ; native code / JSR to DTC routine
 
+; Assuming word with range (INOFF,Y] in INBUF
+; On exit:
+; * ADR points to the found word, or NULL
+; * INOFF and Y are unchanged
 SysFind:
-    TXA
-    PHA
-    TYA
-    TAX ; X is end of word
-    PHA ; Save it for later words
-    LDA CURRENT+0
-    STA ADRL
-    LDA CURRENT+1
-    STA ADRH
-
-
-
-    PLA
-    TAX
-    RTS
+    ; Initialize ADRL/ADRH to NULL
+    lda #0
+    sta ADRL
+    sta ADRH
+    txa
+    pha
+    tya
+    pha
+    ; Calculate word length: Y - INOFF + 1
+    ; example: hello
+    ;          ^   ^ :: Y=4, INOFF=0 -> length=5
+    sec
+    sbc INOFF
+    beq :+++++ ; Zero diff, not found
+    sta ERRNO ; Store length in ERRNO
+    inc ERRNO ; Adjust for inclusive range
+    ; Load CURRENT into ADR
+    lda CURRENT+0
+    sta ADRL
+    lda CURRENT+1
+    sta ADRH
+    ; Walk dictionary linked list
+:   ldy #2
+    lda (ADR), y ; Get flaglen byte at offset +2
+    and #FLAG_MASK
+    cmp ERRNO
+    bne :+++ ; Length mismatch, try next
+    ; Store address of word name start in M
+    ldy #1
+    lda (ADR), y
+    tax
+    dey
+    lda (ADR), y
+    sec
+    sbc ERRNO
+    bcc :+
+    inx
+:   sta M+0
+    stx M+1
+    ; Comare chars
+    ldx INOFF
+:   lda M, y
+    cmp INBUF, x
+    bne :+ ; Mismatch, try next word
+    inx
+    iny
+    bne :-
+    ; Found! ADR points to prev pointer - branch to exit
+    beq :++
+    ; Try next word in linked list
+:   ldy #0
+    lda (ADR), y ; Load prev pointer low byte
+    tax
+    iny
+    lda (ADR), y ; Load prev pointer high byte
+    stx ADRL
+    sta ADRH
+    ora ADRL ; Check if null
+    bne :---- ; Continue if not null
+    ; Not found - ADR is null, fall through to exit
+:   pla
+    tay
+    pla
+    tax
+    rts
 
 SysInterpret:
-    JSR SysWord
-    JSR SysFind
-    RTS
+    jsr SysWord
+    jsr SysFind
+    rts
 
 ; ( addr -- n )
 .byt "@"
 .word 0
 .byt 1 | FLAG_NONE
 _Load:
-    LDA ($00, X)
-    TAY
+    lda ($00, x)
+    tay
     INPS
-    LDA ($00, X)
-    STY $00, X
-    STA $01, X
-    RTS
+    lda ($00, x)
+    sty $00, x
+    sta $01, x
+    rts
 
 ; ( addr -- b )
 .byt "@b"
 .word _Load-3
 .byt 2 | FLAG_NONE
 _LoadByte:
-    LDY #0
-    LDA ($00, X)
-    STA $00, X
-    BPL :+
-    DEY
-:   STA $01, X
-    RTS
+    ldy #0
+    lda ($00, x)
+    sta $00, x
+    bpl :+
+    dey
+:   sta $01, x
+    rts
 
 ; ( addr -- bu )
 .byt "@bu"
 .word _LoadByte-3
 .byt 3 | FLAG_NONE
 _LoadByteUnsigned:
-    LDA ($00, X)
-    STA $00, X
-    LDA #0
-    STA $01, X
-    RTS
+    lda ($00, x)
+    sta $00, x
+    lda #0
+    sta $01, x
+    rts
 
 ; ( n addr -- )
 .byt "!"
 .word _LoadByteUnsigned-3
 .byt 1 | FLAG_NONE
 _Store:
-    LDA $02, X
-    STA ($00, X)
+    lda $02, x
+    sta ($00, x)
     INPS
-    LDA $03, X
-    STA ($00, X)
-    INX
-    INX
-    INX
-    INX
-    RTS
+    lda $03, x
+    sta ($00, x)
+    inx
+    inx
+    inx
+    inx
+    rts
 
 ; ( b addr -- )
 .byt "!b"
 .word _Store-3
 .byt 2 | FLAG_NONE
 _StoreByte:
-    LDA $02, X
-    STA ($00, X)
-    INX
-    INX
-    INX
-    INX
-    RTS
+    lda $02, x
+    sta ($00, x)
+    inx
+    inx
+    inx
+    inx
+    rts
 
 ; P: ( n -- ) R: ( -- n )
 .byt ">R"
 .word _StoreByte-3
 .byt 2 | FLAG_NONE
 _PushR:
-    LDA $01, X
-    PHA
-    LDA $00, X
-    PHA
-    INX
-    INX
-    RTS
+    lda $01, x
+    pha
+    lda $00, x
+    pha
+    inx
+    inx
+    rts
 
 ; R: ( n -- ) P: ( -- n )
 .byt "R>"
 .word _PushR-3
 .byt 2 | FLAG_NONE
 _PullR:
-    DEX
-    DEX
-    PLA
-    STA $00, X
-    PLA
-    STA $01, X
-    RTS
+    dex
+    dex
+    pla
+    sta $00, x
+    pla
+    sta $01, x
+    rts
 
 ; ( n -- )
 .byt "drop"
 .word _PullR-3
 .byt 4 | FLAG_NONE
 _Drop:
-    INX
-    INX
-    RTS
+    inx
+    inx
+    rts
 
 ; ( n -- n n )
 .byt "dup"
 .word _Drop-3
 .byt 3 | FLAG_NONE
 _Dup:
-    LDA $00, X
-    LDY $01, X
-    DEX
-    DEX
-    STA $00, X
-    STY $01, X
-    RTS
+    lda $00, x
+    ldy $01, x
+    dex
+    dex
+    sta $00, x
+    sty $01, x
+    rts
 
 ; ( n1 n2 -- n2 n1 )
 .byt "swap"
 .word _Dup-3
 .byt 4 | FLAG_NONE
 _Swap:
-    LDA $00, X
-    TAY
-    LDA $02, X
-    STA $00, X
-    STY $02, X
-    LDA $01, X
-    TAY
-    LDA $03, X
-    STA $01, X
-    STY $03, X
-    RTS
+    lda $00, x
+    tay
+    lda $02, x
+    sta $00, x
+    sty $02, x
+    lda $01, x
+    tay
+    lda $03, x
+    sta $01, x
+    sty $03, x
+    rts
 
 ; ( n1 n2 -- n1 n2 n1 )
 ; TODO: >R dup R> swap
@@ -298,127 +355,128 @@ _Swap:
 .word _Swap-3
 .byt 4 | FLAG_NONE
 _Over:
-    LDA $02, X
-    LDY $03, X
-    DEX
-    DEX
-    STA $00, X
-    STY $01, X
-    RTS
+    lda $02, x
+    ldy $03, x
+    dex
+    dex
+    sta $00, x
+    sty $01, x
+    rts
 
 ; ( n1 n2 -- n1 & n2 )
 .byt "and"
 .word _Over-3
 .byt 3 | FLAG_NONE
 _And:
-    LDA $02, X
-    AND $00, X
-    STA $02, X
-    LDA $03, X
-    AND $01, X
-    STA $03, X
-    INX
-    INX
-    RTS
+    lda $02, x
+    and $00, x
+    sta $02, x
+    lda $03, x
+    and $01, x
+    sta $03, x
+    inx
+    inx
+    rts
 
 ; ( n1 n2 -- n1 | n2 )
 .byt "or"
 .word _And-3
 .byt 2 | FLAG_NONE
 _Or:
-    LDA $02, X
-    ORA $00, X
-    STA $02, X
-    LDA $03, X
-    ORA $01, X
-    STA $03, X
-    INX
-    INX
-    RTS
+    lda $02, x
+    ora $00, x
+    sta $02, x
+    lda $03, x
+    ora $01, x
+    sta $03, x
+    inx
+    inx
+    rts
 
 ; ( n1 n2 -- n1 ^ n2 )
 .byt "xor"
 .word _Or-3
 .byt 3 | FLAG_NONE
 _Xor:
-    LDA $02, X
-    EOR $00, X
-    STA $02, X
-    LDA $03, X
-    EOR $01, X
-    STA $03, X
-    INX
-    INX
-    RTS
+    lda $02, x
+    eor $00, x
+    sta $02, x
+    lda $03, x
+    eor $01, x
+    sta $03, x
+    inx
+    inx
+    rts
 
 ; ( n1 n2 -- n1 + n2 )
 .byt "+"
 .word _Xor-3
 .byt 1 | FLAG_NONE
 _Add:
-    CLC
-    LDA $02, X
-    ADC $00, X
-    STA $02, X
-    LDA $03, X
-    ADC $01, X
-    STA $03, X
-    INX
-    INX
-    RTS
+    clc
+    lda $02, x
+    adc $00, x
+    sta $02, x
+    lda $03, x
+    adc $01, x
+    sta $03, x
+    inx
+    inx
+    rts
 
 ; ( n1 n2 -- n1 - n2 )
 .byt "-"
 .word _Add-3
 .byt 1 | FLAG_NONE
 _Sub:
-    SEC
-    LDA $02, X
-    SBC $00, X
-    STA $02, X
-    LDA $03, X
-    SBC $01, X
-    STA $03, X
-    INX
-    INX
-    RTS
+    sec
+    lda $02, x
+    sbc $00, x
+    sta $02, x
+    lda $03, x
+    sbc $01, x
+    sta $03, x
+    inx
+    inx
+    rts
 
 ; ( addr -- )
 .byt "goto"
 .word _Sub-3
 .byt 4 | FLAG_NONE
 _Goto:
-    LDA $00, X
-    STA ADRL
-    LDA $01, X
-    STA ADRH
-    INX
-    INX
-    JMP (ADRL)
+    lda $00, x
+    sta ADRL
+    lda $01, x
+    sta ADRH
+    inx
+    inx
+    jmp (ADR)
 
 .byt "quit"
 .word _Goto-3
 .byt 4 | FLAG_NONE
 _Quit:
-    TXA
-    LDX #$FF
-    TXS
-    TAX
-    LDA #STATE_INTERPRET
-    STA STATE
-:   JSR SysInterpret
-    JMP :-
+    txa
+    ldx #$FF
+    txs
+    tax
+    lda #STATE_INTERPRET
+    sta STATE
+:   jsr SysInterpret
+    jmp :-
 
 .byt "abort"
 .word _Quit-3
 .byt 5 | FLAG_NONE
 _Abort:
-    CLD
+    sei
+    cld
     ; TODO: reset SYSVARS
-    LDA #$6C
-    STA ADRJ
-    LDX #$00
-    JMP _Quit
+    lda #$6C
+    sta ADRJ
+    ldx #$00
+    jmp _Quit
 
 SYSTXTSTART:
 .bin 0, 0, "fs/sysvm.n"
