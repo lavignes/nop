@@ -35,7 +35,7 @@ typedef intptr_t Int;
 
 #define UINT_FMT PRIuPTR
 #define INT_FMT PRIiPTR
-#define INT_FMTx PRIxPTR
+#define INT_FMTX PRIXPTR
 
 enum {
   FLAG_CARRY = 1 << 0,
@@ -198,7 +198,7 @@ static void symload(char const *filename) {
   for (UInt lineno = 0; fgets(line, sizeof(line), file); ++lineno) {
     char name[64];
     Int val;
-    if (sscanf(line, "%63[^,], 0x%" INT_FMTx, name, &val) != 2) {
+    if (sscanf(line, "%63[^,], 0x%" INT_FMTX, name, &val) != 2) {
       fprintf(stderr, "Invalid labellist line %" UINT_FMT ": %s", lineno, line);
       continue;
     }
@@ -434,31 +434,57 @@ static void printmatches(char const *prefix, size_t len) {
       first = false;
     }
   }
+  for (Symbol const *sym = symhead; sym; sym = sym->next) {
+    if (strncmp(prefix, sym->name, len) == 0) {
+      fprintf(stderr, "%s%s", first ? "" : ", ", sym->name);
+      first = false;
+    }
+  }
 }
 
 static unsigned char dbgcompl(EditLine *el, int ch) {
   (void)ch;
   LineInfo const *li = el_line(el);
-  ptrdiff_t len = li->cursor - li->buffer;
+
+  // Find the start of the current token
+  char const *tok_start = li->cursor;
+  while (tok_start > li->buffer && !isspace(*(tok_start - 1))) {
+    --tok_start;
+  }
+
+  ptrdiff_t len = li->cursor - tok_start;
   if (len <= 0) {
     return CC_REFRESH;
   }
+
+  // Count matches in commands
   UInt matchcnt = 0;
-  DbgCmd const *match = NULL;
+  DbgCmd const *cmd_match = NULL;
   for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
-    if (strncmp(li->buffer, cmd->name, len) == 0) {
-      match = cmd;
+    if (strncmp(tok_start, cmd->name, len) == 0) {
+      cmd_match = cmd;
       ++matchcnt;
     }
   }
+
+  // Count matches in symbols
+  Symbol const *sym_match = NULL;
+  for (Symbol const *sym = symhead; sym; sym = sym->next) {
+    if (strncmp(tok_start, sym->name, len) == 0) {
+      sym_match = sym;
+      ++matchcnt;
+    }
+  }
+
   if (matchcnt == 1) {
     el_deletestr(el, len);
-    el_insertstr(el, match->name);
+    char const *completion = cmd_match ? cmd_match->name : sym_match->name;
+    el_insertstr(el, completion);
     return CC_REFRESH;
   }
   if (matchcnt > 1) {
     fprintf(stderr, "\n");
-    printmatches(li->buffer, (size_t)len);
+    printmatches(tok_start, (size_t)len);
     fprintf(stderr, " ?\n");
     return CC_REDISPLAY;
   }
@@ -568,7 +594,7 @@ static U16 diszp(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s $%02X        ", mne, zp);
   Symbol const *sym = symvalfind((UInt)zp);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -579,7 +605,7 @@ static U16 diszpx(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s $%02X,X      ", mne, zp);
   Symbol const *sym = symvalfind((UInt)zp);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -590,7 +616,7 @@ static U16 diszpy(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s $%02X,Y      ", mne, zp);
   Symbol const *sym = symvalfind((UInt)zp);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -603,7 +629,7 @@ static U16 disab(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s $%04X      ", mne, ab);
   Symbol const *sym = symvalfind((UInt)ab);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -616,7 +642,7 @@ static U16 disabx(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s $%04X,X    ", mne, ab);
   Symbol const *sym = symvalfind((UInt)ab);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -629,7 +655,7 @@ static U16 disaby(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s $%04X,Y    ", mne, ab);
   Symbol const *sym = symvalfind((UInt)ab);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -642,7 +668,7 @@ static U16 disid(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s ($%04X)    ", mne, ptr);
   Symbol const *sym = symvalfind((UInt)ptr);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -653,7 +679,7 @@ static U16 disidx(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s ($%02X,X)    ", mne, zp);
   Symbol const *sym = symvalfind((UInt)zp);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -664,7 +690,7 @@ static U16 disidy(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, "  %s ($%02X),Y    ", mne, zp);
   Symbol const *sym = symvalfind((UInt)zp);
   if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
+    fprintf(stderr, "; %s", sym->name);
   }
   return addr;
 }
@@ -686,104 +712,97 @@ typedef U16 (*DisFn)(U8, U16, char const *);
 typedef struct {
   char const *mne;
   DisFn fn;
-  U16 cycles;
 } DisEntry;
 
 static DisEntry const DISASM_TABLE[256] = {
-    [0x00] = {"BRK", disimm, 7},  [0x01] = {"ORA", disidx, 6},
-    [0x05] = {"ORA", diszp, 3},   [0x06] = {"ASL", diszp, 5},
-    [0x08] = {"PHP", disimpl, 3}, [0x09] = {"ORA", disimm, 2},
-    [0x0A] = {"ASL", disimpl, 2}, [0x0D] = {"ORA", disab, 4},
-    [0x0E] = {"ASL", disab, 6},   [0x10] = {"BPL", disrel, 2},
-    [0x11] = {"ORA", disidy, 5},  [0x15] = {"ORA", diszpx, 4},
-    [0x16] = {"ASL", diszpx, 6},  [0x18] = {"CLC", disimpl, 2},
-    [0x19] = {"ORA", disaby, 4},  [0x1D] = {"ORA", disabx, 4},
-    [0x1E] = {"ASL", disabx, 7},  [0x20] = {"JSR", disab, 6},
-    [0x21] = {"AND", disidx, 6},  [0x24] = {"BIT", diszp, 3},
-    [0x25] = {"AND", diszp, 3},   [0x26] = {"ROL", diszp, 5},
-    [0x28] = {"PLP", disimpl, 4}, [0x29] = {"AND", disimm, 2},
-    [0x2A] = {"ROL", disimpl, 2}, [0x2C] = {"BIT", disab, 4},
-    [0x2D] = {"AND", disab, 4},   [0x2E] = {"ROL", disab, 6},
-    [0x30] = {"BMI", disrel, 2},  [0x31] = {"AND", disidy, 5},
-    [0x35] = {"AND", diszpx, 4},  [0x36] = {"ROL", diszpx, 6},
-    [0x38] = {"SEC", disimpl, 2}, [0x39] = {"AND", disaby, 4},
-    [0x3D] = {"AND", disabx, 4},  [0x3E] = {"ROL", disabx, 7},
-    [0x40] = {"RTI", disimpl, 6}, [0x41] = {"EOR", disidx, 6},
-    [0x45] = {"EOR", diszp, 3},   [0x46] = {"LSR", diszp, 5},
-    [0x48] = {"PHA", disimpl, 3}, [0x49] = {"EOR", disimm, 2},
-    [0x4A] = {"LSR", disimpl, 2}, [0x4C] = {"JMP", disab, 3},
-    [0x4D] = {"EOR", disab, 4},   [0x4E] = {"LSR", disab, 6},
-    [0x50] = {"BVC", disrel, 2},  [0x51] = {"EOR", disidy, 5},
-    [0x55] = {"EOR", diszpx, 4},  [0x56] = {"LSR", diszpx, 6},
-    [0x58] = {"CLI", disimpl, 2}, [0x59] = {"EOR", disaby, 4},
-    [0x5D] = {"EOR", disabx, 4},  [0x5E] = {"LSR", disabx, 7},
-    [0x60] = {"RTS", disimpl, 6}, [0x61] = {"ADC", disidx, 6},
-    [0x65] = {"ADC", diszp, 3},   [0x66] = {"ROR", diszp, 5},
-    [0x68] = {"PLA", disimpl, 4}, [0x69] = {"ADC", disimm, 2},
-    [0x6A] = {"ROR", disimpl, 2}, [0x6C] = {"JMP", disid, 5},
-    [0x6D] = {"ADC", disab, 4},   [0x6E] = {"ROR", disab, 6},
-    [0x70] = {"BVS", disrel, 2},  [0x71] = {"ADC", disidy, 5},
-    [0x75] = {"ADC", diszpx, 4},  [0x76] = {"ROR", diszpx, 6},
-    [0x78] = {"SEI", disimpl, 2}, [0x79] = {"ADC", disaby, 4},
-    [0x7D] = {"ADC", disabx, 4},  [0x7E] = {"ROR", disabx, 7},
-    [0x81] = {"STA", disidx, 6},  [0x84] = {"STY", diszp, 3},
-    [0x85] = {"STA", diszp, 3},   [0x86] = {"STX", diszp, 3},
-    [0x88] = {"DEY", disimpl, 2}, [0x8A] = {"TXA", disimpl, 2},
-    [0x8C] = {"STY", disab, 4},   [0x8D] = {"STA", disab, 4},
-    [0x8E] = {"STX", disab, 4},   [0x90] = {"BCC", disrel, 2},
-    [0x91] = {"STA", disidy, 6},  [0x94] = {"STY", diszpx, 4},
-    [0x95] = {"STA", diszpx, 4},  [0x96] = {"STX", diszpy, 4},
-    [0x98] = {"TYA", disimpl, 2}, [0x99] = {"STA", disaby, 5},
-    [0x9A] = {"TXS", disimpl, 2}, [0x9D] = {"STA", disabx, 5},
-    [0xA0] = {"LDY", disimm, 2},  [0xA1] = {"LDA", disidx, 6},
-    [0xA2] = {"LDX", disimm, 2},  [0xA4] = {"LDY", diszp, 3},
-    [0xA5] = {"LDA", diszp, 3},   [0xA6] = {"LDX", diszp, 3},
-    [0xA8] = {"TAY", disimpl, 2}, [0xA9] = {"LDA", disimm, 2},
-    [0xAA] = {"TAX", disimpl, 2}, [0xAC] = {"LDY", disab, 4},
-    [0xAD] = {"LDA", disab, 4},   [0xAE] = {"LDX", disab, 4},
-    [0xB0] = {"BCS", disrel, 2},  [0xB1] = {"LDA", disidy, 5},
-    [0xB4] = {"LDY", diszpx, 4},  [0xB5] = {"LDA", diszpx, 4},
-    [0xB6] = {"LDX", diszpy, 4},  [0xB8] = {"CLV", disimpl, 2},
-    [0xB9] = {"LDA", disaby, 4},  [0xBA] = {"TSX", disimpl, 2},
-    [0xBC] = {"LDY", disabx, 4},  [0xBD] = {"LDA", disabx, 4},
-    [0xBE] = {"LDX", disaby, 4},  [0xC0] = {"CPY", disimm, 2},
-    [0xC1] = {"CMP", disidx, 6},  [0xC4] = {"CPY", diszp, 3},
-    [0xC5] = {"CMP", diszp, 3},   [0xC6] = {"DEC", diszp, 5},
-    [0xC8] = {"INY", disimpl, 2}, [0xC9] = {"CMP", disimm, 2},
-    [0xCA] = {"DEX", disimpl, 2}, [0xCC] = {"CPY", disab, 4},
-    [0xCD] = {"CMP", disab, 4},   [0xCE] = {"DEC", disab, 6},
-    [0xD0] = {"BNE", disrel, 2},  [0xD1] = {"CMP", disidy, 5},
-    [0xD5] = {"CMP", diszpx, 4},  [0xD6] = {"DEC", diszpx, 6},
-    [0xD8] = {"CLD", disimpl, 2}, [0xD9] = {"CMP", disaby, 4},
-    [0xDD] = {"CMP", disabx, 4},  [0xDE] = {"DEC", disabx, 7},
-    [0xE0] = {"CPX", disimm, 2},  [0xE1] = {"SBC", disidx, 6},
-    [0xE4] = {"CPX", diszp, 3},   [0xE5] = {"SBC", diszp, 3},
-    [0xE6] = {"INC", diszp, 5},   [0xE8] = {"INX", disimpl, 2},
-    [0xE9] = {"SBC", disimm, 2},  [0xEA] = {"NOP", disimpl, 2},
-    [0xEC] = {"CPX", disab, 4},   [0xED] = {"SBC", disab, 4},
-    [0xEE] = {"INC", disab, 6},   [0xF0] = {"BEQ", disrel, 2},
-    [0xF1] = {"SBC", disidy, 5},  [0xF5] = {"SBC", diszpx, 4},
-    [0xF6] = {"INC", diszpx, 6},  [0xF8] = {"SED", disimpl, 2},
-    [0xF9] = {"SBC", disaby, 4},  [0xFD] = {"SBC", disabx, 4},
-    [0xFE] = {"INC", disabx, 7},
+    [0x00] = {"BRK", disimm},  [0x01] = {"ORA", disidx},
+    [0x05] = {"ORA", diszp},   [0x06] = {"ASL", diszp},
+    [0x08] = {"PHP", disimpl}, [0x09] = {"ORA", disimm},
+    [0x0A] = {"ASL", disimpl}, [0x0D] = {"ORA", disab},
+    [0x0E] = {"ASL", disab},   [0x10] = {"BPL", disrel},
+    [0x11] = {"ORA", disidy},  [0x15] = {"ORA", diszpx},
+    [0x16] = {"ASL", diszpx},  [0x18] = {"CLC", disimpl},
+    [0x19] = {"ORA", disaby},  [0x1D] = {"ORA", disabx},
+    [0x1E] = {"ASL", disabx},  [0x20] = {"JSR", disab},
+    [0x21] = {"AND", disidx},  [0x24] = {"BIT", diszp},
+    [0x25] = {"AND", diszp},   [0x26] = {"ROL", diszp},
+    [0x28] = {"PLP", disimpl}, [0x29] = {"AND", disimm},
+    [0x2A] = {"ROL", disimpl}, [0x2C] = {"BIT", disab},
+    [0x2D] = {"AND", disab},   [0x2E] = {"ROL", disab},
+    [0x30] = {"BMI", disrel},  [0x31] = {"AND", disidy},
+    [0x35] = {"AND", diszpx},  [0x36] = {"ROL", diszpx},
+    [0x38] = {"SEC", disimpl}, [0x39] = {"AND", disaby},
+    [0x3D] = {"AND", disabx},  [0x3E] = {"ROL", disabx},
+    [0x40] = {"RTI", disimpl}, [0x41] = {"EOR", disidx},
+    [0x45] = {"EOR", diszp},   [0x46] = {"LSR", diszp},
+    [0x48] = {"PHA", disimpl}, [0x49] = {"EOR", disimm},
+    [0x4A] = {"LSR", disimpl}, [0x4C] = {"JMP", disab},
+    [0x4D] = {"EOR", disab},   [0x4E] = {"LSR", disab},
+    [0x50] = {"BVC", disrel},  [0x51] = {"EOR", disidy},
+    [0x55] = {"EOR", diszpx},  [0x56] = {"LSR", diszpx},
+    [0x58] = {"CLI", disimpl}, [0x59] = {"EOR", disaby},
+    [0x5D] = {"EOR", disabx},  [0x5E] = {"LSR", disabx},
+    [0x60] = {"RTS", disimpl}, [0x61] = {"ADC", disidx},
+    [0x65] = {"ADC", diszp},   [0x66] = {"ROR", diszp},
+    [0x68] = {"PLA", disimpl}, [0x69] = {"ADC", disimm},
+    [0x6A] = {"ROR", disimpl}, [0x6C] = {"JMP", disid},
+    [0x6D] = {"ADC", disab},   [0x6E] = {"ROR", disab},
+    [0x70] = {"BVS", disrel},  [0x71] = {"ADC", disidy},
+    [0x75] = {"ADC", diszpx},  [0x76] = {"ROR", diszpx},
+    [0x78] = {"SEI", disimpl}, [0x79] = {"ADC", disaby},
+    [0x7D] = {"ADC", disabx},  [0x7E] = {"ROR", disabx},
+    [0x81] = {"STA", disidx},  [0x84] = {"STY", diszp},
+    [0x85] = {"STA", diszp},   [0x86] = {"STX", diszp},
+    [0x88] = {"DEY", disimpl}, [0x8A] = {"TXA", disimpl},
+    [0x8C] = {"STY", disab},   [0x8D] = {"STA", disab},
+    [0x8E] = {"STX", disab},   [0x90] = {"BCC", disrel},
+    [0x91] = {"STA", disidy},  [0x94] = {"STY", diszpx},
+    [0x95] = {"STA", diszpx},  [0x96] = {"STX", diszpy},
+    [0x98] = {"TYA", disimpl}, [0x99] = {"STA", disaby},
+    [0x9A] = {"TXS", disimpl}, [0x9D] = {"STA", disabx},
+    [0xA0] = {"LDY", disimm},  [0xA1] = {"LDA", disidx},
+    [0xA2] = {"LDX", disimm},  [0xA4] = {"LDY", diszp},
+    [0xA5] = {"LDA", diszp},   [0xA6] = {"LDX", diszp},
+    [0xA8] = {"TAY", disimpl}, [0xA9] = {"LDA", disimm},
+    [0xAA] = {"TAX", disimpl}, [0xAC] = {"LDY", disab},
+    [0xAD] = {"LDA", disab},   [0xAE] = {"LDX", disab},
+    [0xB0] = {"BCS", disrel},  [0xB1] = {"LDA", disidy},
+    [0xB4] = {"LDY", diszpx},  [0xB5] = {"LDA", diszpx},
+    [0xB6] = {"LDX", diszpy},  [0xB8] = {"CLV", disimpl},
+    [0xB9] = {"LDA", disaby},  [0xBA] = {"TSX", disimpl},
+    [0xBC] = {"LDY", disabx},  [0xBD] = {"LDA", disabx},
+    [0xBE] = {"LDX", disaby},  [0xC0] = {"CPY", disimm},
+    [0xC1] = {"CMP", disidx},  [0xC4] = {"CPY", diszp},
+    [0xC5] = {"CMP", diszp},   [0xC6] = {"DEC", diszp},
+    [0xC8] = {"INY", disimpl}, [0xC9] = {"CMP", disimm},
+    [0xCA] = {"DEX", disimpl}, [0xCC] = {"CPY", disab},
+    [0xCD] = {"CMP", disab},   [0xCE] = {"DEC", disab},
+    [0xD0] = {"BNE", disrel},  [0xD1] = {"CMP", disidy},
+    [0xD5] = {"CMP", diszpx},  [0xD6] = {"DEC", diszpx},
+    [0xD8] = {"CLD", disimpl}, [0xD9] = {"CMP", disaby},
+    [0xDD] = {"CMP", disabx},  [0xDE] = {"DEC", disabx},
+    [0xE0] = {"CPX", disimm},  [0xE1] = {"SBC", disidx},
+    [0xE4] = {"CPX", diszp},   [0xE5] = {"SBC", diszp},
+    [0xE6] = {"INC", diszp},   [0xE8] = {"INX", disimpl},
+    [0xE9] = {"SBC", disimm},  [0xEA] = {"NOP", disimpl},
+    [0xEC] = {"CPX", disab},   [0xED] = {"SBC", disab},
+    [0xEE] = {"INC", disab},   [0xF0] = {"BEQ", disrel},
+    [0xF1] = {"SBC", disidy},  [0xF5] = {"SBC", diszpx},
+    [0xF6] = {"INC", diszpx},  [0xF8] = {"SED", disimpl},
+    [0xF9] = {"SBC", disaby},  [0xFD] = {"SBC", disabx},
+    [0xFE] = {"INC", disabx},
 };
 
 static U16 disasm(U16 addr, U16 *cytot) {
   fprintf(stderr, "%04X ", addr);
   U8 op = MEM[addr++];
   DisEntry const *entry = &DISASM_TABLE[op];
-  U16 cycles;
   if (entry->fn) {
     addr = entry->fn(op, addr, entry->mne);
-    cycles = entry->cycles;
   } else {
     addr = disimpl(op, addr, "ILL");
-    cycles = 2;
   }
-  *cytot += cycles;
   fprintf(stderr, "\n");
-  // TODO: how to re-add cycle counter?
-  // fprintf(stderr, "/  %4u  +%u\n", *cytot, cycles);
   return addr;
 }
 
