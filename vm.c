@@ -445,41 +445,31 @@ static void printmatches(char const *prefix, size_t len) {
 static unsigned char dbgcompl(EditLine *el, int ch) {
   (void)ch;
   LineInfo const *li = el_line(el);
-
-  // Find the start of the current token
   char const *tok_start = li->cursor;
-  while (tok_start > li->buffer && !isspace(*(tok_start - 1))) {
+  while ((tok_start > li->buffer) && !isspace(*(tok_start - 1))) {
     --tok_start;
   }
-
   ptrdiff_t len = li->cursor - tok_start;
   if (len <= 0) {
     return CC_REFRESH;
   }
-
-  // Count matches in commands
   UInt matchcnt = 0;
-  DbgCmd const *cmd_match = NULL;
+  char const *match = NULL;
   for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
     if (strncmp(tok_start, cmd->name, len) == 0) {
-      cmd_match = cmd;
+      match = cmd->name;
       ++matchcnt;
     }
   }
-
-  // Count matches in symbols
-  Symbol const *sym_match = NULL;
   for (Symbol const *sym = symhead; sym; sym = sym->next) {
     if (strncmp(tok_start, sym->name, len) == 0) {
-      sym_match = sym;
+      match = sym->name;
       ++matchcnt;
     }
   }
-
   if (matchcnt == 1) {
     el_deletestr(el, len);
-    char const *completion = cmd_match ? cmd_match->name : sym_match->name;
-    el_insertstr(el, completion);
+    el_insertstr(el, match);
     return CC_REFRESH;
   }
   if (matchcnt > 1) {
