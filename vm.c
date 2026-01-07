@@ -274,13 +274,15 @@ static Int parse(char const *str) {
 static U16 disasm(U16 addr, U16 *cytot);
 static void regs();
 
-typedef enum { DBG_DEBUG, DBG_BREAK, DBG_CONTINUE } DbgResult;
+typedef enum { DBG_DEBUG, DBG_BREAK, DBG_CONTINUE, DBG_CLEAR } DbgResult;
 
 static DbgResult dbgquit() { exit(EXIT_SUCCESS); }
 
 static DbgResult dbgcont() { return DBG_CONTINUE; }
 
 static DbgResult dbgstep() { return DBG_BREAK; }
+
+static DbgResult dbgclear() { return DBG_CLEAR; }
 
 static DbgResult dbgnext() {
   U16 cytot = 0;
@@ -426,7 +428,7 @@ static DbgCmd const DEBUG_CMDS[] = {
     {"quit", dbgquit},      {"continue", dbgcont}, {"step", dbgstep},
     {"next", dbgnext},      {"break", dbgbreak},   {"delete", dbgdel},
     {"registers", dbgregs}, {"x", dbgexa},         {"examine", dbgexa},
-    {"disasm", dbgdis},     {NULL, NULL}};
+    {"disasm", dbgdis},     {"clear", dbgclear},   {NULL, NULL}};
 
 static char *dbgprompt(EditLine *el) {
   (void)el;
@@ -558,6 +560,9 @@ static void debugger() {
     if (res == DBG_CONTINUE) {
       debug = false;
       return;
+    }
+    if (res == DBG_CLEAR) {
+      el_push(el, "\x0C");
     }
   }
 }

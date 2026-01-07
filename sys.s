@@ -149,9 +149,6 @@ SysFind:
     pha
     tya
     pha
-    ; Calculate token length: Y - INOFF
-    ; example: hello
-    ;          ^    ^ :: Y=5, INOFF=0 -> length=5
     sec
     sbc INOFF
     beq @Return     ; Zero length token
@@ -189,7 +186,7 @@ SysFind:
     sta ADRH
     pla
     sta ADRL
-    bne @Return
+    jmp @Return
 @NextLink:
     pla             ; Restore ADR
     sta ADRH
@@ -214,6 +211,48 @@ SysFind:
 SysInterpret:
     jsr SysToken
     jsr SysFind
+    txa
+    pha
+    tya
+    pha
+    lda ADRL
+    ora ADRH
+    beq @TryParse
+    lda STATE
+    cmp #STATE_COMPILE
+    beq @Compile
+    pla
+    sta INOFF
+    pla
+    tax
+    ; TODO execute ADR somehow
+@Compile:
+    ldx ADRL
+    ldy ADRH
+    lda HERE+0
+    sta ADRL
+    lda HERE+1
+    sta ADRH
+    tya
+    ldy #0
+    sta (ADR), y
+    iny
+    txa
+    sta (ADR), y
+    lda HERE+0
+    clc
+    adc #2
+    bcc :+
+    inc HERE+1
+:   sta HERE+0
+    jmp @Return
+@TryParse:
+
+@Return:
+    pla
+    sta INOFF       ; Update INOFF to token end
+    pla
+    tax
     rts
 
 ; ( addr -- n )
