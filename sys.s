@@ -44,7 +44,7 @@ HERE:    .word HERESTART ; Heap pointer
 STATE:   .byt 0          ; Interpreter state
 ERRNO:   .byt 0          ; General-purpose error register
 M:       .word 0         ; Native scratch register
-Q:       .word 0         ; Nop scratch register
+Q:       .word 0         ; Language scratch register
 EMIT:    .word 0         ; 'emit' routine
 KEY:     .word 0         ; 'key?' routine
 RDIN:    .word SysRefill ; 'refill' routine
@@ -65,10 +65,10 @@ DoCell:
 
 ; Jump to (IP) and increment IP by 2
 DoNext:
-    lda IPL
-    sta ADRL
     lda IPH
     sta ADRH
+    lda IPL
+    sta ADRL
     clc
     adc #2
     bcc :+
@@ -78,21 +78,19 @@ DoNext:
 
 SysRefill:
     ldy INOFF
-    beq :++++++
+    beq @Return
     txa
     pha
-    ; Move all bytes backwards
     ldx #0
     stx INOFF
-:   cpy #INLEN
+:   cpy #INLEN      ; Move all bytes backwards
     beq :+
     lda INBUF, y
     sta INBUF, x
     inx
     iny
     bne :-
-    ; X is (INLEN - INOFF), read that many bytes
-:   lda SYSTXT+0
+:   lda SYSTXT+0    ; Read X bytes from SYSTXT
     sta ADRL
     lda SYSTXT+1
     sta ADRH
@@ -104,50 +102,46 @@ SysRefill:
     inx
     iny
     bne :-
-    ; SYSTXT += Y
-:   clc
+:   clc             ; Add Y to SYSTXT
     tya
     adc ADRL
     sta SYSTXT+0
     bcc :+
-:   inc SYSTXT+1
-    pla
+    inc SYSTXT+1
+:   pla
     tax
-:   rts
+@Return:
+    rts
 
-; Returns word with range (INOFF, Y] in INBUF
-SysWord:
+; Returns token with range [INOFF,Y) in INBUF
+SysToken:
     jsr SysRefill
     ldy #0
-    ; Skip leading spaces
-:   lda INBUF, y
+:   lda INBUF, y    ; Skip leading non-printable
     iny
-    cmp #' '
-    beq :-
+    cmp #'!'
+    bcc :-
     dey
-    ; INOFF is start of word
-    sty INOFF
+    sty INOFF       ; INOFF is token start
 :   lda INBUF, y
     iny
     cmp #'"'
     beq :++
     cmp #' '
-    bne :-
+    bcs :-
 :   dey
-:   dey
-    rts ; Y is end of word
+:   rts             ; Y is token end
 
 ; .byt  name, ...
 ; .word prev
 ; .byt  flaglen
 ; native code / JSR to DTC routine
 
-; Assuming word with range (INOFF,Y] in INBUF
+; Assuming token with range [INOFF,Y) in INBUF
 ; On exit:
-; * ADR points to the found word, or NULL
+; * ADR points to the found token, or NULL
 ; * INOFF and Y are unchanged
 SysFind:
-    ; Initialize ADRL/ADRH to NULL
     lda #0
     sta ADRL
     sta ADRH
@@ -155,66 +149,70 @@ SysFind:
     pha
     tya
     pha
-    ; Calculate word length: Y - INOFF + 1
+    ; Calculate token length: Y - INOFF
     ; example: hello
-    ;          ^   ^ :: Y=4, INOFF=0 -> length=5
+    ;          ^    ^ :: Y=5, INOFF=0 -> length=5
     sec
     sbc INOFF
-    beq :+++++ ; Zero diff, not found
-    sta ERRNO ; Store length in ERRNO
-    inc ERRNO ; Adjust for inclusive range
-    ; Load CURRENT into ADR
-    lda CURRENT+0
+    beq @Return     ; Zero length token
+    sta M           ; Store length in M
+    lda CURRENT+0   ; Load initial ADR
     sta ADRL
     lda CURRENT+1
     sta ADRH
-    ; Walk dictionary linked list
-:   ldy #2
-    lda (ADR), y ; Get flaglen byte at offset +2
+@CheckLen:
+    lda ADRL        ; Save ADR
+    pha
+    lda ADRH
+    pha
+    ldy #2
+    lda (ADR), y    ; Get flaglen byte at offset +2
     and #FLAG_MASK
-    cmp ERRNO
-    bne :+++ ; Length mismatch, try next
-    ; Store address of word name start in M
-    ldy #1
-    lda (ADR), y
-    tax
-    dey
-    lda (ADR), y
-    sec
-    sbc ERRNO
-    bcc :+
-    inx
-:   sta M+0
-    stx M+1
-    ; Comare chars
+    cmp M
+    bne @NextLink
+    lda ADRL
+    sec             ; ADR -= token len
+    sbc M
+    bcs :+
+    dec ADRH
+:   sta ADRL
+    ldy #0
     ldx INOFF
-:   lda M, y
+:   lda (ADR), y    ; Compare bytes
     cmp INBUF, x
-    bne :+ ; Mismatch, try next word
+    bne @NextLink
     inx
     iny
+    cpy M
     bne :-
-    ; Found! ADR points to prev pointer - branch to exit
-    beq :++
-    ; Try next word in linked list
-:   ldy #0
-    lda (ADR), y ; Load prev pointer low byte
+    pla             ; Full match! Restore ADR before exit
+    sta ADRH
+    pla
+    sta ADRL
+    bne @Return
+@NextLink:
+    pla             ; Restore ADR
+    sta ADRH
+    pla
+    sta ADRL
+    ldy #0
+    lda (ADR), y
     tax
     iny
-    lda (ADR), y ; Load prev pointer high byte
+    lda (ADR), y
     stx ADRL
     sta ADRH
-    ora ADRL ; Check if null
-    bne :---- ; Continue if not null
-    ; Not found - ADR is null, fall through to exit
-:   pla
+    ora ADRL
+    bne @CheckLen   ; Continue if ADR not null
+@Return:
+    pla
     tay
     pla
     tax
     rts
 
 SysInterpret:
-    jsr SysWord
+    jsr SysToken
     jsr SysFind
     rts
 
@@ -229,7 +227,7 @@ _Load:
     lda ($00, x)
     sty $00, x
     sta $01, x
-    rts
+    jmp DoNext
 
 ; ( addr -- b )
 .byt "@b"
@@ -242,7 +240,7 @@ _LoadByte:
     bpl :+
     dey
 :   sta $01, x
-    rts
+    jmp DoNext
 
 ; ( addr -- bu )
 .byt "@bu"
@@ -253,7 +251,7 @@ _LoadByteUnsigned:
     sta $00, x
     lda #0
     sta $01, x
-    rts
+    jmp DoNext
 
 ; ( n addr -- )
 .byt "!"
@@ -269,7 +267,7 @@ _Store:
     inx
     inx
     inx
-    rts
+    jmp DoNext
 
 ; ( b addr -- )
 .byt "!b"
@@ -282,7 +280,7 @@ _StoreByte:
     inx
     inx
     inx
-    rts
+    jmp DoNext
 
 ; P: ( n -- ) R: ( -- n )
 .byt ">R"
@@ -295,7 +293,7 @@ _PushR:
     pha
     inx
     inx
-    rts
+    jmp DoNext
 
 ; R: ( n -- ) P: ( -- n )
 .byt "R>"
@@ -308,7 +306,7 @@ _PullR:
     sta $00, x
     pla
     sta $01, x
-    rts
+    jmp DoNext
 
 ; ( n -- )
 .byt "drop"
@@ -317,7 +315,7 @@ _PullR:
 _Drop:
     inx
     inx
-    rts
+    jmp DoNext
 
 ; ( n -- n n )
 .byt "dup"
@@ -330,7 +328,7 @@ _Dup:
     dex
     sta $00, x
     sty $01, x
-    rts
+    jmp DoNext
 
 ; ( n1 n2 -- n2 n1 )
 .byt "swap"
@@ -347,7 +345,7 @@ _Swap:
     lda $03, x
     sta $01, x
     sty $03, x
-    rts
+    jmp DoNext
 
 ; ( n1 n2 -- n1 n2 n1 )
 ; TODO: >R dup R> swap
@@ -361,7 +359,7 @@ _Over:
     dex
     sta $00, x
     sty $01, x
-    rts
+    jmp DoNext
 
 ; ( n1 n2 -- n1 & n2 )
 .byt "and"
@@ -376,7 +374,7 @@ _And:
     sta $03, x
     inx
     inx
-    rts
+    jmp DoNext
 
 ; ( n1 n2 -- n1 | n2 )
 .byt "or"
@@ -391,7 +389,7 @@ _Or:
     sta $03, x
     inx
     inx
-    rts
+    jmp DoNext
 
 ; ( n1 n2 -- n1 ^ n2 )
 .byt "xor"
@@ -406,7 +404,7 @@ _Xor:
     sta $03, x
     inx
     inx
-    rts
+    jmp DoNext
 
 ; ( n1 n2 -- n1 + n2 )
 .byt "+"
@@ -422,7 +420,7 @@ _Add:
     sta $03, x
     inx
     inx
-    rts
+    jmp DoNext
 
 ; ( n1 n2 -- n1 - n2 )
 .byt "-"
@@ -438,7 +436,7 @@ _Sub:
     sta $03, x
     inx
     inx
-    rts
+    jmp DoNext
 
 ; ( addr -- )
 .byt "goto"

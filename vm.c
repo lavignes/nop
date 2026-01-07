@@ -1,5 +1,4 @@
 #include <ctype.h>
-#include <histedit.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -8,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <histedit.h>
 
 typedef uint8_t U8;
 typedef int8_t I8;
@@ -198,12 +199,18 @@ static void symload(char const *filename) {
   for (UInt lineno = 0; fgets(line, sizeof(line), file); ++lineno) {
     char name[64];
     Int val;
-    if (sscanf(line, "%63[^,], 0x%" INT_FMTX, name, &val) != 2) {
+    Int block;
+    if (sscanf(line, "%63[^,], 0x%" INT_FMTX ", %" INT_FMT, name, &val,
+               &block) != 3) {
       fprintf(stderr, "Invalid labellist line %" UINT_FMT ": %s", lineno, line);
       continue;
     }
     // filter out invalid names
     if (!isalpha(name[0]) && (name[0] != '_')) {
+      continue;
+    }
+    // filter out local labels (block != 0)
+    if (block != 0) {
       continue;
     }
     symadd(name, val);
@@ -243,7 +250,7 @@ static Int parse(char const *str) {
     val = (unsigned long)PC;
   } else if ((strcmp(str, "sp") == 0 || strcmp(str, "SP") == 0)) {
     val = (unsigned long)SP;
-  } else if ((strcmp(str, "*pc") == 0) || (strcmp(str, "*pc") == 0)) {
+  } else if ((strcmp(str, "*pc") == 0) || (strcmp(str, "*PC") == 0)) {
     val = (unsigned long)MEM[PC];
   } else if ((strcmp(str, "*sp") == 0) || (strcmp(str, "*SP") == 0)) {
     val = (unsigned long)MEM[SP];
@@ -565,6 +572,18 @@ static void regs() {
           (P & FLAG_CARRY) ? 'C' : '.');
 }
 
+static void dissym(U16 addr) {
+  Symbol const *sym = symvalfind((UInt)addr);
+  if (sym) {
+    fprintf(stderr, "; %s", sym->name);
+    return;
+  }
+  sym = symvalfind((UInt)(addr - 1));
+  if (sym) {
+    fprintf(stderr, "; %s+1", sym->name);
+  }
+}
+
 static U16 disimpl(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, " %02X      ", op);
   fprintf(stderr, "  %s            ", mne);
@@ -582,10 +601,7 @@ static U16 diszp(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s $%02X        ", mne, zp);
-  Symbol const *sym = symvalfind((UInt)zp);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym((U16)zp);
   return addr;
 }
 
@@ -593,10 +609,7 @@ static U16 diszpx(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s $%02X,X      ", mne, zp);
-  Symbol const *sym = symvalfind((UInt)zp);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym((U16)zp);
   return addr;
 }
 
@@ -604,10 +617,7 @@ static U16 diszpy(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s $%02X,Y      ", mne, zp);
-  Symbol const *sym = symvalfind((UInt)zp);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym((U16)zp);
   return addr;
 }
 
@@ -617,10 +627,7 @@ static U16 disab(U8 op, U16 addr, char const *mne) {
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  %s $%04X      ", mne, ab);
-  Symbol const *sym = symvalfind((UInt)ab);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym(ab);
   return addr;
 }
 
@@ -630,10 +637,7 @@ static U16 disabx(U8 op, U16 addr, char const *mne) {
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  %s $%04X,X    ", mne, ab);
-  Symbol const *sym = symvalfind((UInt)ab);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym(ab);
   return addr;
 }
 
@@ -643,10 +647,7 @@ static U16 disaby(U8 op, U16 addr, char const *mne) {
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  %s $%04X,Y    ", mne, ab);
-  Symbol const *sym = symvalfind((UInt)ab);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym(ab);
   return addr;
 }
 
@@ -656,10 +657,7 @@ static U16 disid(U8 op, U16 addr, char const *mne) {
   U16 ptr = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  %s ($%04X)    ", mne, ptr);
-  Symbol const *sym = symvalfind((UInt)ptr);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym(ptr);
   return addr;
 }
 
@@ -667,10 +665,7 @@ static U16 disidx(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s ($%02X,X)    ", mne, zp);
-  Symbol const *sym = symvalfind((UInt)zp);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym((U16)zp);
   return addr;
 }
 
@@ -678,10 +673,7 @@ static U16 disidy(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  %s ($%02X),Y    ", mne, zp);
-  Symbol const *sym = symvalfind((UInt)zp);
-  if (sym) {
-    fprintf(stderr, "; %s", sym->name);
-  }
+  dissym((U16)zp);
   return addr;
 }
 
@@ -690,10 +682,7 @@ static U16 disrel(U8 op, U16 addr, char const *mne) {
   U16 target = addr + offset;
   fprintf(stderr, " %02X %02X   ", op, (U8)offset);
   fprintf(stderr, "  %s $%04X      ", mne, target);
-  Symbol const *sym = symvalfind((UInt)target);
-  if (sym) {
-    fprintf(stderr, " ; %s", sym->name);
-  }
+  dissym(target);
   return addr;
 }
 
