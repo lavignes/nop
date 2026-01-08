@@ -410,9 +410,10 @@ static DbgResult dbgdis() {
       return DBG_DEBUG;
     }
   }
-  U16 addr = (U16)start, cytot = 0;
+  U16 addr = (U16)start;
+  U16 cytot = 0;
   Int count = 0;
-  while (count < len && addr <= U16_MAX) {
+  while ((count < len) && (addr <= U16_MAX)) {
     addr = disasm(addr, &cytot);
     count++;
   }
@@ -778,6 +779,10 @@ static DisEntry const DISASM_TABLE[256] = {
 };
 
 static U16 disasm(U16 addr, U16 *cytot) {
+  Symbol const *sym = symvalfind((UInt)addr);
+  if (sym) {
+    fprintf(stderr, "%s:\n", sym->name);
+  }
   fprintf(stderr, "%04X ", addr);
   U8 op = MEM[addr++];
   DisEntry const *entry = &DISASM_TABLE[op];

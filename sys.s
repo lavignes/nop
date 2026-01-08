@@ -78,7 +78,7 @@ DoNext:
     jmp ADRJ
 
 SysRefill:
-    ldy INOFF
+    ldy INSTART
     beq @Return
     txa
     pha
@@ -175,7 +175,7 @@ SysFind:
     dec ADRH
 :   sta ADRL
     ldy #0
-    ldx INOFF
+    ldx INSTART
 :   lda (ADR), y    ; Compare bytes
     cmp INBUF, x
     bne @NextLink
