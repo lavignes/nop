@@ -48,7 +48,8 @@ Q:       .word 0         ; Language scratch register
 EMIT:    .word 0         ; 'emit' routine
 KEY:     .word 0         ; 'key?' routine
 RDIN:    .word SysRefill ; 'refill' routine
-INOFF:   .byt  INLEN     ; Offset into INBUF
+INSTART: .byt  INLEN     ; Read offset into INBUF
+INEND:   .byt  INLEN     ; Token end inclusive offset
 INBUF:   .dsb  INLEN,0   ; Input buffer
 
 SYSTXT:  .word SYSTXTSTART
@@ -82,7 +83,8 @@ SysRefill:
     txa
     pha
     ldx #0
-    stx INOFF
+    stx INSTART
+    stx INEND
 :   cpy #INLEN      ; Move all bytes backwards
     beq :+
     lda INBUF, y
@@ -113,7 +115,7 @@ SysRefill:
 @Return:
     rts
 
-; Returns token with range [INOFF,Y) in INBUF
+; Tokenizes and updates INSTART, INEND
 SysToken:
     jsr SysRefill
     ldy #0
@@ -122,7 +124,7 @@ SysToken:
     cmp #'!'
     bcc :-
     dey
-    sty INOFF       ; INOFF is token start
+    sty INSTART
 :   lda INBUF, y
     iny
     cmp #'"'
@@ -130,27 +132,26 @@ SysToken:
     cmp #' '
     bcs :-
 :   dey
-:   rts             ; Y is token end
+:   sty INEND
+		rts
 
 ; .byt  name, ...
 ; .word prev
 ; .byt  flaglen
 ; native code / JSR to DTC routine
 
-; Assuming token with range [INOFF,Y) in INBUF
+; Assuming token with range [INSTART, INEND] in INBUF
 ; On exit:
 ; * ADR points to the found token, or NULL
-; * INOFF and Y are unchanged
 SysFind:
     lda #0
     sta ADRL
     sta ADRH
     txa
     pha
-    tya
-    pha
+    lda INEND
     sec
-    sbc INOFF
+    sbc INSTART
     beq @Return     ; Zero length token
     sta M           ; Store length in M
     lda CURRENT+0   ; Load initial ADR
@@ -203,8 +204,6 @@ SysFind:
     bne @CheckLen   ; Continue if ADR not null
 @Return:
     pla
-    tay
-    pla
     tax
     rts
 
@@ -213,16 +212,14 @@ SysInterpret:
     jsr SysFind
     txa
     pha
-    tya
-    pha
     lda ADRL
     ora ADRH
     beq @TryParse
     lda STATE
     cmp #STATE_COMPILE
     beq @Compile
-    pla
-    sta INOFF
+    lda INEND
+    sta INSTART
     pla
     tax
     ; TODO execute ADR somehow
@@ -249,8 +246,8 @@ SysInterpret:
 @TryParse:
 
 @Return:
-    pla
-    sta INOFF       ; Update INOFF to token end
+    lda INEND
+    sta INSTART
     pla
     tax
     rts
