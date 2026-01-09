@@ -236,6 +236,46 @@ static Symbol const *symvalfind(Int val) {
   return NULL;
 }
 
+enum {
+  TOK_EOF = 0x04,
+  TOK_NUM = 0x256,
+  TOK_ID,
+  TOK_SRA, // >>
+  TOK_SRL, // ~>
+  TOK_SLL, // <<
+  TOK_AND, // &&
+  TOK_OR,  // ||
+  TOK_LTE, // <=
+  TOK_GTE, // >=
+  TOK_EQ,  // ==
+  TOK_NEQ, // !=
+};
+
+typedef struct {
+  char const *start;
+  UInt len;
+  UInt type;
+} Tok;
+
+static Tok tokstash = {NULL, 0, 0};
+
+static Tok peek(char const *str) {
+  if (!str) {
+    if (tokstash.start || (tokstash.type == TOK_EOF)) {
+      return tokstash;
+    }
+  }
+
+  return tokstash;
+}
+
+static void eat() {
+  if (tokstash.start) {
+    tokstash.start += tokstash.len;
+    tokstash.len = 0;
+  }
+}
+
 typedef int (*CTypeFn)(int);
 
 static size_t ctypespn(char const *s, CTypeFn ctype) {
@@ -947,7 +987,7 @@ static void adc(U8 *val) {
   A = res;
 }
 
-static void and(U8 *val) {
+static void and (U8 * val) {
   A &= *val;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
@@ -1299,12 +1339,12 @@ static OpEntry const OP_TABLE[256] = {
     [0x10] = {bpl, imm},  [0x11] = {ora, idy},  [0x15] = {ora, zpx},
     [0x16] = {asl, zpx},  [0x18] = {clc, impl}, [0x19] = {ora, aby},
     [0x1D] = {ora, abx},  [0x1E] = {asl, abx},  [0x20] = {jsr, jab},
-    [0x21] = {and, idx},  [0x24] = {bit, zp},   [0x25] = {and, zp},
-    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = {and, imm},
-    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = {and, ab},
-    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = {and, idy},
-    [0x35] = {and, zpx},  [0x36] = {rol, zpx},  [0x38] = {sec, impl},
-    [0x39] = {and, aby},  [0x3D] = {and, abx},  [0x3E] = {rol, abx},
+    [0x21] = { and, idx}, [0x24] = {bit, zp},   [0x25] = { and, zp},
+    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = { and, imm},
+    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = { and, ab},
+    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = { and, idy},
+    [0x35] = { and, zpx}, [0x36] = {rol, zpx},  [0x38] = {sec, impl},
+    [0x39] = { and, aby}, [0x3D] = { and, abx}, [0x3E] = {rol, abx},
     [0x40] = {rti, impl}, [0x41] = {eor, idx},  [0x45] = {eor, zp},
     [0x46] = {lsr, zp},   [0x48] = {pha, impl}, [0x49] = {eor, imm},
     [0x4A] = {lsr, acc},  [0x4C] = {jmp, jab},  [0x4D] = {eor, ab},
