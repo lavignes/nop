@@ -236,6 +236,64 @@ static Symbol const *symvalfind(Int val) {
   return NULL;
 }
 
+typedef int (*CTypeFn)(int);
+
+static size_t ctypespn(char const *s, CTypeFn ctype) {
+  size_t len = 0;
+  while (s[len] && ctype((unsigned char)s[len])) {
+    ++len;
+  }
+  return len;
+}
+
+static size_t ctypecspn(char const *s, CTypeFn ctype) {
+  size_t len = 0;
+  while (s[len] && !ctype((unsigned char)s[len])) {
+    ++len;
+  }
+  return len;
+}
+
+// strtok but peeks by default (pass NULLs to consume)
+static char const *stok(char *str, CTypeFn ctype) {
+  static char *current = NULL;
+  static char *tokstart = NULL;
+  static char *tokend = NULL;
+  static char savedchar = '\0';
+  if (str) {
+    current = str;
+    tokstart = NULL;
+    tokend = NULL;
+    savedchar = '\0';
+  }
+  if (!str && !ctype) {
+    if (tokstart) {
+      if (savedchar != '\0') {
+        *tokend = savedchar;
+        savedchar = '\0';
+      }
+      current = tokend;
+      tokstart = NULL;
+    }
+    return NULL;
+  }
+  if (tokstart) {
+    return tokstart;
+  }
+  if (!current || (*current == '\0')) {
+    return NULL;
+  }
+  current += ctypespn(current, ctype);
+  if (*current == '\0') {
+    return NULL;
+  }
+  tokstart = current;
+  tokend = current + ctypecspn(current, ctype);
+  savedchar = *tokend;
+  *tokend = '\0';
+  return tokstart;
+}
+
 static Int parse(char const *str) {
   bool neg = str[0] == '-';
   if (neg || (str[0] == '+')) {
@@ -301,7 +359,7 @@ static DbgResult dbgregs() {
 }
 
 static DbgResult dbgbreak() {
-  char *tok = strtok(NULL, " \t\n");
+  char const *tok = stok(NULL, isspace);
   if (!tok) {
     fprintf(stderr, "No address provided for breakpoint\n");
     return DBG_DEBUG;
@@ -321,7 +379,7 @@ static DbgResult dbgbreak() {
 }
 
 static DbgResult dbgdel() {
-  char *tok = strtok(NULL, " \t\n");
+  char const *tok = stok(NULL, isspace);
   if (!tok) {
     fprintf(stderr, "No breakpoint number provided for deletion\n");
     return DBG_DEBUG;
@@ -350,15 +408,16 @@ static DbgResult dbgdel() {
 static DbgResult dbgexa() {
   Int start = PC;
   Int len = 16;
-  char *tok = strtok(NULL, " \t\n");
+  char const *tok = stok(NULL, isspace);
   if (tok) {
     start = parse(tok);
     if ((start == INT_MAX) || (start > U16_MAX)) {
       fprintf(stderr, "Invalid address for examine: %s\n", tok);
       return DBG_DEBUG;
     }
+    stok(NULL, NULL);
   }
-  tok = strtok(NULL, " \t\n");
+  tok = stok(NULL, isspace);
   if (tok) {
     len = parse(tok);
     if ((len == INT_MAX) || (len <= 0)) {
@@ -394,15 +453,16 @@ static DbgResult dbgexa() {
 static DbgResult dbgdis() {
   Int start = PC;
   Int len = 1;
-  char *tok = strtok(NULL, " \t\n");
+  char const *tok = stok(NULL, isspace);
   if (tok) {
     start = parse(tok);
     if ((start == INT_MAX) || (start > U16_MAX)) {
       fprintf(stderr, "Invalid address for disasm: %s\n", tok);
       return DBG_DEBUG;
     }
+    stok(NULL, NULL);
   }
-  tok = strtok(NULL, " \t\n");
+  tok = stok(NULL, isspace);
   if (tok) {
     len = parse(tok);
     if ((len == INT_MAX) || (len <= 0)) {
@@ -518,12 +578,12 @@ static void debugger() {
       exit(EXIT_FAILURE);
     }
     workline = strdup(line);
-    char *tok = strtok(workline, " \t\n");
+    char const *tok = stok(workline, isspace);
     if (!tok) {
       if (prevline) {
         free(workline);
         workline = strdup(prevline);
-        tok = strtok(workline, " \t\n");
+        tok = stok(workline, isspace);
       }
       if (!tok) {
         continue;
@@ -553,8 +613,8 @@ static void debugger() {
       fprintf(stderr, ")\n");
       continue;
     }
-    DbgCmd const *cmd = match;
-    DbgResult res = cmd->fn();
+    stok(NULL, NULL);
+    DbgResult res = match->fn();
     if (res == DBG_BREAK) {
       break;
     }
