@@ -403,9 +403,6 @@ typedef struct {
 
 static U8 prec(Tok tok, bool unary) {
   if (unary) {
-    if (tok.type == '(') {
-      return U8_MAX;
-    }
     return 0;
   }
   switch (tok.type) {
@@ -604,6 +601,10 @@ static Int solve() {
 }
 
 static void pushop(Tok tok, bool unary) {
+  if (tok.type == '(') {
+    ostack[olen++] = (Expr){EXPR_OP, tok, true};
+    return;
+  }
   while (olen > 0) {
     Expr top = ostack[--olen];
     if (prec(top.tok, top.unary) >= prec(tok, unary)) {
