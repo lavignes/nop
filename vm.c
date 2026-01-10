@@ -12,14 +12,12 @@
 
 typedef uint8_t U8;
 typedef int8_t I8;
-
 #define U8_MAX UINT8_MAX
 #define I8_MAX INT8_MAX
 #define I8_MIN INT8_MIN
 
 typedef uint16_t U16;
 typedef int16_t I16;
-
 #define U16_MAX UINT16_MAX
 #define I16_MAX INT16_MAX
 #define I16_MIN INT16_MIN
@@ -218,9 +216,9 @@ static void symload(char const *filename) {
   fclose(file);
 }
 
-static Symbol const *symfind(char const *name) {
+static Symbol const *symfind(char const *name, size_t namelen) {
   for (Symbol const *sym = symhead; sym; sym = sym->next) {
-    if (strcmp(name, sym->name) == 0) {
+    if (strncmp(name, sym->name, namelen) == 0) {
       return sym;
     }
   }
@@ -237,8 +235,9 @@ static Symbol const *symvalfind(Int val) {
 }
 
 enum {
-  TOK_EOF = 0x04,
-  TOK_NUM = 0x256,
+  TOK_EOE = 0x04,
+  TOK_ERR = 0x256,
+  TOK_NUM,
   TOK_ID,
   TOK_SRA, // >>
   TOK_SRL, // ~>
@@ -251,23 +250,23 @@ enum {
   TOK_NEQ, // !=
 };
 
+static struct {
+  char const *name;
+  UInt type;
+} const DIGRAPHS[] = {
+    {"<<", TOK_SLL}, {"~>", TOK_SRL}, {">>", TOK_SRA},
+    {"&&", TOK_AND}, {"||", TOK_OR},  {"<=", TOK_LTE},
+    {">=", TOK_GTE}, {"==", TOK_EQ},  {"!=", TOK_NEQ},
+};
+
 typedef struct {
   char const *start;
-  UInt len;
+  size_t len;
   UInt type;
+  Int val;
 } Tok;
 
-static Tok tokstash = {NULL, 0, 0};
-
-static Tok peek(char const *str) {
-  if (!str) {
-    if (tokstash.start || (tokstash.type == TOK_EOF)) {
-      return tokstash;
-    }
-  }
-
-  return tokstash;
-}
+static Tok tokstash = {NULL, 0, TOK_EOE, 0};
 
 static void eat() {
   if (tokstash.start) {
@@ -276,97 +275,448 @@ static void eat() {
   }
 }
 
-typedef int (*CTypeFn)(int);
-
-static size_t ctypespn(char const *s, CTypeFn ctype) {
-  size_t len = 0;
-  while (s[len] && ctype((unsigned char)s[len])) {
-    ++len;
-  }
-  return len;
-}
-
-static size_t ctypecspn(char const *s, CTypeFn ctype) {
-  size_t len = 0;
-  while (s[len] && !ctype((unsigned char)s[len])) {
-    ++len;
-  }
-  return len;
-}
-
-// strtok but peeks by default (pass NULLs to consume)
-static char const *stok(char *str, CTypeFn ctype) {
-  static char *current = NULL;
-  static char *tokstart = NULL;
-  static char *tokend = NULL;
-  static char savedchar = '\0';
-  if (str) {
-    current = str;
-    tokstart = NULL;
-    tokend = NULL;
-    savedchar = '\0';
-  }
-  if (!str && !ctype) {
-    if (tokstart) {
-      if (savedchar != '\0') {
-        *tokend = savedchar;
-        savedchar = '\0';
-      }
-      current = tokend;
-      tokstart = NULL;
+static Tok peek(char const *str) {
+  if (!str) {
+    if (tokstash.type == TOK_EOE) {
+      return tokstash;
     }
-    return NULL;
+    str = tokstash.start;
+  } else {
+    tokstash.start = str;
   }
-  if (tokstart) {
-    return tokstart;
-  }
-  if (!current || (*current == '\0')) {
-    return NULL;
-  }
-  current += ctypespn(current, ctype);
-  if (*current == '\0') {
-    return NULL;
-  }
-  tokstart = current;
-  tokend = current + ctypecspn(current, ctype);
-  savedchar = *tokend;
-  *tokend = '\0';
-  return tokstart;
-}
-
-static Int parse(char const *str) {
-  bool neg = str[0] == '-';
-  if (neg || (str[0] == '+')) {
+  tokstash.type = TOK_EOE;
+  while (isspace((unsigned char)*str)) {
     ++str;
   }
-  long val = LONG_MAX;
-  if (str[0] == '$') {
-    val = strtol(str + 1, NULL, 16);
-  } else if (str[0] == '%') {
-    val = strtol(str + 1, NULL, 2);
-  } else if ((strcmp(str, "pc") == 0 || strcmp(str, "PC") == 0)) {
-    val = (unsigned long)PC;
-  } else if ((strcmp(str, "sp") == 0 || strcmp(str, "SP") == 0)) {
-    val = (unsigned long)SP;
-  } else if ((strcmp(str, "*pc") == 0) || (strcmp(str, "*PC") == 0)) {
-    val = (unsigned long)MEM[PC];
-  } else if ((strcmp(str, "*sp") == 0) || (strcmp(str, "*SP") == 0)) {
-    val = (unsigned long)MEM[SP];
-  } else if (isdigit(str[0])) {
-    val = strtol(str, NULL, 10);
-  } else {
-    Symbol const *sym = symfind(str);
-    if (sym) {
-      val = (long)sym->val;
+  if (*str == '\0') {
+    return tokstash;
+  }
+  tokstash.start = str;
+  if (*str == '\'') {
+    ++str;
+    switch (*str) {
+    case '\0':
+      tokstash.type = TOK_ERR;
+      tokstash.len = 0;
+      return tokstash;
+    case '\\':
+      ++str;
+      switch (*str) {
+      case 'n':
+        tokstash.val = '\n';
+        break;
+      case 't':
+        tokstash.val = '\t';
+        break;
+      case '\'':
+        tokstash.val = '\'';
+        break;
+      case '\\':
+        tokstash.val = '\\';
+        break;
+      case '0':
+        tokstash.val = '\0';
+        break;
+      default:
+        tokstash.type = TOK_ERR;
+        tokstash.len = 0;
+        return tokstash;
+      }
+    default:
+      tokstash.val = (Int)(unsigned char)(*str);
+      break;
+    }
+    ++str;
+    if (*str != '\'') {
+      tokstash.type = TOK_ERR;
+      tokstash.len = 0;
+      return tokstash;
+    }
+    ++str;
+    tokstash.type = TOK_NUM;
+    tokstash.len = 3;
+    return tokstash;
+  }
+  if (isdigit((unsigned char)*str) || (*str == '$') || (*str == '%')) {
+    if (*str == '%') {
+      ++str;
+      if ((*str != '0') && (*str != '1')) {
+        // edge case, this is a modulus
+        tokstash.type = '%';
+        tokstash.len = 1;
+        return tokstash;
+      }
+      while ((*str == '0') || (*str == '1')) {
+        ++str;
+      }
+      tokstash.val = strtol(tokstash.start + 1, NULL, 2);
+    } else if (*str == '$') {
+      ++str;
+      while (isxdigit((unsigned char)*str)) {
+        ++str;
+      }
+      tokstash.val = strtol(tokstash.start + 1, NULL, 16);
+    } else {
+      while (isdigit((unsigned char)*str)) {
+        ++str;
+      }
+      tokstash.val = strtol(tokstash.start, NULL, 10);
+    }
+    tokstash.len = str - tokstash.start;
+    tokstash.type = TOK_NUM;
+    return tokstash;
+  }
+  if (isalpha((unsigned char)*str) || (*str == '_')) {
+    ++str;
+    while (isalnum((unsigned char)*str) || (*str == '_')) {
+      ++str;
+    }
+    tokstash.len = str - tokstash.start;
+    tokstash.type = TOK_ID;
+    return tokstash;
+  }
+  for (UInt i = 0; i < (sizeof(DIGRAPHS) / sizeof(DIGRAPHS[0])); ++i) {
+    char const *dg = DIGRAPHS[i].name;
+    size_t dgl = strlen(dg);
+    if (strncmp(str, dg, dgl) == 0) {
+      tokstash.type = DIGRAPHS[i].type;
+      tokstash.len = dgl;
+      return tokstash;
     }
   }
-  if (val == LONG_MAX) {
+  tokstash.type = (unsigned char)*str;
+  tokstash.len = 1;
+  return tokstash;
+}
+
+enum {
+  EXPR_NUM,
+  EXPR_ID,
+  EXPR_OP,
+};
+
+typedef struct {
+  UInt kind;
+  Tok tok;
+  bool unary;
+} Expr;
+
+static U8 prec(Tok tok, bool unary) {
+  if (unary) {
+    if (tok.type == '(') {
+      return U8_MAX;
+    }
+    return 0;
+  }
+  switch (tok.type) {
+  case '/':
+  case '%':
+  case '*':
+    return 1;
+  case '+':
+  case '-':
+    return 2;
+  case TOK_SRA:
+  case TOK_SRL:
+  case TOK_SLL:
+    return 3;
+  case '<':
+  case '>':
+  case TOK_LTE:
+  case TOK_GTE:
+    return 4;
+  case TOK_EQ:
+  case TOK_NEQ:
+    return 5;
+  case '&':
+    return 6;
+  case '^':
+    return 7;
+  case '|':
+    return 8;
+  case TOK_AND:
+    return 9;
+  case TOK_OR:
+    return 10;
+  default:
+    abort();
+  }
+}
+
+static Expr ostack[64];
+static Expr estack[64];
+static Int istack[64];
+static UInt olen;
+static UInt elen;
+static UInt ilen;
+
+static Int solve() {
+  for (UInt i = 0; i < elen; ++i) {
+    Expr const *ex = estack + i;
+    switch (ex->kind) {
+    case EXPR_NUM:
+      istack[ilen++] = ex->tok.val;
+      break;
+    case EXPR_ID: {
+      if ((strncmp(ex->tok.start, "A", ex->tok.len) == 0) ||
+          (strncmp(ex->tok.start, "a", ex->tok.len) == 0)) {
+        istack[ilen++] = A;
+        break;
+      }
+      if ((strncmp(ex->tok.start, "X", ex->tok.len) == 0) ||
+          (strncmp(ex->tok.start, "x", ex->tok.len) == 0)) {
+        istack[ilen++] = X;
+        break;
+      }
+      if ((strncmp(ex->tok.start, "Y", ex->tok.len) == 0) ||
+          (strncmp(ex->tok.start, "y", ex->tok.len) == 0)) {
+        istack[ilen++] = Y;
+        break;
+      }
+      if ((strncmp(ex->tok.start, "SP", ex->tok.len) == 0) ||
+          (strncmp(ex->tok.start, "sp", ex->tok.len) == 0)) {
+        istack[ilen++] = SP;
+        break;
+      }
+      if ((strncmp(ex->tok.start, "PC", ex->tok.len) == 0) ||
+          (strncmp(ex->tok.start, "pc", ex->tok.len) == 0)) {
+        istack[ilen++] = PC;
+        break;
+      }
+      Symbol const *sym = symfind(ex->tok.start, ex->tok.len);
+      if (!sym) {
+        return INT_MAX;
+      }
+      istack[ilen++] = sym->val;
+      break;
+    }
+    case EXPR_OP: {
+      Int rhs = istack[--ilen];
+      if (ex->unary) {
+        switch (ex->tok.type) {
+        case '+':
+          istack[ilen++] = rhs;
+          break;
+        case '-':
+          istack[ilen++] = -rhs;
+          break;
+        case '!':
+          istack[ilen++] = !rhs;
+          break;
+        case '~':
+          istack[ilen++] = ~rhs;
+          break;
+        case '<':
+          istack[ilen++] = rhs & 0xFF;
+          break;
+        case '>':
+          istack[ilen++] = (((UInt)rhs) >> 8) & 0xFF;
+          break;
+        case '*':
+          if ((rhs < 0) || (rhs > U16_MAX)) {
+            return INT_MAX;
+          }
+          istack[ilen++] = MEM[(U16)rhs];
+          break;
+        default:
+          abort();
+        }
+        continue;
+      }
+      Int lhs = istack[--ilen];
+      switch (ex->tok.type) {
+      case '+':
+        istack[ilen++] = lhs + rhs;
+        break;
+      case '-':
+        istack[ilen++] = lhs - rhs;
+        break;
+      case '*':
+        istack[ilen++] = lhs * rhs;
+        break;
+      case '/':
+        if (rhs == 0) {
+          return INT_MAX;
+        }
+        istack[ilen++] = lhs / rhs;
+        break;
+      case '%':
+        if (rhs == 0) {
+          return INT_MAX;
+        }
+        istack[ilen++] = lhs % rhs;
+        break;
+      case '<':
+        istack[ilen++] = lhs < rhs;
+        break;
+      case '>':
+        istack[ilen++] = lhs > rhs;
+        break;
+      case '&':
+        istack[ilen++] = lhs & rhs;
+        break;
+      case '|':
+        istack[ilen++] = lhs | rhs;
+        break;
+      case '^':
+        istack[ilen++] = lhs ^ rhs;
+        break;
+      case TOK_SRA:
+        istack[ilen++] = lhs >> rhs;
+        break;
+      case TOK_SRL:
+        istack[ilen++] = ((UInt)lhs) >> rhs;
+        break;
+      case TOK_SLL:
+        istack[ilen++] = lhs << rhs;
+        break;
+      case TOK_AND:
+        istack[ilen++] = lhs && rhs;
+        break;
+      case TOK_OR:
+        istack[ilen++] = lhs || rhs;
+        break;
+      case TOK_LTE:
+        istack[ilen++] = lhs <= rhs;
+        break;
+      case TOK_GTE:
+        istack[ilen++] = lhs >= rhs;
+        break;
+      case TOK_EQ:
+        istack[ilen++] = lhs == rhs;
+        break;
+      case TOK_NEQ:
+        istack[ilen++] = lhs != rhs;
+        break;
+      default:
+        abort();
+      }
+      break;
+    }
+    default:
+      abort();
+    }
+  }
+  if (ilen != 1) {
     return INT_MAX;
   }
-  if (neg) {
-    val = -val;
+  return istack[0];
+}
+
+static void pushop(Tok tok, bool unary) {
+  while (olen > 0) {
+    Expr top = ostack[--olen];
+    if (prec(top.tok, top.unary) >= prec(tok, unary)) {
+      ostack[olen++] = top;
+      break;
+    }
+    estack[elen++] = top;
   }
-  return (Int)val;
+  ostack[olen++] = (Expr){EXPR_OP, tok, unary};
+}
+
+static Int expr() {
+  olen = 0;
+  elen = 0;
+  ilen = 0;
+  bool expectop = false;
+  UInt parendepth = 0;
+  while (true) {
+    Tok tok = peek(NULL);
+    switch (tok.type) {
+    case '+':
+    case '-':
+    case '<':
+    case '>':
+    case '*':
+      // sometimes unary
+      pushop(tok, !expectop);
+      eat();
+      expectop = false;
+      continue;
+    case '!':
+    case '~':
+      // always unary
+      pushop(tok, true);
+      eat();
+      expectop = false;
+      continue;
+    case '&':
+    case '|':
+    case '^':
+    case '/':
+    case '%':
+    case TOK_SRA:
+    case TOK_SRL:
+    case TOK_SLL:
+    case TOK_AND:
+    case TOK_OR:
+    case TOK_LTE:
+    case TOK_GTE:
+    case TOK_EQ:
+    case TOK_NEQ:
+      if (!expectop) {
+        return INT_MAX;
+      }
+      pushop(tok, false);
+      eat();
+      expectop = false;
+      continue;
+    case TOK_NUM:
+      if (expectop) {
+        return INT_MAX;
+      }
+      estack[elen++] = (Expr){EXPR_NUM, tok, false};
+      eat();
+      expectop = true;
+      continue;
+    case TOK_ID:
+      if (expectop) {
+        return INT_MAX;
+      }
+      estack[elen++] = (Expr){EXPR_ID, tok, false};
+      eat();
+      expectop = true;
+      continue;
+    case '(':
+      if (expectop) {
+        return INT_MAX;
+      }
+      pushop(tok, true);
+      eat();
+      ++parendepth;
+      expectop = false;
+      continue;
+    case ')':
+      if (!expectop) {
+        return INT_MAX;
+      }
+      --parendepth;
+      while (true) {
+        if (olen == 0) {
+          return INT_MAX;
+        }
+        Expr top = ostack[--olen];
+        if (top.tok.type == '(') {
+          break;
+        }
+        estack[elen++] = top;
+      }
+      eat();
+      continue;
+    default:
+      if (!expectop) {
+        return INT_MAX;
+      }
+      if (parendepth > 0) {
+        return INT_MAX;
+      }
+      while (olen > 0) {
+        estack[elen++] = ostack[--olen];
+      }
+      return solve();
+    }
+  }
 }
 
 static U16 disasm(U16 addr, U16 *cytot);
@@ -385,7 +735,7 @@ static DbgResult dbgclear() { return DBG_CLEAR; }
 static DbgResult dbgnext() {
   U16 cytot = 0;
   U8 op = MEM[PC];
-  if (op == 0x20) {
+  if (op == 0x20) { // JSR
     nextpoint.addr = PC + 3;
     nextpoint.next = bphead; // to mark it active
     return DBG_CONTINUE;
@@ -399,14 +749,17 @@ static DbgResult dbgregs() {
 }
 
 static DbgResult dbgbreak() {
-  char const *tok = stok(NULL, isspace);
-  if (!tok) {
+  Tok tok = peek(NULL);
+  if (tok.type == TOK_EOE) {
     fprintf(stderr, "No address provided for breakpoint\n");
     return DBG_DEBUG;
   }
-  Int addr = parse(tok);
+  Int addr = expr();
   if ((addr == INT_MAX) || (addr > U16_MAX)) {
-    fprintf(stderr, "Invalid address for breakpoint: %s\n", tok);
+    Tok end = peek(NULL);
+    UInt len = end.start + end.len - tok.start;
+    fprintf(stderr, "Invalid address for breakpoint: \"%.*s\"\n", (int)len,
+            tok.start);
     return DBG_DEBUG;
   }
   Breakpoint *bp = malloc(sizeof(Breakpoint));
@@ -419,14 +772,17 @@ static DbgResult dbgbreak() {
 }
 
 static DbgResult dbgdel() {
-  char const *tok = stok(NULL, isspace);
-  if (!tok) {
+  Tok tok = peek(NULL);
+  if (tok.type == TOK_EOE) {
     fprintf(stderr, "No breakpoint number provided for deletion\n");
     return DBG_DEBUG;
   }
-  Int num = parse(tok);
+  Int num = expr();
   if ((num == INT_MAX) || (num > U16_MAX)) {
-    fprintf(stderr, "Invalid breakpoint number: %s\n", tok);
+    Tok end = peek(NULL);
+    UInt len = end.start + end.len - tok.start;
+    fprintf(stderr, "Invalid breakpoint number: \"%.*s\"\n", (int)len,
+            tok.start);
     return DBG_DEBUG;
   }
   Breakpoint **prev = &bphead;
@@ -448,20 +804,35 @@ static DbgResult dbgdel() {
 static DbgResult dbgexa() {
   Int start = PC;
   Int len = 16;
-  char const *tok = stok(NULL, isspace);
-  if (tok) {
-    start = parse(tok);
+  Tok tok = peek(NULL);
+  if (tok.type != TOK_EOE) {
+    start = expr();
     if ((start == INT_MAX) || (start > U16_MAX)) {
-      fprintf(stderr, "Invalid address for examine: %s\n", tok);
+      Tok end = peek(NULL);
+      UInt len = end.start + end.len - tok.start;
+      fprintf(stderr, "Invalid address for examine: \"%.*s\"\n", (int)len,
+              tok.start);
       return DBG_DEBUG;
     }
-    stok(NULL, NULL);
   }
-  tok = stok(NULL, isspace);
-  if (tok) {
-    len = parse(tok);
+  tok = peek(NULL);
+  if (tok.type != TOK_EOE) {
+    if (tok.type != ',') {
+      fprintf(stderr, "Expected ',' after address\n");
+      return DBG_DEBUG;
+    }
+    tok = peek(NULL);
+    if (tok.type == TOK_EOE) {
+      fprintf(stderr, "No length provided for disasm\n");
+      return DBG_DEBUG;
+    }
+    eat();
+    len = expr();
     if ((len == INT_MAX) || (len <= 0)) {
-      fprintf(stderr, "Invalid length for examine: %s\n", tok);
+      Tok end = peek(NULL);
+      UInt len = end.start + end.len - tok.start;
+      fprintf(stderr, "Invalid length for examine: \"%.*s\"\n", (int)len,
+              tok.start);
       return DBG_DEBUG;
     }
   }
@@ -493,20 +864,35 @@ static DbgResult dbgexa() {
 static DbgResult dbgdis() {
   Int start = PC;
   Int len = 1;
-  char const *tok = stok(NULL, isspace);
-  if (tok) {
-    start = parse(tok);
+  Tok tok = peek(NULL);
+  if (tok.type != TOK_EOE) {
+    start = expr();
     if ((start == INT_MAX) || (start > U16_MAX)) {
-      fprintf(stderr, "Invalid address for disasm: %s\n", tok);
+      Tok end = peek(NULL);
+      UInt len = end.start + end.len - tok.start;
+      fprintf(stderr, "Invalid address for disasm: \"%.*s\"\n", (int)len,
+              tok.start);
       return DBG_DEBUG;
     }
-    stok(NULL, NULL);
   }
-  tok = stok(NULL, isspace);
-  if (tok) {
-    len = parse(tok);
+  tok = peek(NULL);
+  if (tok.type != TOK_EOE) {
+    if (tok.type != ',') {
+      fprintf(stderr, "Expected ',' after address\n");
+      return DBG_DEBUG;
+    }
+    eat();
+    tok = peek(NULL);
+    if (tok.type == TOK_EOE) {
+      fprintf(stderr, "No length provided for disasm\n");
+      return DBG_DEBUG;
+    }
+    len = expr();
     if ((len == INT_MAX) || (len <= 0)) {
-      fprintf(stderr, "Invalid length for disasm: %s\n", tok);
+      Tok end = peek(NULL);
+      UInt len = end.start + end.len - tok.start;
+      fprintf(stderr, "Invalid length for disasm: \"%.*s\"\n", (int)len,
+              tok.start);
       return DBG_DEBUG;
     }
   }
@@ -555,24 +941,27 @@ static void printmatches(char const *prefix, size_t len) {
 static unsigned char dbgcompl(EditLine *el, int ch) {
   (void)ch;
   LineInfo const *li = el_line(el);
-  char const *tok_start = li->cursor;
-  while ((tok_start > li->buffer) && !isspace(*(tok_start - 1))) {
-    --tok_start;
+  char const *str = li->cursor;
+  while ((str > li->buffer) && !isspace(*(str - 1))) {
+    --str;
   }
-  ptrdiff_t len = li->cursor - tok_start;
+  while (!isalpha(*str) && (*str != '_') && (str < li->cursor)) {
+    ++str;
+  }
+  ptrdiff_t len = li->cursor - str;
   if (len <= 0) {
     return CC_REFRESH;
   }
   UInt matchcnt = 0;
   char const *match = NULL;
   for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
-    if (strncmp(tok_start, cmd->name, len) == 0) {
+    if (strncmp(str, cmd->name, len) == 0) {
       match = cmd->name;
       ++matchcnt;
     }
   }
   for (Symbol const *sym = symhead; sym; sym = sym->next) {
-    if (strncmp(tok_start, sym->name, len) == 0) {
+    if (strncmp(str, sym->name, len) == 0) {
       match = sym->name;
       ++matchcnt;
     }
@@ -584,7 +973,7 @@ static unsigned char dbgcompl(EditLine *el, int ch) {
   }
   if (matchcnt > 1) {
     fprintf(stderr, "\n");
-    printmatches(tok_start, (size_t)len);
+    printmatches(str, (size_t)len);
     fprintf(stderr, " ?\n");
     return CC_REDISPLAY;
   }
@@ -618,14 +1007,14 @@ static void debugger() {
       exit(EXIT_FAILURE);
     }
     workline = strdup(line);
-    char const *tok = stok(workline, isspace);
-    if (!tok) {
+    Tok tok = peek(workline);
+    if (tok.type == TOK_EOE) {
       if (prevline) {
         free(workline);
         workline = strdup(prevline);
-        tok = stok(workline, isspace);
+        tok = peek(workline);
       }
-      if (!tok) {
+      if (tok.type == TOK_EOE) {
         continue;
       }
     } else {
@@ -633,27 +1022,26 @@ static void debugger() {
       free(prevline);
       prevline = strdup(line);
     }
-    size_t len = strlen(tok);
     DbgCmd const *match = NULL;
     UInt matchcnt = 0;
     for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
-      if (strncmp(tok, cmd->name, len) != 0) {
+      if (strncmp(tok.start, cmd->name, tok.len) != 0) {
         continue;
       }
       match = cmd;
       ++matchcnt;
     }
     if (matchcnt == 0) {
-      fprintf(stderr, "Unknown command: %s\n", tok);
+      fprintf(stderr, "Unknown command: %.*s\n", (int)tok.len, tok.start);
       continue;
     }
     if (matchcnt > 1) {
-      fprintf(stderr, "Ambiguous command: %s (", tok);
-      printmatches(tok, len);
+      fprintf(stderr, "Ambiguous command: %.*s (", (int)tok.len, tok.start);
+      printmatches(tok.start, tok.len);
       fprintf(stderr, ")\n");
       continue;
     }
-    stok(NULL, NULL);
+    eat();
     DbgResult res = match->fn();
     if (res == DBG_BREAK) {
       break;
@@ -987,7 +1375,7 @@ static void adc(U8 *val) {
   A = res;
 }
 
-static void and (U8 * val) {
+static void and(U8 *val) {
   A &= *val;
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
@@ -1339,12 +1727,12 @@ static OpEntry const OP_TABLE[256] = {
     [0x10] = {bpl, imm},  [0x11] = {ora, idy},  [0x15] = {ora, zpx},
     [0x16] = {asl, zpx},  [0x18] = {clc, impl}, [0x19] = {ora, aby},
     [0x1D] = {ora, abx},  [0x1E] = {asl, abx},  [0x20] = {jsr, jab},
-    [0x21] = { and, idx}, [0x24] = {bit, zp},   [0x25] = { and, zp},
-    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = { and, imm},
-    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = { and, ab},
-    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = { and, idy},
-    [0x35] = { and, zpx}, [0x36] = {rol, zpx},  [0x38] = {sec, impl},
-    [0x39] = { and, aby}, [0x3D] = { and, abx}, [0x3E] = {rol, abx},
+    [0x21] = {and, idx},  [0x24] = {bit, zp},   [0x25] = {and, zp},
+    [0x26] = {rol, zp},   [0x28] = {plp, impl}, [0x29] = {and, imm},
+    [0x2A] = {rol, acc},  [0x2C] = {bit, ab},   [0x2D] = {and, ab},
+    [0x2E] = {rol, ab},   [0x30] = {bmi, imm},  [0x31] = {and, idy},
+    [0x35] = {and, zpx},  [0x36] = {rol, zpx},  [0x38] = {sec, impl},
+    [0x39] = {and, aby},  [0x3D] = {and, abx},  [0x3E] = {rol, abx},
     [0x40] = {rti, impl}, [0x41] = {eor, idx},  [0x45] = {eor, zp},
     [0x46] = {lsr, zp},   [0x48] = {pha, impl}, [0x49] = {eor, imm},
     [0x4A] = {lsr, acc},  [0x4C] = {jmp, jab},  [0x4D] = {eor, ab},
