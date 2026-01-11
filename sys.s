@@ -49,10 +49,9 @@ Q:       .word 0         ; Language scratch register
 EMIT:    .word 0         ; 'emit' routine
 KEY:     .word 0         ; 'key?' routine
 RDIN:    .word SysRefill ; 'refill' routine
-WNF:     .word SysWnf    ; 'word not found' routine
-INOFF:   .byt  INSZ     ; Read offset into INBUF
-INEND:   .byt  INSZ     ; Token end inclusive offset
-INBUF:   .dsb  INSZ,0   ; Input buffer
+INOFF:   .byt  INSZ      ; Read offset into INBUF
+INEND:   .byt  INSZ      ; Token end inclusive offset
+INBUF:   .dsb  INSZ, 0   ; Input buffer
 
 SYSTXT:  .word SYSTXTSTART
 
@@ -203,6 +202,18 @@ SysFind:
     tax
     rts
 
+; Multiply ADR by 2
+MulTwo:
+    asl ADRL
+    rol ADRH
+    rts
+
+; Multiply ADR by 8
+MulEight:
+    jsr MulTwo
+    jsr MulTwo
+    jmp MulTwo
+
 SysInterpret:
     jsr SysToken
     jsr SysFind
@@ -262,27 +273,22 @@ SysInterpret:
     sta ADRL
     sta ADRH
     lda INBUF, y
+    iny
     cmp #'$'
     beq @Hex
     cmp #'%'
     beq @Bin
+    dey
+@Dec:
     tya
     pha
-@Dec:
     lda INBUF, y
     pha
-    lda ADRL        ; YX = ADR *= 2
-    asl
-    tax
-    sta ADRL
-    lda ADRH
-    rol
-    tay
-    sta ADRH
-    asl ADRL        ; ADR *= 4
-    rol ADRH
-    asl ADRL
-    rol ADRH
+    jsr MulTwo
+    ldx ADRL
+    ldy ADRH
+    jsr MulTwo
+    jsr MulTwo
     txa             ; ADR += YX
     clc
     adc ADRL
@@ -305,18 +311,9 @@ SysInterpret:
     bne @Dec
     beq @Lit
 @Hex:
-    iny
-:   lda INBUF, y
-    pha
-    asl ADRL        ; ADR *= 16
-    rol ADRH
-    asl ADRL
-    rol ADRH
-    asl ADRL
-    rol ADRH
-    asl ADRL
-    rol ADRH
-    pla
+    lda INBUF, y
+    jsr MulEight
+    jsr MulTwo
     sec             ; Get ASCII hex digit
     sbc #'0'
     cmp #10
@@ -329,15 +326,11 @@ SysInterpret:
     inc ADRH
 :   iny
     cpy INEND
-    bne :---
+    bne @Hex
     beq @Lit
 @Bin:
-    iny
-:   lda INBUF, y
-    pha
-    asl ADRL        ; ADR *= 2
-    rol ADRH
-    pla
+    lda INBUF, y
+    jsr MulTwo
     sec             ; Get ASCII binary digit
     sbc #'0'
     clc
@@ -347,7 +340,7 @@ SysInterpret:
     inc ADRH
 :   iny
     cpy INEND
-    bne :--
+    bne @Bin
 @Lit:
     lda STATE
     cmp #STATE_COMPILE
@@ -367,12 +360,6 @@ SysInterpret:
     ldx ADRL
     ldy ADRH
     jmp @CompileYX
-@Wnf:
-    lda WNF+0
-    sta ADRL
-    lda WNF+1
-    sta ADRH
-    jmp (ADR)
 @Return:
     lda INEND
     sta INOFF
