@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <histedit.h>
 
@@ -64,6 +65,7 @@ static void help(char const *name) {
   fprintf(stderr, "  -h, --help       Show this help message\n");
   fprintf(stderr, "  -d, --debug      Start in debug mode\n");
   fprintf(stderr, "  -l, --labellist  Load symbol labellist from file\n");
+  fprintf(stderr, "  -r, --random     Initialize memory with random data\n");
 }
 
 static void tick();
@@ -73,6 +75,7 @@ static void symload(char const *filename);
 int main(int argc, char *argv[]) {
   FILE *rom;
   char const *labellist = NULL;
+  bool random = false;
   if (argc < 2) {
     help(argv[0]);
     return EXIT_FAILURE;
@@ -98,6 +101,11 @@ int main(int argc, char *argv[]) {
       labellist = argv[argi];
       continue;
     }
+    if ((strcmp(argv[argi], "-r") == 0) ||
+        (strcmp(argv[argi], "--random") == 0)) {
+      random = true;
+      continue;
+    }
     rom = fopen(argv[argi], "rb");
     if (!rom) {
       fprintf(stderr, "Could not open ROM file: %s\n", argv[argi]);
@@ -107,6 +115,13 @@ int main(int argc, char *argv[]) {
     if (argi != argc) {
       fprintf(stderr, "Unexpected option: %s\n", argv[argi]);
       return EXIT_FAILURE;
+    }
+  }
+
+  if (random) {
+    srand((unsigned int)time(NULL));
+    for (UInt i = 0; i < sizeof(MEM); ++i) {
+      MEM[i] = (U8)rand();
     }
   }
 
@@ -720,7 +735,7 @@ static Int expr() {
   }
 }
 
-static U16 disasm(U16 addr, U16 *cytot);
+static U16 disasm(U16 addr);
 static void regs();
 
 typedef enum { DBG_DEBUG, DBG_BREAK, DBG_CONTINUE, DBG_CLEAR } DbgResult;
@@ -734,7 +749,6 @@ static DbgResult dbgstep() { return DBG_BREAK; }
 static DbgResult dbgclear() { return DBG_CLEAR; }
 
 static DbgResult dbgnext() {
-  U16 cytot = 0;
   U8 op = MEM[PC];
   if (op == 0x20) { // JSR
     nextpoint.addr = PC + 3;
@@ -898,11 +912,10 @@ static DbgResult dbgdis() {
     }
   }
   U16 addr = (U16)start;
-  U16 cytot = 0;
   Int count = 0;
   while ((count < len) && (addr <= U16_MAX)) {
-    addr = disasm(addr, &cytot);
-    count++;
+    addr = disasm(addr);
+    ++count;
   }
   return DBG_DEBUG;
 }
@@ -998,8 +1011,7 @@ static void debugger() {
     el_set(el, EL_HIST, history, hist);
   }
   regs();
-  U16 cytot = 0;
-  disasm(PC, &cytot);
+  disasm(PC);
   while (true) {
     free(workline);
     int count;
@@ -1057,9 +1069,18 @@ static void debugger() {
   }
 }
 
+#define RESET "\x1b[0m"
+#define RED(str) "\x1b[31m" str RESET
+#define GREEN(str) "\x1b[32m" str RESET
+#define YELLOW(str) "\x1b[33m" str RESET
+#define BLUE(str) "\x1b[34m" str RESET
+#define MAGENTA(str) "\x1b[35m" str RESET
+#define CYAN(str) "\x1b[36m" str RESET
+#define WHITE(str) "\x1b[37m" str RESET
+
 static void regs() {
-  fprintf(stderr, "PC:$%04X SP:$%02X A:$%02X X:$%02X Y:$%02X P:$%02X |", PC, SP,
-          A, X, Y, P);
+  fprintf(stderr, "PC:%04X SP:%02X A:%02X X:%02X Y:%02X P:%02X |", PC, SP, A, X,
+          Y, P);
   fprintf(stderr, "%c%c%c%c%c%c%c%c|\n", (P & FLAG_NEGATIVE) ? 'N' : '.',
           (P & FLAG_OVERFLOW) ? 'V' : '.', (P & FLAG_UNUSED) ? '1' : '.',
           (P & FLAG_BREAK) ? 'B' : '.', (P & FLAG_DECIMAL) ? 'D' : '.',
@@ -1081,21 +1102,21 @@ static void dissym(U16 addr) {
 
 static U16 disimpl(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, " %02X      ", op);
-  fprintf(stderr, "  %s            ", mne);
+  fprintf(stderr, "  " BLUE("%s") "            ", mne);
   return addr;
 }
 
 static U16 disimm(U8 op, U16 addr, char const *mne) {
   U8 val = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, val);
-  fprintf(stderr, "  %s #$%02X       ", mne, val);
+  fprintf(stderr, "  " BLUE("%s") " #$%02X       ", mne, val);
   return addr;
 }
 
 static U16 diszp(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s $%02X        ", mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " $%02X        ", mne, zp);
   dissym((U16)zp);
   return addr;
 }
@@ -1103,7 +1124,7 @@ static U16 diszp(U8 op, U16 addr, char const *mne) {
 static U16 diszpx(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s $%02X,X      ", mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " $%02X,X      ", mne, zp);
   dissym((U16)zp);
   return addr;
 }
@@ -1111,7 +1132,7 @@ static U16 diszpx(U8 op, U16 addr, char const *mne) {
 static U16 diszpy(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s $%02X,Y      ", mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " $%02X,Y      ", mne, zp);
   dissym((U16)zp);
   return addr;
 }
@@ -1121,7 +1142,7 @@ static U16 disab(U8 op, U16 addr, char const *mne) {
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr, "  %s $%04X      ", mne, ab);
+  fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, ab);
   dissym(ab);
   return addr;
 }
@@ -1131,7 +1152,7 @@ static U16 disabx(U8 op, U16 addr, char const *mne) {
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr, "  %s $%04X,X    ", mne, ab);
+  fprintf(stderr, "  " BLUE("%s") " $%04X,X    ", mne, ab);
   dissym(ab);
   return addr;
 }
@@ -1141,7 +1162,7 @@ static U16 disaby(U8 op, U16 addr, char const *mne) {
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr, "  %s $%04X,Y    ", mne, ab);
+  fprintf(stderr, "  " BLUE("%s") " $%04X,Y    ", mne, ab);
   dissym(ab);
   return addr;
 }
@@ -1151,7 +1172,7 @@ static U16 disid(U8 op, U16 addr, char const *mne) {
   U8 hi = MEM[addr++];
   U16 ptr = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr, "  %s ($%04X)    ", mne, ptr);
+  fprintf(stderr, "  " BLUE("%s") " ($%04X)    ", mne, ptr);
   dissym(ptr);
   return addr;
 }
@@ -1159,7 +1180,7 @@ static U16 disid(U8 op, U16 addr, char const *mne) {
 static U16 disidx(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s ($%02X,X)    ", mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " ($%02X,X)    ", mne, zp);
   dissym((U16)zp);
   return addr;
 }
@@ -1167,7 +1188,7 @@ static U16 disidx(U8 op, U16 addr, char const *mne) {
 static U16 disidy(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  %s ($%02X),Y    ", mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " ($%02X),Y    ", mne, zp);
   dissym((U16)zp);
   return addr;
 }
@@ -1176,7 +1197,7 @@ static U16 disrel(U8 op, U16 addr, char const *mne) {
   I8 offset = (I8)MEM[addr++];
   U16 target = addr + offset;
   fprintf(stderr, " %02X %02X   ", op, (U8)offset);
-  fprintf(stderr, "  %s $%04X      ", mne, target);
+  fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, target);
   dissym(target);
   return addr;
 }
@@ -1267,7 +1288,7 @@ static DisEntry const DISASM_TABLE[256] = {
     [0xFE] = {"INC", disabx},
 };
 
-static U16 disasm(U16 addr, U16 *cytot) {
+static U16 disasm(U16 addr) {
   Symbol const *sym = symvalfind((UInt)addr);
   if (sym) {
     fprintf(stderr, "%s:\n", sym->name);
@@ -1354,13 +1375,13 @@ static U8 *jab() {
 }
 
 static U8 *jid() {
+  static U16 addr; // HACK for wrapping bug
   U8 idlo = MEM[PC++];
   U8 idhi = MEM[PC++];
-  U16 ptr = (((U16)idhi) << 8) | idlo;
-  U8 lo = MEM[ptr];
-  U8 hi = MEM[(U8)(ptr + 1)]; // Page wrapping
-  U16 addr = (((U16)hi) << 8) | lo;
-  return &MEM[addr];
+  U8 lo = MEM[(((U16)idhi) << 8) | idlo];
+  U8 hi = MEM[(((U16)idhi) << 8) | (U8)(idlo + 1)]; // wrapping bug
+  addr = (((U16)hi) << 8) | lo;
+  return (U8 *)&addr;
 }
 
 static void adc(U8 *val) {
