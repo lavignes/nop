@@ -5,10 +5,11 @@
 #define FLAG_IMMEDIATE %10000000
 #define FLAG_HIDDEN    %01000000
 
-#define STATE_COMPILE   %0
-#define STATE_INTERPRET %1
+#define STATE_INTERPRET %0
+#define STATE_COMPILE   %1
 
 #define INSZ 40
+#define BUFCAP 64
 
 ; Increment parameter top indirect
 #define INPS   \
@@ -17,43 +18,36 @@
     inc $02, x \
 :              \
 
-; Increment instruction pointer
-#define INIP   \
-    inc IPL    \
-    bne :+     \
-    inc IPH    \
-:              \
-
 ; Instruction Pointer
 IP  = $02
 IPL = $02
 IPH = $03
 
+; Native Scratch Register
+M = $04
+
 ; Indirect Address Pointer
-ADRJ = $04
-ADR  = $05
-ADRL = $05
-ADRH = $06
+ADRJ = $05
+ADR  = $06
+ADRL = $06
+ADRH = $07
 
 * = $0200
 
     jmp _Abort
 
-SYSVARS = *
-CURRENT: .word _Abort-3  ; Current dictionary pointer
-HERE:    .word HERESTART ; Heap pointer
-STATE:   .byt 0          ; Interpreter state
-ERRNO:   .byt 0          ; General-purpose error register
-M:       .word 0         ; Native scratch register
-Q:       .word 0         ; Language scratch register
-EMIT:    .word 0         ; 'emit' routine
-KEY:     .word 0         ; 'key?' routine
-RDIN:    .word SysRefill ; 'refill' routine
-INOFF:   .byt  INSZ      ; Read offset into INBUF
-INEND:   .byt  INSZ      ; Token end inclusive offset
-INBUF:   .dsb  INSZ, 0   ; Input buffer
+CURRENT: .word _Abort-3         ; Current dictionary pointer
+HERE:    .word HERESTART        ; Heap pointer
+STATE:   .byt STATE_INTERPRET   ; Interpreter state
+ERR:     .byt 0                 ; Error/status register
+DEV:     .byt 0                 ; 'dev current device
+READ:    .word SysRead          ; 'rd syscall
+WRITE:   .word SysWrite         ; 'wr syscall
+SEEK:    .word SysSeek          ; 'sk syscall
 
-SYSTXT:  .word SYSTXTSTART
+BUFOFF:  .byt 0
+BUFEND:  .byt 0
+BUF:     .dsb BUFCAP, 0         ; Scratch/text buffer area
 
 ; Jump to (IP) and increment IP by 2
 SysNext:
@@ -589,9 +583,69 @@ _Sub:
     inx
     jmp SysNext
 
+; ( n -- flag )
+.byt "0="
+.word _Sub-3
+.byt 2 | FLAG_NONE
+_ZeroEqual:
+    ldy #0
+    lda $01, x
+    ora $02, x
+    beq :+
+    lda #1
+:   sta $01, x
+    sty $02, x
+    jmp SysNext
+
+; ( flag addr -- )
+.byt "br?"
+.word _ZeroEqual-3
+.byt 3 | FLAG_NONE
+_Branch:
+    lda $03, x
+    beq :+
+    lda $01, x
+    sta IPL
+    lda $02, x
+    sta IPH
+:   inx
+    inx
+    inx
+    inx
+    jmp SysNext
+
+; ( -- n )
+.byt "lit"
+.word _Sub-3
+.byt 3 | FLAG_NONE
+_Lit:
+    dex
+    dex
+    lda IPL
+    sta $01, x
+    lda IPH
+    sta $02, x
+    clc
+    lda #2
+    adc IPL
+    bcc :+
+    inc IPH
+:   sta IPL
+    jmp SysNext
+
+.byt "exit"
+.word _Lit-3
+.byt 4 | FLAG_NONE
+_Exit:
+    pla
+    sta IPL
+    pla
+    sta IPH
+    jmp SysNext
+
 ; ( addr -- )
 .byt "exec"
-.word _Sub-3
+.word _Exit-3
 .byt 4 | FLAG_NONE
 _Exec:
     lda $01, x
@@ -602,31 +656,8 @@ _Exec:
     inx
     jmp ADR
 
-.byt "exit"
-.word _Exec-3
-.byt 4 | FLAG_NONE
-_Exit:
-    pla
-    sta IPL
-    pla
-    sta IPH
-    jmp SysNext
-
-.byt "quit"
-.word _Exit-3
-.byt 4 | FLAG_NONE
-_Quit:
-    txa
-    ldx #$FF
-    txs
-    tax
-    lda #STATE_INTERPRET
-    sta STATE
-:   jsr SysInterpret
-    jmp :-
-
 .byt "abort"
-.word _Quit-3
+.word _Exec-3
 .byt 5 | FLAG_NONE
 _Abort:
     sei
@@ -635,9 +666,53 @@ _Abort:
     lda #$6C
     sta ADRJ
     ldx #$FF
-    jmp _Quit
+    jmp _Shell
 
-SYSTXTSTART:
-.bin 0, 0, "fs/sysvm.n"
+.byt "shell"
+.word _Abort-3
+.byt 4 | FLAG_NONE
+_Shell:
+    txa
+    ldx #$FF
+    txs
+    tax
+    lda #STATE_INTERPRET
+    sta STATE
+    lda #0
+    sta DEV
+    sta ERR
+    sta BUFOFF
+    sta BUFEND
+:   jsr _Cmd
+    jmp :-
+
+; ------------------------------------
+
+.byt "rdln"
+.word _Shell-3
+.byt 4 | FLAG_NONE
+_ReadLn:
+    jsr DoLang
+.word _Exit,
+
+.byt "cmd"
+.word _Shell-3
+.byt 3 | FLAG_NONE
+_Cmd:
+    jsr DoLang
+.word _Lit, BUFEND
+.word _Lit, BUFOFF
+.word _Sub
+.word _ZeroEqual
+.word _Lit, :+
+.word _Branch
+.word _ReadLn,
+:
+
+
+.word _Read,
+.word _Exec,
+.word _Exit,
+
 
 HERESTART = *
