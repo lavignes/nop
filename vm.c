@@ -233,7 +233,10 @@ static void symload(char const *filename) {
 
 static Symbol const *symfind(char const *name, size_t namelen) {
   for (Symbol const *sym = symhead; sym; sym = sym->next) {
-    if (strncmp(name, sym->name, namelen) == 0) {
+    if (strlen(sym->name) != namelen) {
+      continue;
+    }
+    if (strncmp(sym->name, name, namelen) == 0) {
       return sym;
     }
   }
@@ -470,30 +473,32 @@ static Int solve() {
       istack[ilen++] = ex->tok.val;
       break;
     case EXPR_ID: {
-      if ((strncmp(ex->tok.start, "A", ex->tok.len) == 0) ||
-          (strncmp(ex->tok.start, "a", ex->tok.len) == 0)) {
-        istack[ilen++] = A;
-        break;
+      if (ex->tok.len == 1) {
+        switch (tolower((unsigned char)ex->tok.start[0])) {
+        case 'a':
+          istack[ilen++] = A;
+          break;
+        case 'x':
+          istack[ilen++] = X;
+          break;
+        case 'y':
+          istack[ilen++] = Y;
+          break;
+        default:
+          break;
+        }
       }
-      if ((strncmp(ex->tok.start, "X", ex->tok.len) == 0) ||
-          (strncmp(ex->tok.start, "x", ex->tok.len) == 0)) {
-        istack[ilen++] = X;
-        break;
-      }
-      if ((strncmp(ex->tok.start, "Y", ex->tok.len) == 0) ||
-          (strncmp(ex->tok.start, "y", ex->tok.len) == 0)) {
-        istack[ilen++] = Y;
-        break;
-      }
-      if ((strncmp(ex->tok.start, "SP", ex->tok.len) == 0) ||
-          (strncmp(ex->tok.start, "sp", ex->tok.len) == 0)) {
-        istack[ilen++] = SP;
-        break;
-      }
-      if ((strncmp(ex->tok.start, "PC", ex->tok.len) == 0) ||
-          (strncmp(ex->tok.start, "pc", ex->tok.len) == 0)) {
-        istack[ilen++] = PC;
-        break;
+      if (ex->tok.len == 2) {
+        if ((tolower((unsigned char)ex->tok.start[0]) == 'p') &&
+            (tolower((unsigned char)ex->tok.start[1]) == 'c')) {
+          istack[ilen++] = PC;
+          break;
+        }
+        if ((tolower((unsigned char)ex->tok.start[0]) == 's') &&
+            (tolower((unsigned char)ex->tok.start[1]) == 'p')) {
+          istack[ilen++] = SP;
+          break;
+        }
       }
       Symbol const *sym = symfind(ex->tok.start, ex->tok.len);
       if (!sym) {
