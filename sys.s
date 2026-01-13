@@ -583,30 +583,55 @@ _Sub:
     inx
     jmp SysNext
 
-; ( n -- flag )
-.byt "0="
+; ( n1 n2 -- n1 < n2 )
+.byt "<"
 .word _Sub-3
 .byt 2 | FLAG_NONE
-_ZeroEqual:
+_LessThan:
     ldy #0
-    lda $01, x
-    ora $02, x
-    beq :+
-    lda #1
-:   sta $01, x
-    sty $02, x
+    sec
+    lda $03, x
+    sbc $01, x
+    lda $04, x
+    sbc $02, x
+    sty $04, x
+    bcs :+
+    iny
+:   sty $03, x
+    inx
+    inx
     jmp SysNext
 
-; ( flag addr -- )
-.byt "br?"
-.word _ZeroEqual-3
+; ( n1 n2 -- n1 = n2 )
+.byt "="
+.word _LessThan-3
+.byt 2 | FLAG_NONE
+_Equal:
+    ldy #0
+    sec
+    lda $03, x
+    sbc $01, x
+    lda $04, x
+    sbc $02, x
+    sty $04, x
+    beq :+
+    iny
+:   sty $03, x
+    inx
+    inx
+    jmp SysNext
+
+; ( addr flag - )
+.byt "0branch"
+.word _Equal-3
 .byt 3 | FLAG_NONE
 _Branch:
-    lda $03, x
-    beq :+
     lda $01, x
+    ora $02, x
+    bne :+
+    lda $03, x
     sta IPL
-    lda $02, x
+    lda $04, x
     sta IPH
 :   inx
     inx
