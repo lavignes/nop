@@ -27,10 +27,10 @@ IPH = $03
 M = $04
 
 ; Indirect Address Pointer
-ADRJ = $05
-ADR  = $06
-ADRL = $06
-ADRH = $07
+ADRJ = $06
+ADR  = $07
+ADRL = $07
+ADRH = $08
 
 * = $0200
 
