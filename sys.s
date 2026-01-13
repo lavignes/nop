@@ -586,7 +586,7 @@ _Sub:
 ; ( n1 n2 -- n1 < n2 )
 .byt "<"
 .word _Sub-3
-.byt 2 | FLAG_NONE
+.byt 1 | FLAG_NONE
 _LessThan:
     ldy #0
     sec
@@ -605,7 +605,7 @@ _LessThan:
 ; ( n1 n2 -- n1 = n2 )
 .byt "="
 .word _LessThan-3
-.byt 2 | FLAG_NONE
+.byt 1 | FLAG_NONE
 _Equal:
     ldy #0
     sec
@@ -622,10 +622,10 @@ _Equal:
     jmp SysNext
 
 ; ( addr flag - )
-.byt "0branch"
+.byt "0br?"
 .word _Equal-3
-.byt 3 | FLAG_NONE
-_Branch:
+.byt 4 | FLAG_NONE
+_0Branch:
     lda $01, x
     ora $02, x
     bne :+
@@ -641,7 +641,7 @@ _Branch:
 
 ; ( -- n )
 .byt "lit"
-.word _Sub-3
+.word _0Branch-3
 .byt 3 | FLAG_NONE
 _Lit:
     dex
@@ -695,7 +695,7 @@ _Abort:
 
 .byt "shell"
 .word _Abort-3
-.byt 4 | FLAG_NONE
+.byt 5 | FLAG_NONE
 _Shell:
     txa
     ldx #$FF
