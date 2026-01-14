@@ -41,26 +41,13 @@ HERE:    .word HERESTART        ; Heap pointer
 STATE:   .byt STATE_INTERPRET   ; Interpreter state
 ERR:     .byt 0                 ; Error/status register
 DEV:     .byt 0                 ; 'dev current device
-READ:    .word SysRead          ; 'rd syscall
-WRITE:   .word SysWrite         ; 'wr syscall
-SEEK:    .word SysSeek          ; 'sk syscall
+READ:    .word Read             ; 'rd syscall
+WRITE:   .word Write            ; 'wr syscall
+SEEK:    .word Seek             ; 'sk syscall
 
 BUFOFF:  .byt 0
 BUFEND:  .byt 0
 BUF:     .dsb BUFCAP, 0         ; Scratch/text buffer area
-
-; Jump to (IP) and increment IP by 2
-SysNext:
-    lda IPH
-    sta ADRH
-    lda IPL
-    sta ADRL
-    clc
-    adc #2
-    bcc :+
-    inc IPH
-:   sta IPL
-    jmp (ADR)
 
 SysRefill:
     ldy INOFF
@@ -361,6 +348,36 @@ SysInterpret:
     tax
     rts
 
+; ----- Inner Interpreter -----
+
+DoCol:
+    rts
+
+Next:
+    lda IPH
+    sta ADRH
+    lda IPL
+    sta ADRL
+    clc
+    adc #2
+    bcc :+
+    inc IPH
+:   sta IPL
+    jmp (ADR)
+
+; ----- Drivers -----
+
+Read:
+    jmp Next
+
+Write:
+    jmp Next
+
+Seek:
+    jmp Next
+
+; ----- Primitive Words -----
+
 ; ( addr -- n )
 .byt "@"
 .word 0
@@ -372,7 +389,7 @@ _Load:
     lda ($02, x)
     sty $01, x
     sta $02, x
-    jmp SysNext
+    jmp Next
 
 ; ( addr -- b )
 .byt "@b"
@@ -385,7 +402,7 @@ _LoadByte:
     bpl :+
     dey
 :   sty $02, x
-    jmp SysNext
+    jmp Next
 
 ; ( addr -- bu )
 .byt "@bu"
@@ -396,7 +413,7 @@ _LoadByteUnsigned:
     sta $01, x
     lda #0
     sta $02, x
-    jmp SysNext
+    jmp Next
 
 ; ( n addr -- )
 .byt "!"
@@ -412,7 +429,7 @@ _Store:
     inx
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( b addr -- )
 .byt "!b"
@@ -425,7 +442,7 @@ _StoreByte:
     inx
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; P: ( n -- ) R: ( -- n )
 .byt ">R"
@@ -438,7 +455,7 @@ _PushR:
     pha
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; R: ( n -- ) P: ( -- n )
 .byt "R>"
@@ -451,7 +468,7 @@ _PullR:
     sta $01, x
     pla
     sta $02, x
-    jmp SysNext
+    jmp Next
 
 ; ( n -- )
 .byt "drop"
@@ -460,7 +477,7 @@ _PullR:
 _Drop:
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( n -- n n )
 .byt "dup"
@@ -473,7 +490,7 @@ _Dup:
     dex
     sta $01, x
     sty $02, x
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n2 n1 )
 .byt "swap"
@@ -490,7 +507,7 @@ _Swap:
     lda $04, x
     sta $02, x
     sty $04, x
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n1 n2 n1 )
 ; TODO: >R dup R> swap
@@ -504,7 +521,7 @@ _Over:
     dex
     sta $01, x
     sty $02, x
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n1 & n2 )
 .byt "and"
@@ -519,7 +536,7 @@ _And:
     sta $04, x
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n1 | n2 )
 .byt "or"
@@ -534,7 +551,7 @@ _Or:
     sta $04, x
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n1 ^ n2 )
 .byt "xor"
@@ -549,7 +566,7 @@ _Xor:
     sta $04, x
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n1 + n2 )
 .byt "+"
@@ -565,7 +582,7 @@ _Add:
     sta $04, x
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n1 - n2 )
 .byt "-"
@@ -581,7 +598,7 @@ _Sub:
     sta $04, x
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n1 < n2 )
 .byt "<"
@@ -600,7 +617,7 @@ _LessThan:
 :   sty $03, x
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( n1 n2 -- n1 = n2 )
 .byt "="
@@ -619,7 +636,7 @@ _Equal:
 :   sty $03, x
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( addr flag - )
 .byt "0br?"
@@ -637,7 +654,7 @@ _0Branch:
     inx
     inx
     inx
-    jmp SysNext
+    jmp Next
 
 ; ( -- n )
 .byt "lit"
@@ -656,7 +673,7 @@ _Lit:
     bcc :+
     inc IPH
 :   sta IPL
-    jmp SysNext
+    jmp Next
 
 .byt "exit"
 .word _Lit-3
@@ -666,7 +683,7 @@ _Exit:
     sta IPL
     pla
     sta IPH
-    jmp SysNext
+    jmp Next
 
 ; ( addr -- )
 .byt "exec"
@@ -711,33 +728,12 @@ _Shell:
 :   jsr _Cmd
     jmp :-
 
-; ------------------------------------
+; ----- Outer Interpreter -----
 
 .byt "rdln"
 .word _Shell-3
 .byt 4 | FLAG_NONE
-_ReadLn:
-    jsr DoLang
-.word _Exit,
-
-.byt "cmd"
-.word _Shell-3
-.byt 3 | FLAG_NONE
-_Cmd:
-    jsr DoLang
-.word _Lit, BUFEND
-.word _Lit, BUFOFF
-.word _Sub
-.word _ZeroEqual
-.word _Lit, :+
-.word _Branch
-.word _ReadLn,
-:
-
-
-.word _Read,
-.word _Exec,
-.word _Exit,
-
+_RdLn:
+    lda DEV
 
 HERESTART = *

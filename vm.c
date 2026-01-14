@@ -1,13 +1,16 @@
 #include <ctype.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <poll.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <histedit.h>
 
@@ -57,6 +60,9 @@ static U16 PC = 0x0200;
 
 static bool debug = false;
 
+static struct termios orig_termios;
+static bool raw_mode = false;
+
 static U8 MEM[65536];
 
 static void help(char const *name) {
@@ -71,11 +77,16 @@ static void help(char const *name) {
 static void tick();
 static void debugger();
 static void symload(char const *filename);
+static void enable_raw_mode();
+static void disable_raw_mode();
 
 int main(int argc, char *argv[]) {
   FILE *rom;
   char const *labellist = NULL;
   bool random = false;
+
+  atexit(disable_raw_mode);
+
   if (argc < 2) {
     help(argv[0]);
     return EXIT_FAILURE;
@@ -139,11 +150,57 @@ int main(int argc, char *argv[]) {
     symload(labellist);
   }
 
+  if (!debug) {
+    enable_raw_mode();
+  }
+
   while (true) {
     tick();
   }
 
   return EXIT_SUCCESS;
+}
+
+static U8 io_addr = 0x00;
+static U8 io_data = 0x00;
+static U8 io_status = 0x00;
+
+static U8 io_addr_read() { return io_addr; }
+
+static U8 io_data_read() {
+  switch (io_addr) {
+  case 0x00: {
+    if (io_status & 0x01) {
+      return io_status;
+    }
+    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
+    if (poll(&pfd, 1, 0) > 0) {
+      io_data = fgetc(stdin);
+      io_status |= 0x01;
+    }
+    return io_status;
+  }
+  case 0x01:
+    return io_data;
+  default:
+    return 0x00;
+  }
+}
+
+static void io_addr_write(U8 val) { io_addr = val; }
+
+static void io_data_write(U8 val) {
+  switch (io_addr) {
+  case 0x00:
+    io_status &= ~0x01;
+    return;
+  case 0x01:
+    fputc(val, stdout);
+    fflush(stdout);
+    return;
+  default:
+    return;
+  }
 }
 
 static void doop();
@@ -178,7 +235,6 @@ static void tick() {
   }
   // TODO: check for interrupts here
   doop();
-  // TODO: read/write memory-mapped IO here
 }
 
 typedef struct Symbol Symbol;
@@ -229,6 +285,29 @@ static void symload(char const *filename) {
     symadd(name, val);
   }
   fclose(file);
+}
+
+static void enable_raw_mode() {
+  if (raw_mode) {
+    return;
+  }
+  if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) {
+    return;
+  }
+  struct termios raw = orig_termios;
+  cfmakeraw(&raw);
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {
+    return;
+  }
+  raw_mode = true;
+}
+
+static void disable_raw_mode() {
+  if (!raw_mode) {
+    return;
+  }
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+  raw_mode = false;
 }
 
 static Symbol const *symfind(char const *name, size_t namelen) {
@@ -1005,6 +1084,7 @@ static void debugger() {
   static HistEvent ev;
   static char *prevline = NULL;
   static char *workline = NULL;
+  disable_raw_mode();
   if (!el) {
     el = el_init("vm", stdin, stderr, stderr);
     el_set(el, EL_PROMPT, &dbgprompt);
@@ -1066,6 +1146,7 @@ static void debugger() {
     }
     if (res == DBG_CONTINUE) {
       debug = false;
+      enable_raw_mode();
       return;
     }
     if (res == DBG_CLEAR) {
@@ -1580,19 +1661,37 @@ static void jsr(U8 *val) {
 }
 
 static void lda(U8 *val) {
-  A = *val;
+  if (val == (U8 *)&MEM[0]) {
+    A = io_addr_read();
+  } else if (val == (U8 *)&MEM[1]) {
+    A = io_data_read();
+  } else {
+    A = *val;
+  }
   flag(FLAG_ZERO, A == 0);
   flag(FLAG_NEGATIVE, (A & 0x80) != 0);
 }
 
 static void ldx(U8 *val) {
-  X = *val;
+  if (val == (U8 *)&MEM[0]) {
+    X = io_addr_read();
+  } else if (val == (U8 *)&MEM[1]) {
+    X = io_data_read();
+  } else {
+    X = *val;
+  }
   flag(FLAG_ZERO, X == 0);
   flag(FLAG_NEGATIVE, (X & 0x80) != 0);
 }
 
 static void ldy(U8 *val) {
-  Y = *val;
+  if (val == (U8 *)&MEM[0]) {
+    Y = io_addr_read();
+  } else if (val == (U8 *)&MEM[1]) {
+    Y = io_data_read();
+  } else {
+    Y = *val;
+  }
   flag(FLAG_ZERO, Y == 0);
   flag(FLAG_NEGATIVE, (Y & 0x80) != 0);
 }
@@ -1693,11 +1792,41 @@ static void sei(U8 *val) {
   flag(FLAG_INTERRUPT, true);
 }
 
-static void sta(U8 *addr) { *addr = A; }
+static void sta(U8 *val) {
+  if (val == (U8 *)&MEM[0]) {
+    io_addr_write(A);
+    return;
+  }
+  if (val == (U8 *)&MEM[1]) {
+    io_data_write(A);
+    return;
+  }
+  *val = A;
+}
 
-static void stx(U8 *addr) { *addr = X; }
+static void stx(U8 *val) {
+  if (val == (U8 *)&MEM[0]) {
+    io_addr_write(X);
+    return;
+  }
+  if (val == (U8 *)&MEM[1]) {
+    io_data_write(X);
+    return;
+  }
+  *val = X;
+}
 
-static void sty(U8 *addr) { *addr = Y; }
+static void sty(U8 *val) {
+  if (val == (U8 *)&MEM[0]) {
+    io_addr_write(Y);
+    return;
+  }
+  if (val == (U8 *)&MEM[1]) {
+    io_data_write(Y);
+    return;
+  }
+  *val = Y;
+}
 
 static void tax(U8 *val) {
   (void)val;
@@ -1808,7 +1937,6 @@ static void doop() {
     entry->exec(entry->addr());
   } else {
     --PC;
-    fprintf(stderr, "Illegal instruction: $%02X\n", op);
     debug = true;
   }
 }
