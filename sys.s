@@ -8,8 +8,9 @@
 #define STATE_INTERPRET %0
 #define STATE_COMPILE   %1
 
-#define INSZ 40
 #define BUFCAP 64
+
+#define ERR_TIMEOUT 1
 
 ; Increment parameter top indirect
 #define INPS   \
@@ -49,6 +50,7 @@ BUFOFF:  .byt 0
 BUFEND:  .byt 0
 BUF:     .dsb BUFCAP, 0         ; Scratch/text buffer area
 
+/*
 SysRefill:
     ldy INOFF
     beq @Return
@@ -348,6 +350,8 @@ SysInterpret:
     tax
     rts
 
+*/
+
 ; ----- Inner Interpreter -----
 
 DoCol:
@@ -367,12 +371,102 @@ Next:
 
 ; ----- Drivers -----
 
+; ( buf len -- n )
 Read:
+    lda $00, x      ; M = len
+    sta M+0
+    lda $01, x
+    sta M+1
+    inx
+    inx
+    lda $00, x      ; ADR = buf
+    sta ADRL
+    lda $01, x
+    sta ADRH
+    txa
+    pha
+    ldy #0
+    sty ERR
+@ChkLen:
+    lda M+0
+    eor M+1
+    beq @Return
+    lda M+0
+    bne :+
+    dec M+1
+:   dec M+0
+    lda #0
+    tax             ; Timeout counter
+    sta $00         ; Select status byte
+@Poll:
+    dex
+    beq @Timeout
+    lda $01
+    beq @Poll
+:   lda #1          ; Select data byte
+    sta $00
+    lda $01
+    sta (ADR), y
+    inc ADRL
+    bne :+
+    inc ADRH
+    jmp @ChkLen
+@Timeout:
+    lda #ERR_TIMEOUT
+    sta ERR
+@Return:
+    pla
+    tax
+    lda ADRL        ; Compute bytes read
+    sec
+    sbc $00, x
+    sta $00, x
+    lda ADRH
+    sbc $01, x
+    sta $01, x
     jmp Next
 
+; ( buf len -- n )
 Write:
+    lda $00, x      ; M = len
+    sta M+0
+    lda $01, x
+    sta M+1
+    inx
+    inx
+    lda $00, x      ; ADR = buf
+    sta ADRL
+    lda $01, x
+    sta ADRH
+    ldy #0
+    sty ERR
+    iny             ; Select data byte
+    sty $00
+@ChkLen:
+    lda M+0
+    eor M+1
+    beq @Return
+    lda M+0
+    bne :+
+    dec M+1
+:   dec M+0
+    lda (ADR), y
+    sta $01
+    inc ADRL
+    bne :+
+    inc ADRH
+    jmp @ChkLen
+@Return:
+    lda ADRL        ; Compute bytes written
+    sec
+    sbc $00, x
+    sta $00, x
+    lda ADRH
+    sbc $01, x
+    sta $01, x
     jmp Next
 
+; ( pos -- pos )
 Seek:
     jmp Next
 
@@ -734,6 +828,12 @@ _Shell:
 .word _Shell-3
 .byt 4 | FLAG_NONE
 _RdLn:
-    lda DEV
+    jmp Next
+
+.byt "cmd"
+.word _RdLn-3
+.byt 4 | FLAG_NONE
+_Cmd:
+    jmp Next
 
 HERESTART = *
