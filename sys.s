@@ -410,7 +410,7 @@ Read:
     inc ADRL
     bne :+
     inc ADRH
-    jmp @ChkLen
+:   jmp @ChkLen
 @Timeout:
     lda #ERR_TIMEOUT
     sta ERR
