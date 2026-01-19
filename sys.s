@@ -368,9 +368,9 @@ DoCol:
     inc ADRH
 :   lda ADRL
     ldy ADRH
-    jmp :+
+    jmp IncIP
 
-DoCell:
+DoLit:
     dex
     dex
     pla
@@ -384,7 +384,9 @@ Next:
     sta ADRL
     ldy IPH
     sty ADRH
-:   clc
+
+IncIP:
+    clc
     adc #2
     bcc :+
     iny
@@ -748,14 +750,14 @@ _Equal:
     lda $04, x
     sbc $02, x
     sty $04, x
-    beq :+
+    bne :+
     iny
 :   sty $03, x
     inx
     inx
     jmp Next
 
-; ( addr flag - )
+; ( n -- )
 .byt "0br?"
 .word _Equal-3
 .byt 4 | FLAG_NONE
@@ -763,13 +765,24 @@ _0Branch:
     lda $01, x
     ora $02, x
     bne :+
-    lda $03, x
+    lda IPL
+    sta ADRL
+    lda IPH
+    sta ADRH
+    ldy #0
+    lda (ADR), y
     sta IPL
-    lda $04, x
+    iny
+    lda (ADR), y
     sta IPH
+    jmp :+++
+:   clc
+    lda #2
+    adc IPL
+    bcc :+
+    inc IPH
+:   sta IPL
 :   inx
-    inx
-    inx
     inx
     jmp Next
 
@@ -778,11 +791,17 @@ _0Branch:
 .word _0Branch-3
 .byt 3 | FLAG_NONE
 _Lit:
-    dex
-    dex
     lda IPL
-    sta $01, x
+    sta ADRL
     lda IPH
+    sta ADRH
+    dex
+    dex
+    ldy #0
+    lda (ADR), y
+    sta $01, x
+    iny
+    lda (ADR), y
     sta $02, x
     clc
     lda #2
@@ -844,11 +863,36 @@ _Shell:
     sta BUFEND
 :   jsr DoCol
     .word _Cmd
+    ; TODO check for under/overflow
     .word _PullR
     .word _Drop
     .word :-
 
 ; ----- Outer Interpreter -----
+
+.byt "rdln"
+.word _Shell-3
+.byt 4 | FLAG_NONE
+_RdLn:
+    jsr DoCol
+    .word _Lit, 0
+    .word _Lit, BUFOFF, _StoreByte
+    .word _Lit, BUF
+    .word _Lit, 1
+    .word _Lit, READ, _Load, _Exec
+    .word _Exit
+
+.byt "tok"
+.word _RdLn-3
+.byt 3 | FLAG_NONE
+_Tok:
+    jsr DoCol
+    .word _Lit, BUFOFF, _LoadByteUnsigned
+    .word _Lit, BUFEND, _LoadByteUnsigned
+    .word _Equal
+    .word _0Branch, :+
+    .word _RdLn
+:   .word _Exit
 
 ; ( buf len base -- n )
 .byt "parse"
@@ -857,17 +901,12 @@ _Shell:
 _Parse:
     jmp Next
 
-.byt "rdln"
-.word _Parse-3
-.byt 4 | FLAG_NONE
-_RdLn:
-    jmp Next
-
 .byt "cmd"
 .word _RdLn-3
 .byt 4 | FLAG_NONE
 _Cmd:
     jsr DoCol
+    .word _Tok
     .word _Exit
 
 HERESTART = *
