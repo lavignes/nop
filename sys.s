@@ -37,7 +37,7 @@ ADRH = $08
 
     jmp _Abort
 
-CURRENT: .word _Abort-3         ; Current dictionary pointer
+CURRENT: .word _Cmd-3           ; Current dictionary pointer
 HERE:    .word HERESTART        ; Heap pointer
 STATE:   .byt STATE_INTERPRET   ; Interpreter state
 ERR:     .byt 0                 ; Error/status register
@@ -355,19 +355,42 @@ SysInterpret:
 ; ----- Inner Interpreter -----
 
 DoCol:
-    rts
+    pla
+    sta ADRL
+    pla
+    sta ADRH
+    lda IPH
+    pha
+    lda IPL
+    pha
+    inc ADRL
+    bne :+
+    inc ADRH
+:   lda ADRL
+    ldy ADRH
+    jmp :+
+
+DoCell:
+    dex
+    dex
+    pla
+    sta $01, x
+    pla
+    sta $02, x
+    INPS
 
 Next:
-    lda IPH
-    sta ADRH
     lda IPL
     sta ADRL
-    clc
+    ldy IPH
+    sty ADRH
+:   clc
     adc #2
     bcc :+
-    inc IPH
+    iny
 :   sta IPL
-    jmp (ADR)
+    sty IPH
+    jmp ADRJ
 
 ; ----- Drivers -----
 
@@ -819,13 +842,23 @@ _Shell:
     sta ERR
     sta BUFOFF
     sta BUFEND
-:   jsr _Cmd
-    jmp :-
+:   jsr DoCol
+    .word _Cmd
+    .word _PullR
+    .word _Drop
+    .word :-
 
 ; ----- Outer Interpreter -----
 
-.byt "rdln"
+; ( buf len base -- n )
+.byt "parse"
 .word _Shell-3
+.byt 5 | FLAG_NONE
+_Parse:
+    jmp Next
+
+.byt "rdln"
+.word _Parse-3
 .byt 4 | FLAG_NONE
 _RdLn:
     jmp Next
@@ -834,6 +867,7 @@ _RdLn:
 .word _RdLn-3
 .byt 4 | FLAG_NONE
 _Cmd:
-    jmp Next
+    jsr DoCol
+    .word _Exit
 
 HERESTART = *

@@ -1,17 +1,21 @@
+// stdlib
 #include <ctype.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <poll.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <termios.h>
 #include <time.h>
+
+// POSIX
+#include <poll.h>
+#include <termios.h>
 #include <unistd.h>
 
+// libedit
 #include <histedit.h>
 
 typedef uint8_t U8;
@@ -575,7 +579,7 @@ static Int solve() {
         }
         if ((tolower((unsigned char)ex->tok.start[0]) == 's') &&
             (tolower((unsigned char)ex->tok.start[1]) == 'p')) {
-          istack[ilen++] = SP;
+          istack[ilen++] = 0x0100 | ((U16)SP);
           break;
         }
       }
@@ -1165,8 +1169,8 @@ static void debugger() {
 #define WHITE(str) "\x1b[37m" str RESET
 
 static void regs() {
-  fprintf(stderr, "PC:%04X SP:%02X A:%02X X:%02X Y:%02X P:%02X |", PC, SP, A, X,
-          Y, P);
+  fprintf(stderr, "PC:%04X SP:01%02X A:%02X X:%02X Y:%02X P:%02X |", PC, SP, A,
+          X, Y, P);
   fprintf(stderr, "%c%c%c%c%c%c%c%c|\n", (P & FLAG_NEGATIVE) ? 'N' : '.',
           (P & FLAG_OVERFLOW) ? 'V' : '.', (P & FLAG_UNUSED) ? '1' : '.',
           (P & FLAG_BREAK) ? 'B' : '.', (P & FLAG_DECIMAL) ? 'D' : '.',
@@ -1177,12 +1181,12 @@ static void regs() {
 static void dissym(U16 addr) {
   Symbol const *sym = symvalfind((UInt)addr);
   if (sym) {
-    fprintf(stderr, "; %s", sym->name);
+    fprintf(stderr, CYAN("; %s"), sym->name);
     return;
   }
   sym = symvalfind((UInt)(addr - 1));
   if (sym) {
-    fprintf(stderr, "; %s+1", sym->name);
+    fprintf(stderr, CYAN("; %s+1"), sym->name);
   }
 }
 
@@ -1195,7 +1199,7 @@ static U16 disimpl(U8 op, U16 addr, char const *mne) {
 static U16 disimm(U8 op, U16 addr, char const *mne) {
   U8 val = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, val);
-  fprintf(stderr, "  " BLUE("%s") " #$%02X       ", mne, val);
+  fprintf(stderr, "  " BLUE("%s") " " MAGENTA("#$%02X") "       ", mne, val);
   return addr;
 }
 
@@ -1377,7 +1381,7 @@ static DisEntry const DISASM_TABLE[256] = {
 static U16 disasm(U16 addr) {
   Symbol const *sym = symvalfind((UInt)addr);
   if (sym) {
-    fprintf(stderr, "%s:\n", sym->name);
+    fprintf(stderr, YELLOW("%s:") "\n", sym->name);
   }
   fprintf(stderr, "%04X ", addr);
   U8 op = MEM[addr++];
