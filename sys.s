@@ -10,8 +10,8 @@
 
 #define BUFCAP 40
 
-#define ERR_TIMEOUT 1
-#define ERR_NOOP    2
+#define ETIMEOUT 1
+#define ENOOP    2
 
 ; Instruction Pointer
 IP  = $02
@@ -434,7 +434,7 @@ Read:
     inc ADRH
 :   jmp @ChkLen
 @Timeout:
-    lda #ERR_TIMEOUT
+    lda #ETIMEOUT
     sta ERR
 @Return:
     pla
@@ -490,7 +490,7 @@ Write:
 
 ; ( pos -- pos )
 Seek:
-    lda #ERR_NOOP
+    lda #ENOOP
     sta ERR
     jmp Next
 
@@ -878,18 +878,17 @@ _Shell:
 .byt 3 | FLAG_NONE
 _RdByte:
     jsr DoCol
-    .word _Lit, 0
-    .word _Lit, BUFOFF, _StoreByte
-    .word _Lit, BUF
+    .word _Lit, BUF, _Lit, BUFOFF, _LoadByteUnsigned, _Add
 :   .word _Dup
     .word _Lit, 1
     .word _Lit, READ, _Load, _Exec,
-    .word _Dup, _Lit, 0, _Equal,
+    .word _Lit, 0, _Equal,
     .word _0Branch, :+
-    .word _Lit, ERR, _LoadByteUnsigned, _Lit, ERR_TIMEOUT, _Sub,
+    .word _Lit, ERR, _LoadByteUnsigned, _Lit, ETIMEOUT, _Sub,
     .word _0Branch, :-
 :
     ; Echo
+    .word _Lit, 1
     .word _Lit, WRITE, _Load, _Exec
     .word _Drop
     .word _Exit
