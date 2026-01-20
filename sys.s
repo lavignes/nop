@@ -8,16 +8,10 @@
 #define STATE_INTERPRET %0
 #define STATE_COMPILE   %1
 
-#define BUFCAP 64
+#define BUFCAP 40
 
 #define ERR_TIMEOUT 1
-
-; Increment parameter top indirect
-#define INPS   \
-    inc $01, x \
-    bne :+     \
-    inc $02, x \
-:              \
+#define ERR_NOOP    2
 
 ; Instruction Pointer
 IP  = $02
@@ -370,14 +364,17 @@ DoCol:
     ldy ADRH
     jmp IncIP
 
-DoLit:
+DoLoad:
     dex
     dex
     pla
     sta $01, x
     pla
     sta $02, x
-    INPS
+    inc $01, x
+    bne :+
+    inc $02, x
+:
 
 Next:
     lda IPL
@@ -493,6 +490,8 @@ Write:
 
 ; ( pos -- pos )
 Seek:
+    lda #ERR_NOOP
+    sta ERR
     jmp Next
 
 ; ----- Primitive Words -----
@@ -504,8 +503,10 @@ Seek:
 _Load:
     lda ($01, x)
     tay
-    INPS
-    lda ($02, x)
+    inc $01, x
+    bne :+
+    inc $02, x
+:   lda ($01, x)
     sty $01, x
     sta $02, x
     jmp Next
@@ -541,8 +542,10 @@ _LoadByteUnsigned:
 _Store:
     lda $03, x
     sta ($01, x)
-    INPS
-    lda $04, x
+    inc $01, x
+    bne :+
+    inc $02, x
+:   lda $04, x
     sta ($01, x)
     inx
     inx
@@ -832,7 +835,7 @@ _Exec:
     sta ADRH
     inx
     inx
-    jmp ADR
+    jmp (ADR)
 
 .byt "abort"
 .word _Exec-3
@@ -870,16 +873,33 @@ _Shell:
 
 ; ----- Outer Interpreter -----
 
-.byt "rdln"
+.byt "rdb"
 .word _Shell-3
-.byt 4 | FLAG_NONE
-_RdLn:
+.byt 3 | FLAG_NONE
+_RdByte:
     jsr DoCol
     .word _Lit, 0
     .word _Lit, BUFOFF, _StoreByte
     .word _Lit, BUF
+:   .word _Dup
     .word _Lit, 1
-    .word _Lit, READ, _Load, _Exec
+    .word _Lit, READ, _Load, _Exec,
+    .word _Dup, _Lit, 0, _Equal,
+    .word _0Branch, :+
+    .word _Lit, ERR, _LoadByteUnsigned, _Lit, ERR_TIMEOUT, _Sub,
+    .word _0Branch, :-
+:
+    ; Echo
+    .word _Lit, WRITE, _Load, _Exec
+    .word _Drop
+    .word _Exit
+
+.byt "rdln"
+.word _RdByte-3
+.byt 4 | FLAG_NONE
+_RdLn:
+    jsr DoCol
+    .word _RdByte
     .word _Exit
 
 .byt "tok"
