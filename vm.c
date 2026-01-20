@@ -230,7 +230,7 @@ static void tick() {
     if (PC != bp->addr) {
       continue;
     }
-    fprintf(stderr, "Hit breakpoint %u at $%04X\n", bp->num, bp->addr);
+    fprintf(stderr, "Hit breakpoint %u at $%04X\r\n", bp->num, bp->addr);
     debug = true;
     break;
   }
