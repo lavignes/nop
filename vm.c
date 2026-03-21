@@ -710,7 +710,8 @@ static void pushop(Tok tok, bool unary) {
   }
   while (olen > 0) {
     Expr top = ostack[--olen];
-    if (prec(top.tok, top.unary) >= prec(tok, unary)) {
+    if ((top.tok.type == '(') ||
+        (prec(top.tok, top.unary) >= prec(tok, unary))) {
       ostack[olen++] = top;
       break;
     }
@@ -1120,7 +1121,10 @@ static void debugger() {
         continue;
       }
     } else {
-      history(hist, &ev, H_ENTER, line);
+      // save history if not the same as prev command
+      if (!prevline || (strcmp(prevline, line) != 0)) {
+        history(hist, &ev, H_ENTER, line);
+      }
       free(prevline);
       prevline = strdup(line);
     }
