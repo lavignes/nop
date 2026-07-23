@@ -1008,6 +1008,8 @@ static DbgResult dbgDis() {
   return DBG_DEBUG;
 }
 
+static DbgResult dbgHelp();
+
 typedef struct {
   char const *breif;
   char const *body;
@@ -1030,7 +1032,7 @@ static DbgCmd const DBG_TBL[] = {{"quit", dbgQuit},
                                  {"examine", dbgExa},
                                  {"disasm", dbgDis},
                                  {"clear", dbgClear},
-                                 {"help", dbgDel},
+                                 {"help", dbgHelp},
                                  {NULL, NULL}};
 
 static char *dbgPrompt(EditLine *el) {
@@ -1095,6 +1097,8 @@ static unsigned char dbgCompl(EditLine *el, int ch) {
   }
   return CC_REFRESH;
 }
+
+static DbgResult dbgHelp() { return DBG_DEBUG; }
 
 static void dbgTick() {
   static EditLine *el = NULL;
