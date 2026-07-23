@@ -61,13 +61,12 @@ static U8 Y;
 static U8 P;
 static U8 SP;
 static U16 PC = 0x0200;
+static U8 MEM[65536];
 
 static bool debug = false;
 
-static struct termios orig_termios;
-static bool raw_mode = false;
-
-static U8 MEM[65536];
+static struct termios termiosOrig;
+static bool termRawMode = false;
 
 static void help(char const *name) {
   fprintf(stderr, "Usage: %s [options] <romfile>\n\n", name);
@@ -78,18 +77,18 @@ static void help(char const *name) {
   fprintf(stderr, "  -r, --random     Initialize memory with random data\n");
 }
 
-static void tick();
-static void debugger();
-static void symload(char const *filename);
-static void enable_raw_mode();
-static void disable_raw_mode();
+static void emuTick();
+static void dbgTick();
+static void symLoad(char const *filename);
+static void termRawModeOn();
+static void termRawModeOff();
 
 int main(int argc, char *argv[]) {
   FILE *rom;
   char const *labellist = NULL;
   bool random = false;
 
-  atexit(disable_raw_mode);
+  atexit(termRawModeOff);
 
   if (argc < 2) {
     help(argv[0]);
@@ -151,52 +150,52 @@ int main(int argc, char *argv[]) {
   fclose(rom);
 
   if (labellist) {
-    symload(labellist);
+    symLoad(labellist);
   }
 
   if (!debug) {
-    enable_raw_mode();
+    termRawModeOn();
   }
 
   while (true) {
-    tick();
+    emuTick();
   }
 
   return EXIT_SUCCESS;
 }
 
-static U8 io_addr = 0x00;
-static U8 io_data = 0x00;
-static U8 io_status = 0x00;
+static U8 ioAddr = 0x00;
+static U8 ioData = 0x00;
+static U8 ioStatus = 0x00;
 
-static U8 io_addr_read() { return io_addr; }
+static U8 ioAddrRead() { return ioAddr; }
 
-static U8 io_data_read() {
-  switch (io_addr) {
+static U8 ioDataRead() {
+  switch (ioAddr) {
   case 0x00: {
-    if (io_status & 0x01) {
-      return io_status;
+    if (ioStatus & 0x01) {
+      return ioStatus;
     }
     struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
     if (poll(&pfd, 1, 0) > 0) {
-      io_data = fgetc(stdin);
-      io_status |= 0x01;
+      ioData = fgetc(stdin);
+      ioStatus |= 0x01;
     }
-    return io_status;
+    return ioStatus;
   }
   case 0x01:
-    return io_data;
+    return ioData;
   default:
     return 0x00;
   }
 }
 
-static void io_addr_write(U8 val) { io_addr = val; }
+static void ioAddrWrite(U8 val) { ioAddr = val; }
 
-static void io_data_write(U8 val) {
-  switch (io_addr) {
+static void ioDataWrite(U8 val) {
+  switch (ioAddr) {
   case 0x00:
-    io_status &= ~0x01;
+    ioStatus &= ~0x01;
     return;
   case 0x01:
     fputc(val, stdout);
@@ -207,7 +206,7 @@ static void io_data_write(U8 val) {
   }
 }
 
-static void doop();
+static void cpuTick();
 
 typedef struct Breakpoint Breakpoint;
 
@@ -217,16 +216,16 @@ struct Breakpoint {
   U16 addr;
 };
 
-static U16 bpcnt = 0;
-static Breakpoint *bphead = NULL;
+static U16 bpCount = 0;
+static Breakpoint *bpHead = NULL;
 static Breakpoint nextpoint = {NULL, 0, 0};
 
-static void tick() {
+static void emuTick() {
   if (nextpoint.next && (PC == nextpoint.addr)) {
     debug = true;
     nextpoint.next = NULL;
   }
-  for (Breakpoint const *bp = bphead; bp; bp = bp->next) {
+  for (Breakpoint const *bp = bpHead; bp; bp = bp->next) {
     if (PC != bp->addr) {
       continue;
     }
@@ -235,10 +234,10 @@ static void tick() {
     break;
   }
   if (debug) {
-    debugger();
+    dbgTick();
   }
   // TODO: check for interrupts here
-  doop();
+  cpuTick();
 }
 
 typedef struct Symbol Symbol;
@@ -249,20 +248,20 @@ struct Symbol {
   Int val;
 };
 
-static U16 symcnt = 0;
-static Symbol *symhead = NULL;
+static U16 symCount = 0;
+static Symbol *symHead = NULL;
 
-static Symbol *symadd(char const *name, Int val) {
+static Symbol *symAdd(char const *name, Int val) {
   Symbol *sym = malloc(sizeof(Symbol));
   sym->name = strdup(name);
   sym->val = val;
-  sym->next = symhead;
-  symhead = sym;
-  ++symcnt;
+  sym->next = symHead;
+  symHead = sym;
+  ++symCount;
   return sym;
 }
 
-static void symload(char const *filename) {
+static void symLoad(char const *filename) {
   FILE *file = fopen(filename, "r");
   if (!file) {
     fprintf(stderr, "Could not open labellist file: %s\n", filename);
@@ -286,36 +285,36 @@ static void symload(char const *filename) {
     if (block != 0) {
       continue;
     }
-    symadd(name, val);
+    symAdd(name, val);
   }
   fclose(file);
 }
 
-static void enable_raw_mode() {
-  if (raw_mode) {
+static void termRawModeOn() {
+  if (termRawMode) {
     return;
   }
-  if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) {
+  if (tcgetattr(STDIN_FILENO, &termiosOrig) == -1) {
     return;
   }
-  struct termios raw = orig_termios;
+  struct termios raw = termiosOrig;
   cfmakeraw(&raw);
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {
     return;
   }
-  raw_mode = true;
+  termRawMode = true;
 }
 
-static void disable_raw_mode() {
-  if (!raw_mode) {
+static void termRawModeOff() {
+  if (!termRawMode) {
     return;
   }
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
-  raw_mode = false;
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosOrig);
+  termRawMode = false;
 }
 
-static Symbol const *symfind(char const *name, size_t namelen) {
-  for (Symbol const *sym = symhead; sym; sym = sym->next) {
+static Symbol const *symFind(char const *name, size_t namelen) {
+  for (Symbol const *sym = symHead; sym; sym = sym->next) {
     if (strlen(sym->name) != namelen) {
       continue;
     }
@@ -326,8 +325,8 @@ static Symbol const *symfind(char const *name, size_t namelen) {
   return NULL;
 }
 
-static Symbol const *symvalfind(Int val) {
-  for (Symbol const *sym = symhead; sym; sym = sym->next) {
+static Symbol const *symValFind(Int val) {
+  for (Symbol const *sym = symHead; sym; sym = sym->next) {
     if (val == sym->val) {
       return sym;
     }
@@ -367,127 +366,127 @@ typedef struct {
   Int val;
 } Tok;
 
-static Tok tokstash = {NULL, 0, TOK_EOE, 0};
+static Tok tokStash = {NULL, 0, TOK_EOE, 0};
 
-static void eat() {
-  if (tokstash.start) {
-    tokstash.start += tokstash.len;
-    tokstash.len = 0;
+static void tokEat() {
+  if (tokStash.start) {
+    tokStash.start += tokStash.len;
+    tokStash.len = 0;
   }
 }
 
-static Tok peek(char const *str) {
+static Tok tokPeek(char const *str) {
   if (!str) {
-    if (tokstash.type == TOK_EOE) {
-      return tokstash;
+    if (tokStash.type == TOK_EOE) {
+      return tokStash;
     }
-    str = tokstash.start;
+    str = tokStash.start;
   } else {
-    tokstash.start = str;
+    tokStash.start = str;
   }
-  tokstash.type = TOK_EOE;
+  tokStash.type = TOK_EOE;
   while (isspace((unsigned char)*str)) {
     ++str;
   }
   if (*str == '\0') {
-    return tokstash;
+    return tokStash;
   }
-  tokstash.start = str;
+  tokStash.start = str;
   if (*str == '\'') {
     ++str;
     switch (*str) {
     case '\0':
-      tokstash.type = TOK_ERR;
-      tokstash.len = 0;
-      return tokstash;
+      tokStash.type = TOK_ERR;
+      tokStash.len = 0;
+      return tokStash;
     case '\\':
       ++str;
       switch (*str) {
       case 'n':
-        tokstash.val = '\n';
+        tokStash.val = '\n';
         break;
       case 't':
-        tokstash.val = '\t';
+        tokStash.val = '\t';
         break;
       case '\'':
-        tokstash.val = '\'';
+        tokStash.val = '\'';
         break;
       case '\\':
-        tokstash.val = '\\';
+        tokStash.val = '\\';
         break;
       case '0':
-        tokstash.val = '\0';
+        tokStash.val = '\0';
         break;
       default:
-        tokstash.type = TOK_ERR;
-        tokstash.len = 0;
-        return tokstash;
+        tokStash.type = TOK_ERR;
+        tokStash.len = 0;
+        return tokStash;
       }
     default:
-      tokstash.val = (Int)(unsigned char)(*str);
+      tokStash.val = (Int)(unsigned char)(*str);
       break;
     }
     ++str;
     if (*str != '\'') {
-      tokstash.type = TOK_ERR;
-      tokstash.len = 0;
-      return tokstash;
+      tokStash.type = TOK_ERR;
+      tokStash.len = 0;
+      return tokStash;
     }
     ++str;
-    tokstash.type = TOK_NUM;
-    tokstash.len = 3;
-    return tokstash;
+    tokStash.type = TOK_NUM;
+    tokStash.len = 3;
+    return tokStash;
   }
   if (isdigit((unsigned char)*str) || (*str == '$') || (*str == '%')) {
     if (*str == '%') {
       ++str;
       if ((*str != '0') && (*str != '1')) {
         // edge case, this is a modulus
-        tokstash.type = '%';
-        tokstash.len = 1;
-        return tokstash;
+        tokStash.type = '%';
+        tokStash.len = 1;
+        return tokStash;
       }
       while ((*str == '0') || (*str == '1')) {
         ++str;
       }
-      tokstash.val = strtol(tokstash.start + 1, NULL, 2);
+      tokStash.val = strtol(tokStash.start + 1, NULL, 2);
     } else if (*str == '$') {
       ++str;
       while (isxdigit((unsigned char)*str)) {
         ++str;
       }
-      tokstash.val = strtol(tokstash.start + 1, NULL, 16);
+      tokStash.val = strtol(tokStash.start + 1, NULL, 16);
     } else {
       while (isdigit((unsigned char)*str)) {
         ++str;
       }
-      tokstash.val = strtol(tokstash.start, NULL, 10);
+      tokStash.val = strtol(tokStash.start, NULL, 10);
     }
-    tokstash.len = str - tokstash.start;
-    tokstash.type = TOK_NUM;
-    return tokstash;
+    tokStash.len = str - tokStash.start;
+    tokStash.type = TOK_NUM;
+    return tokStash;
   }
   if (isalpha((unsigned char)*str) || (*str == '_')) {
     ++str;
     while (isalnum((unsigned char)*str) || (*str == '_')) {
       ++str;
     }
-    tokstash.len = str - tokstash.start;
-    tokstash.type = TOK_ID;
-    return tokstash;
+    tokStash.len = str - tokStash.start;
+    tokStash.type = TOK_ID;
+    return tokStash;
   }
   for (UInt i = 0; i < (sizeof(DIGRAPHS) / sizeof(DIGRAPHS[0])); ++i) {
     char const *dg = DIGRAPHS[i].name;
     size_t dgl = strlen(dg);
     if (strncmp(str, dg, dgl) == 0) {
-      tokstash.type = DIGRAPHS[i].type;
-      tokstash.len = dgl;
-      return tokstash;
+      tokStash.type = DIGRAPHS[i].type;
+      tokStash.len = dgl;
+      return tokStash;
     }
   }
-  tokstash.type = (unsigned char)*str;
-  tokstash.len = 1;
-  return tokstash;
+  tokStash.type = (unsigned char)*str;
+  tokStash.len = 1;
+  return tokStash;
 }
 
 enum {
@@ -502,7 +501,7 @@ typedef struct {
   bool unary;
 } Expr;
 
-static U8 prec(Tok tok, bool unary) {
+static U8 tokPrec(Tok tok, bool unary) {
   if (unary) {
     return 0;
   }
@@ -541,152 +540,152 @@ static U8 prec(Tok tok, bool unary) {
   }
 }
 
-static Expr ostack[64];
-static Expr estack[64];
-static Int istack[64];
-static UInt olen;
-static UInt elen;
-static UInt ilen;
+static Expr opStack[64];
+static Expr exprStack[64];
+static Int intStack[64];
+static UInt opCount;
+static UInt exprCount;
+static UInt intCount;
 
 static Int solve() {
-  for (UInt i = 0; i < elen; ++i) {
-    Expr const *ex = estack + i;
-    switch (ex->kind) {
+  for (UInt i = 0; i < exprCount; ++i) {
+    Expr const *expr = exprStack + i;
+    switch (expr->kind) {
     case EXPR_NUM:
-      istack[ilen++] = ex->tok.val;
+      intStack[intCount++] = expr->tok.val;
       break;
     case EXPR_ID: {
-      if (ex->tok.len == 1) {
-        switch (tolower((unsigned char)ex->tok.start[0])) {
+      if (expr->tok.len == 1) {
+        switch (tolower((unsigned char)expr->tok.start[0])) {
         case 'a':
-          istack[ilen++] = A;
+          intStack[intCount++] = A;
           break;
         case 'x':
-          istack[ilen++] = X;
+          intStack[intCount++] = X;
           break;
         case 'y':
-          istack[ilen++] = Y;
+          intStack[intCount++] = Y;
           break;
         default:
           break;
         }
       }
-      if (ex->tok.len == 2) {
-        if ((tolower((unsigned char)ex->tok.start[0]) == 'p') &&
-            (tolower((unsigned char)ex->tok.start[1]) == 'c')) {
-          istack[ilen++] = PC;
+      if (expr->tok.len == 2) {
+        if ((tolower((unsigned char)expr->tok.start[0]) == 'p') &&
+            (tolower((unsigned char)expr->tok.start[1]) == 'c')) {
+          intStack[intCount++] = PC;
           break;
         }
-        if ((tolower((unsigned char)ex->tok.start[0]) == 's') &&
-            (tolower((unsigned char)ex->tok.start[1]) == 'p')) {
-          istack[ilen++] = 0x0100 | ((U16)SP);
+        if ((tolower((unsigned char)expr->tok.start[0]) == 's') &&
+            (tolower((unsigned char)expr->tok.start[1]) == 'p')) {
+          intStack[intCount++] = 0x0100 | ((U16)SP);
           break;
         }
       }
-      Symbol const *sym = symfind(ex->tok.start, ex->tok.len);
+      Symbol const *sym = symFind(expr->tok.start, expr->tok.len);
       if (!sym) {
         return INT_MAX;
       }
-      istack[ilen++] = sym->val;
+      intStack[intCount++] = sym->val;
       break;
     }
     case EXPR_OP: {
-      Int rhs = istack[--ilen];
-      if (ex->unary) {
-        switch (ex->tok.type) {
+      Int rhs = intStack[--intCount];
+      if (expr->unary) {
+        switch (expr->tok.type) {
         case '+':
-          istack[ilen++] = rhs;
+          intStack[intCount++] = rhs;
           break;
         case '-':
-          istack[ilen++] = -rhs;
+          intStack[intCount++] = -rhs;
           break;
         case '!':
-          istack[ilen++] = !rhs;
+          intStack[intCount++] = !rhs;
           break;
         case '~':
-          istack[ilen++] = ~rhs;
+          intStack[intCount++] = ~rhs;
           break;
         case '<':
-          istack[ilen++] = rhs & 0xFF;
+          intStack[intCount++] = rhs & 0xFF;
           break;
         case '>':
-          istack[ilen++] = (((UInt)rhs) >> 8) & 0xFF;
+          intStack[intCount++] = (((UInt)rhs) >> 8) & 0xFF;
           break;
         case '*':
           if ((rhs < 0) || (rhs > U16_MAX)) {
             return INT_MAX;
           }
-          istack[ilen++] = MEM[(U16)rhs];
+          intStack[intCount++] = MEM[(U16)rhs];
           break;
         default:
           abort();
         }
         continue;
       }
-      Int lhs = istack[--ilen];
-      switch (ex->tok.type) {
+      Int lhs = intStack[--intCount];
+      switch (expr->tok.type) {
       case '+':
-        istack[ilen++] = lhs + rhs;
+        intStack[intCount++] = lhs + rhs;
         break;
       case '-':
-        istack[ilen++] = lhs - rhs;
+        intStack[intCount++] = lhs - rhs;
         break;
       case '*':
-        istack[ilen++] = lhs * rhs;
+        intStack[intCount++] = lhs * rhs;
         break;
       case '/':
         if (rhs == 0) {
           return INT_MAX;
         }
-        istack[ilen++] = lhs / rhs;
+        intStack[intCount++] = lhs / rhs;
         break;
       case '%':
         if (rhs == 0) {
           return INT_MAX;
         }
-        istack[ilen++] = lhs % rhs;
+        intStack[intCount++] = lhs % rhs;
         break;
       case '<':
-        istack[ilen++] = lhs < rhs;
+        intStack[intCount++] = lhs < rhs;
         break;
       case '>':
-        istack[ilen++] = lhs > rhs;
+        intStack[intCount++] = lhs > rhs;
         break;
       case '&':
-        istack[ilen++] = lhs & rhs;
+        intStack[intCount++] = lhs & rhs;
         break;
       case '|':
-        istack[ilen++] = lhs | rhs;
+        intStack[intCount++] = lhs | rhs;
         break;
       case '^':
-        istack[ilen++] = lhs ^ rhs;
+        intStack[intCount++] = lhs ^ rhs;
         break;
       case TOK_SRA:
-        istack[ilen++] = lhs >> rhs;
+        intStack[intCount++] = lhs >> rhs;
         break;
       case TOK_SRL:
-        istack[ilen++] = ((UInt)lhs) >> rhs;
+        intStack[intCount++] = ((UInt)lhs) >> rhs;
         break;
       case TOK_SLL:
-        istack[ilen++] = lhs << rhs;
+        intStack[intCount++] = lhs << rhs;
         break;
       case TOK_AND:
-        istack[ilen++] = lhs && rhs;
+        intStack[intCount++] = lhs && rhs;
         break;
       case TOK_OR:
-        istack[ilen++] = lhs || rhs;
+        intStack[intCount++] = lhs || rhs;
         break;
       case TOK_LTE:
-        istack[ilen++] = lhs <= rhs;
+        intStack[intCount++] = lhs <= rhs;
         break;
       case TOK_GTE:
-        istack[ilen++] = lhs >= rhs;
+        intStack[intCount++] = lhs >= rhs;
         break;
       case TOK_EQ:
-        istack[ilen++] = lhs == rhs;
+        intStack[intCount++] = lhs == rhs;
         break;
       case TOK_NEQ:
-        istack[ilen++] = lhs != rhs;
+        intStack[intCount++] = lhs != rhs;
         break;
       default:
         abort();
@@ -697,37 +696,37 @@ static Int solve() {
       abort();
     }
   }
-  if (ilen != 1) {
+  if (intCount != 1) {
     return INT_MAX;
   }
-  return istack[0];
+  return intStack[0];
 }
 
-static void pushop(Tok tok, bool unary) {
+static void pushOp(Tok tok, bool unary) {
   if (tok.type == '(') {
-    ostack[olen++] = (Expr){EXPR_OP, tok, true};
+    opStack[opCount++] = (Expr){EXPR_OP, tok, true};
     return;
   }
-  while (olen > 0) {
-    Expr top = ostack[--olen];
+  while (opCount > 0) {
+    Expr top = opStack[--opCount];
     if ((top.tok.type == '(') ||
-        (prec(top.tok, top.unary) >= prec(tok, unary))) {
-      ostack[olen++] = top;
+        (tokPrec(top.tok, top.unary) >= tokPrec(tok, unary))) {
+      opStack[opCount++] = top;
       break;
     }
-    estack[elen++] = top;
+    exprStack[exprCount++] = top;
   }
-  ostack[olen++] = (Expr){EXPR_OP, tok, unary};
+  opStack[opCount++] = (Expr){EXPR_OP, tok, unary};
 }
 
-static Int expr() {
-  olen = 0;
-  elen = 0;
-  ilen = 0;
-  bool expectop = false;
-  UInt parendepth = 0;
+static Int parseExpr() {
+  opCount = 0;
+  exprCount = 0;
+  intCount = 0;
+  bool expectOp = false;
+  UInt parenDepth = 0;
   while (true) {
-    Tok tok = peek(NULL);
+    Tok tok = tokPeek(NULL);
     switch (tok.type) {
     case '+':
     case '-':
@@ -735,16 +734,16 @@ static Int expr() {
     case '>':
     case '*':
       // sometimes unary
-      pushop(tok, !expectop);
-      eat();
-      expectop = false;
+      pushOp(tok, !expectOp);
+      tokEat();
+      expectOp = false;
       continue;
     case '!':
     case '~':
       // always unary
-      pushop(tok, true);
-      eat();
-      expectop = false;
+      pushOp(tok, true);
+      tokEat();
+      expectOp = false;
       continue;
     case '&':
     case '|':
@@ -760,137 +759,137 @@ static Int expr() {
     case TOK_GTE:
     case TOK_EQ:
     case TOK_NEQ:
-      if (!expectop) {
+      if (!expectOp) {
         return INT_MAX;
       }
-      pushop(tok, false);
-      eat();
-      expectop = false;
+      pushOp(tok, false);
+      tokEat();
+      expectOp = false;
       continue;
     case TOK_NUM:
-      if (expectop) {
+      if (expectOp) {
         return INT_MAX;
       }
-      estack[elen++] = (Expr){EXPR_NUM, tok, false};
-      eat();
-      expectop = true;
+      exprStack[exprCount++] = (Expr){EXPR_NUM, tok, false};
+      tokEat();
+      expectOp = true;
       continue;
     case TOK_ID:
-      if (expectop) {
+      if (expectOp) {
         return INT_MAX;
       }
-      estack[elen++] = (Expr){EXPR_ID, tok, false};
-      eat();
-      expectop = true;
+      exprStack[exprCount++] = (Expr){EXPR_ID, tok, false};
+      tokEat();
+      expectOp = true;
       continue;
     case '(':
-      if (expectop) {
+      if (expectOp) {
         return INT_MAX;
       }
-      pushop(tok, true);
-      eat();
-      ++parendepth;
-      expectop = false;
+      pushOp(tok, true);
+      tokEat();
+      ++parenDepth;
+      expectOp = false;
       continue;
     case ')':
-      if (!expectop) {
+      if (!expectOp) {
         return INT_MAX;
       }
-      --parendepth;
+      --parenDepth;
       while (true) {
-        if (olen == 0) {
+        if (opCount == 0) {
           return INT_MAX;
         }
-        Expr top = ostack[--olen];
+        Expr top = opStack[--opCount];
         if (top.tok.type == '(') {
           break;
         }
-        estack[elen++] = top;
+        exprStack[exprCount++] = top;
       }
-      eat();
+      tokEat();
       continue;
     default:
-      if (!expectop) {
+      if (!expectOp) {
         return INT_MAX;
       }
-      if (parendepth > 0) {
+      if (parenDepth > 0) {
         return INT_MAX;
       }
-      while (olen > 0) {
-        estack[elen++] = ostack[--olen];
+      while (opCount > 0) {
+        exprStack[exprCount++] = opStack[--opCount];
       }
       return solve();
     }
   }
 }
 
-static U16 disasm(U16 addr);
+static U16 disAsm(U16 addr);
 static void regs();
 
 typedef enum { DBG_DEBUG, DBG_BREAK, DBG_CONTINUE, DBG_CLEAR } DbgResult;
 
-static DbgResult dbgquit() { exit(EXIT_SUCCESS); }
+static DbgResult dbgQuit() { exit(EXIT_SUCCESS); }
 
-static DbgResult dbgcont() { return DBG_CONTINUE; }
+static DbgResult dbgCont() { return DBG_CONTINUE; }
 
-static DbgResult dbgstep() { return DBG_BREAK; }
+static DbgResult dbgStep() { return DBG_BREAK; }
 
-static DbgResult dbgclear() { return DBG_CLEAR; }
+static DbgResult dbgClear() { return DBG_CLEAR; }
 
-static DbgResult dbgnext() {
+static DbgResult dbgNext() {
   U8 op = MEM[PC];
   if (op == 0x20) { // JSR
     nextpoint.addr = PC + 3;
-    nextpoint.next = bphead; // to mark it active
+    nextpoint.next = bpHead; // to mark it active
     return DBG_CONTINUE;
   }
   return DBG_BREAK;
 }
 
-static DbgResult dbgregs() {
+static DbgResult dbgRegs() {
   regs();
   return DBG_DEBUG;
 }
 
-static DbgResult dbgbreak() {
-  Tok tok = peek(NULL);
+static DbgResult dbgBreak() {
+  Tok tok = tokPeek(NULL);
   if (tok.type == TOK_EOE) {
     fprintf(stderr, "No address provided for breakpoint\n");
     return DBG_DEBUG;
   }
-  Int addr = expr();
+  Int addr = parseExpr();
   if ((addr == INT_MAX) || (addr > U16_MAX)) {
-    Tok end = peek(NULL);
+    Tok end = tokPeek(NULL);
     UInt len = end.start + end.len - tok.start;
     fprintf(stderr, "Invalid address for breakpoint: \"%.*s\"\n", (int)len,
             tok.start);
     return DBG_DEBUG;
   }
   Breakpoint *bp = malloc(sizeof(Breakpoint));
-  bp->num = ++bpcnt;
+  bp->num = ++bpCount;
   bp->addr = (U16)addr;
-  bp->next = bphead;
-  bphead = bp;
+  bp->next = bpHead;
+  bpHead = bp;
   fprintf(stderr, "Breakpoint %u set at $%04X\n", bp->num, bp->addr);
   return DBG_DEBUG;
 }
 
-static DbgResult dbgdel() {
-  Tok tok = peek(NULL);
+static DbgResult dbgDel() {
+  Tok tok = tokPeek(NULL);
   if (tok.type == TOK_EOE) {
     fprintf(stderr, "No breakpoint number provided for deletion\n");
     return DBG_DEBUG;
   }
-  Int num = expr();
+  Int num = parseExpr();
   if ((num == INT_MAX) || (num > U16_MAX)) {
-    Tok end = peek(NULL);
+    Tok end = tokPeek(NULL);
     UInt len = end.start + end.len - tok.start;
     fprintf(stderr, "Invalid breakpoint number: \"%.*s\"\n", (int)len,
             tok.start);
     return DBG_DEBUG;
   }
-  Breakpoint **prev = &bphead;
-  Breakpoint *bp = bphead;
+  Breakpoint **prev = &bpHead;
+  Breakpoint *bp = bpHead;
   while (bp) {
     if (bp->num == (U16)num) {
       *prev = bp->next;
@@ -905,35 +904,35 @@ static DbgResult dbgdel() {
   return DBG_DEBUG;
 }
 
-static DbgResult dbgexa() {
+static DbgResult dbgExa() {
   Int start = PC;
   Int len = 16;
-  Tok tok = peek(NULL);
+  Tok tok = tokPeek(NULL);
   if (tok.type != TOK_EOE) {
-    start = expr();
+    start = parseExpr();
     if ((start == INT_MAX) || (start > U16_MAX)) {
-      Tok end = peek(NULL);
+      Tok end = tokPeek(NULL);
       UInt len = end.start + end.len - tok.start;
       fprintf(stderr, "Invalid address for examine: \"%.*s\"\n", (int)len,
               tok.start);
       return DBG_DEBUG;
     }
   }
-  tok = peek(NULL);
+  tok = tokPeek(NULL);
   if (tok.type != TOK_EOE) {
     if (tok.type != ',') {
       fprintf(stderr, "Expected ',' after address\n");
       return DBG_DEBUG;
     }
-    tok = peek(NULL);
+    tok = tokPeek(NULL);
     if (tok.type == TOK_EOE) {
       fprintf(stderr, "No length provided for disasm\n");
       return DBG_DEBUG;
     }
-    eat();
-    len = expr();
+    tokEat();
+    len = parseExpr();
     if ((len == INT_MAX) || (len <= 0)) {
-      Tok end = peek(NULL);
+      Tok end = tokPeek(NULL);
       UInt len = end.start + end.len - tok.start;
       fprintf(stderr, "Invalid length for examine: \"%.*s\"\n", (int)len,
               tok.start);
@@ -965,35 +964,35 @@ static DbgResult dbgexa() {
   return DBG_DEBUG;
 }
 
-static DbgResult dbgdis() {
+static DbgResult dbgDis() {
   Int start = PC;
   Int len = 1;
-  Tok tok = peek(NULL);
+  Tok tok = tokPeek(NULL);
   if (tok.type != TOK_EOE) {
-    start = expr();
+    start = parseExpr();
     if ((start == INT_MAX) || (start > U16_MAX)) {
-      Tok end = peek(NULL);
+      Tok end = tokPeek(NULL);
       UInt len = end.start + end.len - tok.start;
       fprintf(stderr, "Invalid address for disasm: \"%.*s\"\n", (int)len,
               tok.start);
       return DBG_DEBUG;
     }
   }
-  tok = peek(NULL);
+  tok = tokPeek(NULL);
   if (tok.type != TOK_EOE) {
     if (tok.type != ',') {
       fprintf(stderr, "Expected ',' after address\n");
       return DBG_DEBUG;
     }
-    eat();
-    tok = peek(NULL);
+    tokEat();
+    tok = tokPeek(NULL);
     if (tok.type == TOK_EOE) {
       fprintf(stderr, "No length provided for disasm\n");
       return DBG_DEBUG;
     }
-    len = expr();
+    len = parseExpr();
     if ((len == INT_MAX) || (len <= 0)) {
-      Tok end = peek(NULL);
+      Tok end = tokPeek(NULL);
       UInt len = end.start + end.len - tok.start;
       fprintf(stderr, "Invalid length for disasm: \"%.*s\"\n", (int)len,
               tok.start);
@@ -1003,37 +1002,51 @@ static DbgResult dbgdis() {
   U16 addr = (U16)start;
   Int count = 0;
   while ((count < len) && (addr <= U16_MAX)) {
-    addr = disasm(addr);
+    addr = disAsm(addr);
     ++count;
   }
   return DBG_DEBUG;
 }
 
 typedef struct {
+  char const *breif;
+  char const *body;
+} DbgHelp;
+
+typedef struct {
   char const *name;
   DbgResult (*fn)();
+  DbgHelp help;
 } DbgCmd;
 
-static DbgCmd const DEBUG_CMDS[] = {
-    {"quit", dbgquit},      {"continue", dbgcont}, {"step", dbgstep},
-    {"next", dbgnext},      {"break", dbgbreak},   {"delete", dbgdel},
-    {"registers", dbgregs}, {"x", dbgexa},         {"examine", dbgexa},
-    {"disasm", dbgdis},     {"clear", dbgclear},   {NULL, NULL}};
+static DbgCmd const DBG_TBL[] = {{"quit", dbgQuit},
+                                 {"continue", dbgCont},
+                                 {"step", dbgStep},
+                                 {"next", dbgNext},
+                                 {"break", dbgBreak},
+                                 {"delete", dbgDel},
+                                 {"registers", dbgRegs},
+                                 {"x", dbgExa},
+                                 {"examine", dbgExa},
+                                 {"disasm", dbgDis},
+                                 {"clear", dbgClear},
+                                 {"help", dbgDel},
+                                 {NULL, NULL}};
 
-static char *dbgprompt(EditLine *el) {
+static char *dbgPrompt(EditLine *el) {
   (void)el;
   return "> ";
 }
 
-static void printmatches(char const *prefix, size_t len) {
+static void dbgMatches(char const *prefix, size_t len) {
   bool first = true;
-  for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
+  for (DbgCmd const *cmd = DBG_TBL; cmd->name; ++cmd) {
     if (strncmp(prefix, cmd->name, len) == 0) {
       fprintf(stderr, "%s%s", first ? "" : ", ", cmd->name);
       first = false;
     }
   }
-  for (Symbol const *sym = symhead; sym; sym = sym->next) {
+  for (Symbol const *sym = symHead; sym; sym = sym->next) {
     if (strncmp(prefix, sym->name, len) == 0) {
       fprintf(stderr, "%s%s", first ? "" : ", ", sym->name);
       first = false;
@@ -1041,7 +1054,7 @@ static void printmatches(char const *prefix, size_t len) {
   }
 }
 
-static unsigned char dbgcompl(EditLine *el, int ch) {
+static unsigned char dbgCompl(EditLine *el, int ch) {
   (void)ch;
   LineInfo const *li = el_line(el);
   char const *str = li->cursor;
@@ -1057,13 +1070,13 @@ static unsigned char dbgcompl(EditLine *el, int ch) {
   }
   UInt matchcnt = 0;
   char const *match = NULL;
-  for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
+  for (DbgCmd const *cmd = DBG_TBL; cmd->name; ++cmd) {
     if (strncmp(str, cmd->name, len) == 0) {
       match = cmd->name;
       ++matchcnt;
     }
   }
-  for (Symbol const *sym = symhead; sym; sym = sym->next) {
+  for (Symbol const *sym = symHead; sym; sym = sym->next) {
     if (strncmp(str, sym->name, len) == 0) {
       match = sym->name;
       ++matchcnt;
@@ -1076,32 +1089,32 @@ static unsigned char dbgcompl(EditLine *el, int ch) {
   }
   if (matchcnt > 1) {
     fprintf(stderr, "\n");
-    printmatches(str, (size_t)len);
+    dbgMatches(str, (size_t)len);
     fprintf(stderr, " ?\n");
     return CC_REDISPLAY;
   }
   return CC_REFRESH;
 }
 
-static void debugger() {
+static void dbgTick() {
   static EditLine *el = NULL;
   static History *hist = NULL;
   static HistEvent ev;
   static char *prevline = NULL;
   static char *workline = NULL;
-  disable_raw_mode();
+  termRawModeOff();
   if (!el) {
     el = el_init("vm", stdin, stderr, stderr);
-    el_set(el, EL_PROMPT, &dbgprompt);
+    el_set(el, EL_PROMPT, &dbgPrompt);
     el_set(el, EL_EDITOR, "emacs");
-    el_set(el, EL_ADDFN, "ed-complete", "Complete command", dbgcompl);
+    el_set(el, EL_ADDFN, "ed-complete", "Complete command", dbgCompl);
     el_set(el, EL_BIND, "^I", "ed-complete", NULL);
     hist = history_init();
     history(hist, &ev, H_SETSIZE, 100);
     el_set(el, EL_HIST, history, hist);
   }
   regs();
-  disasm(PC);
+  disAsm(PC);
   while (true) {
     free(workline);
     int count;
@@ -1110,12 +1123,12 @@ static void debugger() {
       exit(EXIT_FAILURE);
     }
     workline = strdup(line);
-    Tok tok = peek(workline);
+    Tok tok = tokPeek(workline);
     if (tok.type == TOK_EOE) {
       if (prevline) {
         free(workline);
         workline = strdup(prevline);
-        tok = peek(workline);
+        tok = tokPeek(workline);
       }
       if (tok.type == TOK_EOE) {
         continue;
@@ -1129,32 +1142,32 @@ static void debugger() {
       prevline = strdup(line);
     }
     DbgCmd const *match = NULL;
-    UInt matchcnt = 0;
-    for (DbgCmd const *cmd = DEBUG_CMDS; cmd->name; ++cmd) {
+    UInt matchCount = 0;
+    for (DbgCmd const *cmd = DBG_TBL; cmd->name; ++cmd) {
       if (strncmp(tok.start, cmd->name, tok.len) != 0) {
         continue;
       }
       match = cmd;
-      ++matchcnt;
+      ++matchCount;
     }
-    if (matchcnt == 0) {
+    if (matchCount == 0) {
       fprintf(stderr, "Unknown command: %.*s\n", (int)tok.len, tok.start);
       continue;
     }
-    if (matchcnt > 1) {
+    if (matchCount > 1) {
       fprintf(stderr, "Ambiguous command: %.*s (", (int)tok.len, tok.start);
-      printmatches(tok.start, tok.len);
+      dbgMatches(tok.start, tok.len);
       fprintf(stderr, ")\n");
       continue;
     }
-    eat();
+    tokEat();
     DbgResult res = match->fn();
     if (res == DBG_BREAK) {
       break;
     }
     if (res == DBG_CONTINUE) {
       debug = false;
-      enable_raw_mode();
+      termRawModeOn();
       return;
     }
     if (res == DBG_CLEAR) {
@@ -1182,117 +1195,117 @@ static void regs() {
           (P & FLAG_CARRY) ? 'C' : '.');
 }
 
-static void dissym(U16 addr) {
-  Symbol const *sym = symvalfind((UInt)addr);
+static void disSym(U16 addr) {
+  Symbol const *sym = symValFind((UInt)addr);
   if (sym) {
     fprintf(stderr, CYAN("; %s"), sym->name);
     return;
   }
-  sym = symvalfind((UInt)(addr - 1));
+  sym = symValFind((UInt)(addr - 1));
   if (sym) {
     fprintf(stderr, CYAN("; %s+1"), sym->name);
   }
 }
 
-static U16 disimpl(U8 op, U16 addr, char const *mne) {
+static U16 disImpl(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, " %02X      ", op);
   fprintf(stderr, "  " BLUE("%s") "            ", mne);
   return addr;
 }
 
-static U16 disimm(U8 op, U16 addr, char const *mne) {
+static U16 disImm(U8 op, U16 addr, char const *mne) {
   U8 val = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, val);
   fprintf(stderr, "  " BLUE("%s") " " MAGENTA("#$%02X") "       ", mne, val);
   return addr;
 }
 
-static U16 diszp(U8 op, U16 addr, char const *mne) {
+static U16 disZp(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " $%02X        ", mne, zp);
-  dissym((U16)zp);
+  disSym((U16)zp);
   return addr;
 }
 
-static U16 diszpx(U8 op, U16 addr, char const *mne) {
+static U16 disZpX(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " $%02X,X      ", mne, zp);
-  dissym((U16)zp);
+  disSym((U16)zp);
   return addr;
 }
 
-static U16 diszpy(U8 op, U16 addr, char const *mne) {
+static U16 disZpY(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " $%02X,Y      ", mne, zp);
-  dissym((U16)zp);
+  disSym((U16)zp);
   return addr;
 }
 
-static U16 disab(U8 op, U16 addr, char const *mne) {
+static U16 disAb(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, ab);
-  dissym(ab);
+  disSym(ab);
   return addr;
 }
 
-static U16 disabx(U8 op, U16 addr, char const *mne) {
+static U16 disAbX(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  " BLUE("%s") " $%04X,X    ", mne, ab);
-  dissym(ab);
+  disSym(ab);
   return addr;
 }
 
-static U16 disaby(U8 op, U16 addr, char const *mne) {
+static U16 disAbY(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  " BLUE("%s") " $%04X,Y    ", mne, ab);
-  dissym(ab);
+  disSym(ab);
   return addr;
 }
 
-static U16 disid(U8 op, U16 addr, char const *mne) {
+static U16 disId(U8 op, U16 addr, char const *mne) {
   U8 lo = MEM[addr++];
   U8 hi = MEM[addr++];
   U16 ptr = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  " BLUE("%s") " ($%04X)    ", mne, ptr);
-  dissym(ptr);
+  disSym(ptr);
   return addr;
 }
 
-static U16 disidx(U8 op, U16 addr, char const *mne) {
+static U16 disIdX(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " ($%02X,X)    ", mne, zp);
-  dissym((U16)zp);
+  disSym((U16)zp);
   return addr;
 }
 
-static U16 disidy(U8 op, U16 addr, char const *mne) {
+static U16 disIdY(U8 op, U16 addr, char const *mne) {
   U8 zp = MEM[addr++];
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " ($%02X),Y    ", mne, zp);
-  dissym((U16)zp);
+  disSym((U16)zp);
   return addr;
 }
 
-static U16 disrel(U8 op, U16 addr, char const *mne) {
+static U16 disRel(U8 op, U16 addr, char const *mne) {
   I8 offset = (I8)MEM[addr++];
   U16 target = addr + offset;
   fprintf(stderr, " %02X %02X   ", op, (U8)offset);
   fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, target);
-  dissym(target);
+  disSym(target);
   return addr;
 }
 
@@ -1303,104 +1316,104 @@ typedef struct {
   DisFn fn;
 } DisEntry;
 
-static DisEntry const DISASM_TABLE[256] = {
-    [0x00] = {"BRK", disimm},  [0x01] = {"ORA", disidx},
-    [0x05] = {"ORA", diszp},   [0x06] = {"ASL", diszp},
-    [0x08] = {"PHP", disimpl}, [0x09] = {"ORA", disimm},
-    [0x0A] = {"ASL", disimpl}, [0x0D] = {"ORA", disab},
-    [0x0E] = {"ASL", disab},   [0x10] = {"BPL", disrel},
-    [0x11] = {"ORA", disidy},  [0x15] = {"ORA", diszpx},
-    [0x16] = {"ASL", diszpx},  [0x18] = {"CLC", disimpl},
-    [0x19] = {"ORA", disaby},  [0x1D] = {"ORA", disabx},
-    [0x1E] = {"ASL", disabx},  [0x20] = {"JSR", disab},
-    [0x21] = {"AND", disidx},  [0x24] = {"BIT", diszp},
-    [0x25] = {"AND", diszp},   [0x26] = {"ROL", diszp},
-    [0x28] = {"PLP", disimpl}, [0x29] = {"AND", disimm},
-    [0x2A] = {"ROL", disimpl}, [0x2C] = {"BIT", disab},
-    [0x2D] = {"AND", disab},   [0x2E] = {"ROL", disab},
-    [0x30] = {"BMI", disrel},  [0x31] = {"AND", disidy},
-    [0x35] = {"AND", diszpx},  [0x36] = {"ROL", diszpx},
-    [0x38] = {"SEC", disimpl}, [0x39] = {"AND", disaby},
-    [0x3D] = {"AND", disabx},  [0x3E] = {"ROL", disabx},
-    [0x40] = {"RTI", disimpl}, [0x41] = {"EOR", disidx},
-    [0x45] = {"EOR", diszp},   [0x46] = {"LSR", diszp},
-    [0x48] = {"PHA", disimpl}, [0x49] = {"EOR", disimm},
-    [0x4A] = {"LSR", disimpl}, [0x4C] = {"JMP", disab},
-    [0x4D] = {"EOR", disab},   [0x4E] = {"LSR", disab},
-    [0x50] = {"BVC", disrel},  [0x51] = {"EOR", disidy},
-    [0x55] = {"EOR", diszpx},  [0x56] = {"LSR", diszpx},
-    [0x58] = {"CLI", disimpl}, [0x59] = {"EOR", disaby},
-    [0x5D] = {"EOR", disabx},  [0x5E] = {"LSR", disabx},
-    [0x60] = {"RTS", disimpl}, [0x61] = {"ADC", disidx},
-    [0x65] = {"ADC", diszp},   [0x66] = {"ROR", diszp},
-    [0x68] = {"PLA", disimpl}, [0x69] = {"ADC", disimm},
-    [0x6A] = {"ROR", disimpl}, [0x6C] = {"JMP", disid},
-    [0x6D] = {"ADC", disab},   [0x6E] = {"ROR", disab},
-    [0x70] = {"BVS", disrel},  [0x71] = {"ADC", disidy},
-    [0x75] = {"ADC", diszpx},  [0x76] = {"ROR", diszpx},
-    [0x78] = {"SEI", disimpl}, [0x79] = {"ADC", disaby},
-    [0x7D] = {"ADC", disabx},  [0x7E] = {"ROR", disabx},
-    [0x81] = {"STA", disidx},  [0x84] = {"STY", diszp},
-    [0x85] = {"STA", diszp},   [0x86] = {"STX", diszp},
-    [0x88] = {"DEY", disimpl}, [0x8A] = {"TXA", disimpl},
-    [0x8C] = {"STY", disab},   [0x8D] = {"STA", disab},
-    [0x8E] = {"STX", disab},   [0x90] = {"BCC", disrel},
-    [0x91] = {"STA", disidy},  [0x94] = {"STY", diszpx},
-    [0x95] = {"STA", diszpx},  [0x96] = {"STX", diszpy},
-    [0x98] = {"TYA", disimpl}, [0x99] = {"STA", disaby},
-    [0x9A] = {"TXS", disimpl}, [0x9D] = {"STA", disabx},
-    [0xA0] = {"LDY", disimm},  [0xA1] = {"LDA", disidx},
-    [0xA2] = {"LDX", disimm},  [0xA4] = {"LDY", diszp},
-    [0xA5] = {"LDA", diszp},   [0xA6] = {"LDX", diszp},
-    [0xA8] = {"TAY", disimpl}, [0xA9] = {"LDA", disimm},
-    [0xAA] = {"TAX", disimpl}, [0xAC] = {"LDY", disab},
-    [0xAD] = {"LDA", disab},   [0xAE] = {"LDX", disab},
-    [0xB0] = {"BCS", disrel},  [0xB1] = {"LDA", disidy},
-    [0xB4] = {"LDY", diszpx},  [0xB5] = {"LDA", diszpx},
-    [0xB6] = {"LDX", diszpy},  [0xB8] = {"CLV", disimpl},
-    [0xB9] = {"LDA", disaby},  [0xBA] = {"TSX", disimpl},
-    [0xBC] = {"LDY", disabx},  [0xBD] = {"LDA", disabx},
-    [0xBE] = {"LDX", disaby},  [0xC0] = {"CPY", disimm},
-    [0xC1] = {"CMP", disidx},  [0xC4] = {"CPY", diszp},
-    [0xC5] = {"CMP", diszp},   [0xC6] = {"DEC", diszp},
-    [0xC8] = {"INY", disimpl}, [0xC9] = {"CMP", disimm},
-    [0xCA] = {"DEX", disimpl}, [0xCC] = {"CPY", disab},
-    [0xCD] = {"CMP", disab},   [0xCE] = {"DEC", disab},
-    [0xD0] = {"BNE", disrel},  [0xD1] = {"CMP", disidy},
-    [0xD5] = {"CMP", diszpx},  [0xD6] = {"DEC", diszpx},
-    [0xD8] = {"CLD", disimpl}, [0xD9] = {"CMP", disaby},
-    [0xDD] = {"CMP", disabx},  [0xDE] = {"DEC", disabx},
-    [0xE0] = {"CPX", disimm},  [0xE1] = {"SBC", disidx},
-    [0xE4] = {"CPX", diszp},   [0xE5] = {"SBC", diszp},
-    [0xE6] = {"INC", diszp},   [0xE8] = {"INX", disimpl},
-    [0xE9] = {"SBC", disimm},  [0xEA] = {"NOP", disimpl},
-    [0xEC] = {"CPX", disab},   [0xED] = {"SBC", disab},
-    [0xEE] = {"INC", disab},   [0xF0] = {"BEQ", disrel},
-    [0xF1] = {"SBC", disidy},  [0xF5] = {"SBC", diszpx},
-    [0xF6] = {"INC", diszpx},  [0xF8] = {"SED", disimpl},
-    [0xF9] = {"SBC", disaby},  [0xFD] = {"SBC", disabx},
-    [0xFE] = {"INC", disabx},
+static DisEntry const DIS_TBL[256] = {
+    [0x00] = {"BRK", disImm},  [0x01] = {"ORA", disIdX},
+    [0x05] = {"ORA", disZp},   [0x06] = {"ASL", disZp},
+    [0x08] = {"PHP", disImpl}, [0x09] = {"ORA", disImm},
+    [0x0A] = {"ASL", disImpl}, [0x0D] = {"ORA", disAb},
+    [0x0E] = {"ASL", disAb},   [0x10] = {"BPL", disRel},
+    [0x11] = {"ORA", disIdY},  [0x15] = {"ORA", disZpX},
+    [0x16] = {"ASL", disZpX},  [0x18] = {"CLC", disImpl},
+    [0x19] = {"ORA", disAbY},  [0x1D] = {"ORA", disAbX},
+    [0x1E] = {"ASL", disAbX},  [0x20] = {"JSR", disAb},
+    [0x21] = {"AND", disIdX},  [0x24] = {"BIT", disZp},
+    [0x25] = {"AND", disZp},   [0x26] = {"ROL", disZp},
+    [0x28] = {"PLP", disImpl}, [0x29] = {"AND", disImm},
+    [0x2A] = {"ROL", disImpl}, [0x2C] = {"BIT", disAb},
+    [0x2D] = {"AND", disAb},   [0x2E] = {"ROL", disAb},
+    [0x30] = {"BMI", disRel},  [0x31] = {"AND", disIdY},
+    [0x35] = {"AND", disZpX},  [0x36] = {"ROL", disZpX},
+    [0x38] = {"SEC", disImpl}, [0x39] = {"AND", disAbY},
+    [0x3D] = {"AND", disAbX},  [0x3E] = {"ROL", disAbX},
+    [0x40] = {"RTI", disImpl}, [0x41] = {"EOR", disIdX},
+    [0x45] = {"EOR", disZp},   [0x46] = {"LSR", disZp},
+    [0x48] = {"PHA", disImpl}, [0x49] = {"EOR", disImm},
+    [0x4A] = {"LSR", disImpl}, [0x4C] = {"JMP", disAb},
+    [0x4D] = {"EOR", disAb},   [0x4E] = {"LSR", disAb},
+    [0x50] = {"BVC", disRel},  [0x51] = {"EOR", disIdY},
+    [0x55] = {"EOR", disZpX},  [0x56] = {"LSR", disZpX},
+    [0x58] = {"CLI", disImpl}, [0x59] = {"EOR", disAbY},
+    [0x5D] = {"EOR", disAbX},  [0x5E] = {"LSR", disAbX},
+    [0x60] = {"RTS", disImpl}, [0x61] = {"ADC", disIdX},
+    [0x65] = {"ADC", disZp},   [0x66] = {"ROR", disZp},
+    [0x68] = {"PLA", disImpl}, [0x69] = {"ADC", disImm},
+    [0x6A] = {"ROR", disImpl}, [0x6C] = {"JMP", disId},
+    [0x6D] = {"ADC", disAb},   [0x6E] = {"ROR", disAb},
+    [0x70] = {"BVS", disRel},  [0x71] = {"ADC", disIdY},
+    [0x75] = {"ADC", disZpX},  [0x76] = {"ROR", disZpX},
+    [0x78] = {"SEI", disImpl}, [0x79] = {"ADC", disAbY},
+    [0x7D] = {"ADC", disAbX},  [0x7E] = {"ROR", disAbX},
+    [0x81] = {"STA", disIdX},  [0x84] = {"STY", disZp},
+    [0x85] = {"STA", disZp},   [0x86] = {"STX", disZp},
+    [0x88] = {"DEY", disImpl}, [0x8A] = {"TXA", disImpl},
+    [0x8C] = {"STY", disAb},   [0x8D] = {"STA", disAb},
+    [0x8E] = {"STX", disAb},   [0x90] = {"BCC", disRel},
+    [0x91] = {"STA", disIdY},  [0x94] = {"STY", disZpX},
+    [0x95] = {"STA", disZpX},  [0x96] = {"STX", disZpY},
+    [0x98] = {"TYA", disImpl}, [0x99] = {"STA", disAbY},
+    [0x9A] = {"TXS", disImpl}, [0x9D] = {"STA", disAbX},
+    [0xA0] = {"LDY", disImm},  [0xA1] = {"LDA", disIdX},
+    [0xA2] = {"LDX", disImm},  [0xA4] = {"LDY", disZp},
+    [0xA5] = {"LDA", disZp},   [0xA6] = {"LDX", disZp},
+    [0xA8] = {"TAY", disImpl}, [0xA9] = {"LDA", disImm},
+    [0xAA] = {"TAX", disImpl}, [0xAC] = {"LDY", disAb},
+    [0xAD] = {"LDA", disAb},   [0xAE] = {"LDX", disAb},
+    [0xB0] = {"BCS", disRel},  [0xB1] = {"LDA", disIdY},
+    [0xB4] = {"LDY", disZpX},  [0xB5] = {"LDA", disZpX},
+    [0xB6] = {"LDX", disZpY},  [0xB8] = {"CLV", disImpl},
+    [0xB9] = {"LDA", disAbY},  [0xBA] = {"TSX", disImpl},
+    [0xBC] = {"LDY", disAbX},  [0xBD] = {"LDA", disAbX},
+    [0xBE] = {"LDX", disAbY},  [0xC0] = {"CPY", disImm},
+    [0xC1] = {"CMP", disIdX},  [0xC4] = {"CPY", disZp},
+    [0xC5] = {"CMP", disZp},   [0xC6] = {"DEC", disZp},
+    [0xC8] = {"INY", disImpl}, [0xC9] = {"CMP", disImm},
+    [0xCA] = {"DEX", disImpl}, [0xCC] = {"CPY", disAb},
+    [0xCD] = {"CMP", disAb},   [0xCE] = {"DEC", disAb},
+    [0xD0] = {"BNE", disRel},  [0xD1] = {"CMP", disIdY},
+    [0xD5] = {"CMP", disZpX},  [0xD6] = {"DEC", disZpX},
+    [0xD8] = {"CLD", disImpl}, [0xD9] = {"CMP", disAbY},
+    [0xDD] = {"CMP", disAbX},  [0xDE] = {"DEC", disAbX},
+    [0xE0] = {"CPX", disImm},  [0xE1] = {"SBC", disIdX},
+    [0xE4] = {"CPX", disZp},   [0xE5] = {"SBC", disZp},
+    [0xE6] = {"INC", disZp},   [0xE8] = {"INX", disImpl},
+    [0xE9] = {"SBC", disImm},  [0xEA] = {"NOP", disImpl},
+    [0xEC] = {"CPX", disAb},   [0xED] = {"SBC", disAb},
+    [0xEE] = {"INC", disAb},   [0xF0] = {"BEQ", disRel},
+    [0xF1] = {"SBC", disIdY},  [0xF5] = {"SBC", disZpX},
+    [0xF6] = {"INC", disZpX},  [0xF8] = {"SED", disImpl},
+    [0xF9] = {"SBC", disAbY},  [0xFD] = {"SBC", disAbX},
+    [0xFE] = {"INC", disAbX},
 };
 
-static U16 disasm(U16 addr) {
-  Symbol const *sym = symvalfind((UInt)addr);
+static U16 disAsm(U16 addr) {
+  Symbol const *sym = symValFind((UInt)addr);
   if (sym) {
     fprintf(stderr, YELLOW("%s:") "\n", sym->name);
   }
   fprintf(stderr, "%04X ", addr);
   U8 op = MEM[addr++];
-  DisEntry const *entry = &DISASM_TABLE[op];
+  DisEntry const *entry = &DIS_TBL[op];
   if (entry->fn) {
     addr = entry->fn(op, addr, entry->mne);
   } else {
-    addr = disimpl(op, addr, "ILL");
+    addr = disImpl(op, addr, "ILL");
   }
   fprintf(stderr, "\n");
   return addr;
 }
 
-static void flag(U8 flag, bool condition) {
-  if (condition) {
+static void flag(U8 flag, bool cond) {
+  if (cond) {
     P |= flag;
   } else {
     P &= ~flag;
@@ -1447,17 +1460,17 @@ static U8 *aby() {
 }
 
 static U8 *idx() {
-  U8 zpaddr = MEM[PC++] + X;
-  U8 lo = MEM[zpaddr];
-  U8 hi = MEM[(U8)(zpaddr + 1)];
+  U8 zpAddr = MEM[PC++] + X;
+  U8 lo = MEM[zpAddr];
+  U8 hi = MEM[(U8)(zpAddr + 1)];
   U16 addr = (((U16)hi) << 8) | lo;
   return &MEM[addr];
 }
 
 static U8 *idy() {
-  U8 zpaddr = MEM[PC++];
-  U8 lo = MEM[zpaddr];
-  U8 hi = MEM[(U8)(zpaddr + 1)];
+  U8 zpAddr = MEM[PC++];
+  U8 lo = MEM[zpAddr];
+  U8 hi = MEM[(U8)(zpAddr + 1)];
   U16 addr = ((((U16)hi) << 8) | lo) + Y;
   return &MEM[addr];
 }
@@ -1469,11 +1482,11 @@ static U8 *jab() {
 }
 
 static U8 *jid() {
-  static U16 addr; // HACK for wrapping bug
-  U8 idlo = MEM[PC++];
-  U8 idhi = MEM[PC++];
-  U8 lo = MEM[(((U16)idhi) << 8) | idlo];
-  U8 hi = MEM[(((U16)idhi) << 8) | (U8)(idlo + 1)]; // wrapping bug
+  static U16 addr; // HACK for wrapping bug in 6502
+  U8 idLo = MEM[PC++];
+  U8 idHi = MEM[PC++];
+  U8 lo = MEM[(((U16)idHi) << 8) | idLo];
+  U8 hi = MEM[(((U16)idHi) << 8) | (U8)(idLo + 1)]; // wrapping bug
   addr = (((U16)hi) << 8) | lo;
   return (U8 *)&addr;
 }
@@ -1670,9 +1683,9 @@ static void jsr(U8 *val) {
 
 static void lda(U8 *val) {
   if (val == (U8 *)&MEM[0]) {
-    A = io_addr_read();
+    A = ioAddrRead();
   } else if (val == (U8 *)&MEM[1]) {
-    A = io_data_read();
+    A = ioDataRead();
   } else {
     A = *val;
   }
@@ -1682,9 +1695,9 @@ static void lda(U8 *val) {
 
 static void ldx(U8 *val) {
   if (val == (U8 *)&MEM[0]) {
-    X = io_addr_read();
+    X = ioAddrRead();
   } else if (val == (U8 *)&MEM[1]) {
-    X = io_data_read();
+    X = ioDataRead();
   } else {
     X = *val;
   }
@@ -1694,9 +1707,9 @@ static void ldx(U8 *val) {
 
 static void ldy(U8 *val) {
   if (val == (U8 *)&MEM[0]) {
-    Y = io_addr_read();
+    Y = ioAddrRead();
   } else if (val == (U8 *)&MEM[1]) {
-    Y = io_data_read();
+    Y = ioDataRead();
   } else {
     Y = *val;
   }
@@ -1802,11 +1815,11 @@ static void sei(U8 *val) {
 
 static void sta(U8 *val) {
   if (val == (U8 *)&MEM[0]) {
-    io_addr_write(A);
+    ioAddrWrite(A);
     return;
   }
   if (val == (U8 *)&MEM[1]) {
-    io_data_write(A);
+    ioDataWrite(A);
     return;
   }
   *val = A;
@@ -1814,11 +1827,11 @@ static void sta(U8 *val) {
 
 static void stx(U8 *val) {
   if (val == (U8 *)&MEM[0]) {
-    io_addr_write(X);
+    ioAddrWrite(X);
     return;
   }
   if (val == (U8 *)&MEM[1]) {
-    io_data_write(X);
+    ioDataWrite(X);
     return;
   }
   *val = X;
@@ -1826,11 +1839,11 @@ static void stx(U8 *val) {
 
 static void sty(U8 *val) {
   if (val == (U8 *)&MEM[0]) {
-    io_addr_write(Y);
+    ioAddrWrite(Y);
     return;
   }
   if (val == (U8 *)&MEM[1]) {
-    io_data_write(Y);
+    ioDataWrite(Y);
     return;
   }
   *val = Y;
@@ -1884,7 +1897,7 @@ typedef struct {
   AddrFn addr;
 } OpEntry;
 
-static OpEntry const OP_TABLE[256] = {
+static OpEntry const OP_TBL[256] = {
     [0x00] = {brk_, imm}, [0x01] = {ora, idx},  [0x05] = {ora, zp},
     [0x06] = {asl, zp},   [0x08] = {php, impl}, [0x09] = {ora, imm},
     [0x0A] = {asl, acc},  [0x0D] = {ora, ab},   [0x0E] = {asl, ab},
@@ -1938,9 +1951,9 @@ static OpEntry const OP_TABLE[256] = {
     [0xFE] = {inc, abx},
 };
 
-static void doop() {
+static void cpuTick() {
   U8 op = MEM[PC++];
-  OpEntry const *entry = &OP_TABLE[op];
+  OpEntry const *entry = &OP_TBL[op];
   if (entry->exec) {
     entry->exec(entry->addr());
   } else {
