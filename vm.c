@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -67,10 +68,19 @@ static U8 SP;
 static U16 PC = 0x0200;
 static U8 MEM[65536];
 
+static volatile sig_atomic_t sigintFlag = 0;
 static Bool debug = FALSE;
 
 static struct termios termiosOrig;
 static Bool termRawMode = FALSE;
+
+static void sigintHandler(int sig) {
+  (void)sig;
+  if (debug) {
+    exit(EXIT_SUCCESS);
+  }
+  sigintFlag = 1;
+}
 
 static void help(char const *name) {
   fprintf(stderr, "Usage: %s [options] <romfile>\n\n", name);
@@ -95,6 +105,7 @@ int main(int argc, char const *const *argv) {
   Bool random = FALSE;
 
   atexit(termRawModeOff);
+  signal(SIGINT, sigintHandler);
 
   if (argc < 2) {
     help(argv[0]);
@@ -136,6 +147,11 @@ int main(int argc, char const *const *argv) {
       fprintf(stderr, "Unexpected option: %s\n", argv[argi]);
       return EXIT_FAILURE;
     }
+  }
+
+  if (!rom) {
+    fprintf(stderr, "No ROM file specified\n");
+    return EXIT_FAILURE;
   }
 
   if (random) {
@@ -184,7 +200,7 @@ static U8 ioDataRead() {
     }
     struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
     if (poll(&pfd, 1, 0) > 0) {
-      ioData = fgetc(stdin);
+      ioData = (U8)fgetc(stdin);
       ioStatus |= 0x01;
     }
     return ioStatus;
@@ -227,6 +243,10 @@ static Breakpoint *bpHead = NULL;
 static Breakpoint nextpoint = {NULL, 0, 0};
 
 static void emuTick() {
+  if (sigintFlag) {
+    sigintFlag = 0;
+    debug = TRUE;
+  }
   if (nextpoint.next && (PC == nextpoint.addr)) {
     debug = TRUE;
     nextpoint.next = NULL;
@@ -1040,24 +1060,63 @@ typedef struct {
 } DbgHelp;
 
 typedef struct {
-  char const *name;
+  char const **names;
   DbgResult (*fn)();
   DbgHelp help;
 } DbgCmd;
 
-static DbgCmd const DBG_TBL[] = {{"quit", dbgQuit},
-                                 {"continue", dbgCont},
-                                 {"step", dbgStep},
-                                 {"next", dbgNext},
-                                 {"break", dbgBreak},
-                                 {"delete", dbgDel},
-                                 {"registers", dbgRegs},
-                                 {"x", dbgExa},
-                                 {"examine", dbgExa},
-                                 {"disasm", dbgDis},
-                                 {"clear", dbgClear},
-                                 {"help", dbgHelp},
-                                 {NULL, NULL}};
+static DbgHelp const HELP_QUIT = {
+    "Quit the debugger",
+    "Usage: quit\n\nExit the debugger and terminate the program."};
+static DbgHelp const HELP_CONT = {
+    "Continue execution", "Usage: continue\n\nResume execution of the program "
+                          "until the next breakpoint or termination."};
+static DbgHelp const HELP_STEP = {
+    "Step into the next instruction",
+    "Usage: step\n\nExecute the next instruction and return to the debugger."};
+static DbgHelp const HELP_NEXT = {
+    "Step over the next instruction",
+    "Usage: next\n\nExecute the next instruction, stepping over function "
+    "calls, and return to the debugger."};
+static DbgHelp const HELP_BREAK = {
+    "Set a breakpoint",
+    "Usage: break <address>\n\nSet a breakpoint at the specified address. The "
+    "program will pause execution when it reaches this address."};
+static DbgHelp const HELP_DELETE = {
+    "Delete a breakpoint", "Usage: delete <breakpoint_number>\n\nRemove the "
+                           "specified breakpoint from the debugger."};
+static DbgHelp const HELP_REGS = {
+    "Display CPU registers",
+    "Usage: registers\n\nShow the current values of the CPU registers."};
+static DbgHelp const HELP_EXA = {
+    "Examine memory", "Usage: examine <address>[, <length>]\n\nDisplay the "
+                      "contents of memory starting from the specified address. "
+                      "Optionally, specify the number of bytes to display."};
+static DbgHelp const HELP_DIS = {
+    "Disassemble code",
+    "Usage: disasm <address>[, <length>]\n\nDisassemble the code starting from "
+    "the specified address. Optionally, specify the number of instructions to "
+    "disassemble."};
+static DbgHelp const HELP_CLEAR = {
+    "Clear screen", "Usage: clear\n\nClear the debugger's output screen."};
+static DbgHelp const HELP_HELP = {
+    "Display help information",
+    "Usage: help [command]\n\nShow a list of available commands or detailed "
+    "help for a specific command."};
+
+static DbgCmd const DBG_TBL[] = {
+    {(char const *[]){"quit", NULL}, dbgQuit, HELP_QUIT},
+    {(char const *[]){"continue", NULL}, dbgCont, HELP_CONT},
+    {(char const *[]){"step", NULL}, dbgStep, HELP_STEP},
+    {(char const *[]){"next", NULL}, dbgNext, HELP_NEXT},
+    {(char const *[]){"break", NULL}, dbgBreak, HELP_BREAK},
+    {(char const *[]){"delete", NULL}, dbgDel, HELP_DELETE},
+    {(char const *[]){"registers", NULL}, dbgRegs, HELP_REGS},
+    {(char const *[]){"examine", "x", NULL}, dbgExa, HELP_EXA},
+    {(char const *[]){"disasm", "das", "list", NULL}, dbgDis, HELP_DIS},
+    {(char const *[]){"clear", NULL}, dbgClear, HELP_CLEAR},
+    {(char const *[]){"help", "?", NULL}, dbgHelp, HELP_HELP},
+    {NULL, NULL, NULL}};
 
 static char *dbgPrompt(EditLine *el) {
   (void)el;
@@ -1066,10 +1125,12 @@ static char *dbgPrompt(EditLine *el) {
 
 static void dbgMatches(char const *prefix, UInt len) {
   Bool first = TRUE;
-  for (DbgCmd const *cmd = DBG_TBL; cmd->name; ++cmd) {
-    if (strncmp(prefix, cmd->name, len) == 0) {
-      fprintf(stderr, "%s%s", first ? "" : ", ", cmd->name);
-      first = FALSE;
+  for (DbgCmd const *cmd = DBG_TBL; cmd->names; ++cmd) {
+    for (char const **name = cmd->names; *name; ++name) {
+      if (strncmp(prefix, *name, len) == 0) {
+        fprintf(stderr, "%s%s", first ? "" : ", ", *name);
+        first = FALSE;
+      }
     }
   }
   for (Symbol const *sym = symHead; sym; sym = sym->next) {
@@ -1096,10 +1157,12 @@ static unsigned char dbgCompl(EditLine *el, int ch) {
   }
   UInt matchcnt = 0;
   char const *match = NULL;
-  for (DbgCmd const *cmd = DBG_TBL; cmd->name; ++cmd) {
-    if (strncmp(str, cmd->name, len) == 0) {
-      match = cmd->name;
-      ++matchcnt;
+  for (DbgCmd const *cmd = DBG_TBL; cmd->names; ++cmd) {
+    for (char const **name = cmd->names; *name; ++name) {
+      if (strncmp(str, *name, len) == 0) {
+        match = *name;
+        ++matchcnt;
+      }
     }
   }
   for (Symbol const *sym = symHead; sym; sym = sym->next) {
@@ -1122,7 +1185,43 @@ static unsigned char dbgCompl(EditLine *el, int ch) {
   return CC_REFRESH;
 }
 
-static DbgResult dbgHelp() { return DBG_DEBUG; }
+static DbgResult dbgHelp() {
+  Tok tok = tokPeek(NULL);
+  if (tok.type == TOK_EOE) {
+    fprintf(stderr, "Available commands:\n");
+    int maxWidth = 0;
+    for (DbgCmd const *cmd = DBG_TBL; cmd->names; ++cmd) {
+      int width = 2;
+      for (char const **name = cmd->names; *name; ++name) {
+        width += (name == cmd->names ? 0 : 2) + (int)strlen(*name);
+      }
+      if (width > maxWidth) {
+        maxWidth = width;
+      }
+    }
+    for (DbgCmd const *cmd = DBG_TBL; cmd->names; ++cmd) {
+      int width = 2;
+      fprintf(stderr, "  ");
+      for (char const **name = cmd->names; *name; ++name) {
+        fprintf(stderr, "%s%s", name == cmd->names ? "" : ", ", *name);
+        width += (name == cmd->names ? 0 : 2) + (int)strlen(*name);
+      }
+      fprintf(stderr, "%*s  %s\n", maxWidth - width, "", cmd->help.breif);
+    }
+    return DBG_DEBUG;
+  }
+  for (DbgCmd const *cmd = DBG_TBL; cmd->names; ++cmd) {
+    for (char const **name = cmd->names; *name; ++name) {
+      if (strncmp(tok.start, *name, tok.len) == 0) {
+        fprintf(stderr, "%s  %s\n", *name, cmd->help.breif);
+        fprintf(stderr, "%s\n", cmd->help.body);
+        return DBG_DEBUG;
+      }
+    }
+  }
+  fprintf(stderr, "Unknown command: %.*s\n", (int)tok.len, tok.start);
+  return DBG_DEBUG;
+}
 
 static void dbgTick() {
   static EditLine *el = NULL;
@@ -1171,12 +1270,14 @@ static void dbgTick() {
     }
     DbgCmd const *match = NULL;
     UInt matchCount = 0;
-    for (DbgCmd const *cmd = DBG_TBL; cmd->name; ++cmd) {
-      if (strncmp(tok.start, cmd->name, tok.len) != 0) {
-        continue;
+    for (DbgCmd const *cmd = DBG_TBL; cmd->names; ++cmd) {
+      for (char const **name = cmd->names; *name; ++name) {
+        if (strncmp(tok.start, *name, tok.len) != 0) {
+          continue;
+        }
+        match = cmd;
+        ++matchCount;
       }
-      match = cmd;
-      ++matchCount;
     }
     if (matchCount == 0) {
       fprintf(stderr, "Unknown command: %.*s\n", (int)tok.len, tok.start);
