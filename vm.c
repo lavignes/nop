@@ -18,6 +18,10 @@
 // libedit
 #include <histedit.h>
 
+typedef bool Bool;
+#define TRUE true
+#define FALSE false
+
 typedef uint8_t U8;
 typedef int8_t I8;
 #define U8_MAX UINT8_MAX
@@ -63,18 +67,20 @@ static U8 SP;
 static U16 PC = 0x0200;
 static U8 MEM[65536];
 
-static bool debug = false;
+static Bool debug = FALSE;
 
 static struct termios termiosOrig;
-static bool termRawMode = false;
+static Bool termRawMode = FALSE;
 
 static void help(char const *name) {
   fprintf(stderr, "Usage: %s [options] <romfile>\n\n", name);
   fprintf(stderr, "Options:\n\n");
-  fprintf(stderr, "  -h, --help       Show this help message\n");
-  fprintf(stderr, "  -d, --debug      Start in debug mode\n");
-  fprintf(stderr, "  -l, --labellist  Load symbol labellist from file\n");
-  fprintf(stderr, "  -r, --random     Initialize memory with random data\n");
+  fprintf(stderr, "  -h, --help              Show this help message\n");
+  fprintf(stderr, "  -d, --debug             Start in debug mode\n");
+  fprintf(stderr,
+          "  -l, --labellist <file>  Load symbol labellist from file\n");
+  fprintf(stderr,
+          "  -r, --random            Initialize memory with random data\n");
 }
 
 static void emuTick();
@@ -83,10 +89,10 @@ static void symLoad(char const *filename);
 static void termRawModeOn();
 static void termRawModeOff();
 
-int main(int argc, char *argv[]) {
+int main(int argc, char const *const *argv) {
   FILE *rom;
   char const *labellist = NULL;
-  bool random = false;
+  Bool random = FALSE;
 
   atexit(termRawModeOff);
 
@@ -102,7 +108,7 @@ int main(int argc, char *argv[]) {
     }
     if ((strcmp(argv[argi], "-d") == 0) ||
         (strcmp(argv[argi], "--debug") == 0)) {
-      debug = true;
+      debug = TRUE;
       continue;
     }
     if ((strcmp(argv[argi], "-l") == 0) ||
@@ -117,7 +123,7 @@ int main(int argc, char *argv[]) {
     }
     if ((strcmp(argv[argi], "-r") == 0) ||
         (strcmp(argv[argi], "--random") == 0)) {
-      random = true;
+      random = TRUE;
       continue;
     }
     rom = fopen(argv[argi], "rb");
@@ -139,7 +145,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  size_t read = fread(MEM + PC, 1, sizeof(MEM) - PC, rom);
+  UInt read = fread(MEM + PC, 1, sizeof(MEM) - PC, rom);
   if (read != (sizeof(MEM) - PC)) {
     int err = ferror(rom);
     if (err) {
@@ -157,7 +163,7 @@ int main(int argc, char *argv[]) {
     termRawModeOn();
   }
 
-  while (true) {
+  while (TRUE) {
     emuTick();
   }
 
@@ -222,7 +228,7 @@ static Breakpoint nextpoint = {NULL, 0, 0};
 
 static void emuTick() {
   if (nextpoint.next && (PC == nextpoint.addr)) {
-    debug = true;
+    debug = TRUE;
     nextpoint.next = NULL;
   }
   for (Breakpoint const *bp = bpHead; bp; bp = bp->next) {
@@ -230,7 +236,7 @@ static void emuTick() {
       continue;
     }
     fprintf(stderr, "Hit breakpoint %u at $%04X\r\n", bp->num, bp->addr);
-    debug = true;
+    debug = TRUE;
     break;
   }
   if (debug) {
@@ -259,6 +265,27 @@ static Symbol *symAdd(char const *name, Int val) {
   symHead = sym;
   ++symCount;
   return sym;
+}
+
+static Symbol const *symFind(char const *name, UInt namelen) {
+  for (Symbol const *sym = symHead; sym; sym = sym->next) {
+    if (strlen(sym->name) != namelen) {
+      continue;
+    }
+    if (strncmp(sym->name, name, namelen) == 0) {
+      return sym;
+    }
+  }
+  return NULL;
+}
+
+static Symbol const *symValFind(Int val) {
+  for (Symbol const *sym = symHead; sym; sym = sym->next) {
+    if (val == sym->val) {
+      return sym;
+    }
+  }
+  return NULL;
 }
 
 static void symLoad(char const *filename) {
@@ -302,7 +329,7 @@ static void termRawModeOn() {
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {
     return;
   }
-  termRawMode = true;
+  termRawMode = TRUE;
 }
 
 static void termRawModeOff() {
@@ -310,28 +337,7 @@ static void termRawModeOff() {
     return;
   }
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosOrig);
-  termRawMode = false;
-}
-
-static Symbol const *symFind(char const *name, size_t namelen) {
-  for (Symbol const *sym = symHead; sym; sym = sym->next) {
-    if (strlen(sym->name) != namelen) {
-      continue;
-    }
-    if (strncmp(sym->name, name, namelen) == 0) {
-      return sym;
-    }
-  }
-  return NULL;
-}
-
-static Symbol const *symValFind(Int val) {
-  for (Symbol const *sym = symHead; sym; sym = sym->next) {
-    if (val == sym->val) {
-      return sym;
-    }
-  }
-  return NULL;
+  termRawMode = FALSE;
 }
 
 enum {
@@ -361,7 +367,7 @@ static struct {
 
 typedef struct {
   char const *start;
-  size_t len;
+  UInt len;
   UInt type;
   Int val;
 } Tok;
@@ -402,17 +408,35 @@ static Tok tokPeek(char const *str) {
     case '\\':
       ++str;
       switch (*str) {
+      case 'a':
+        tokStash.val = '\a';
+        break;
+      case 'b':
+        tokStash.val = '\b';
+        break;
+      case 'f':
+        tokStash.val = '\f';
+        break;
       case 'n':
         tokStash.val = '\n';
+        break;
+      case 'r':
+        tokStash.val = '\r';
         break;
       case 't':
         tokStash.val = '\t';
         break;
-      case '\'':
-        tokStash.val = '\'';
+      case 'v':
+        tokStash.val = '\v';
         break;
       case '\\':
         tokStash.val = '\\';
+        break;
+      case '\'':
+        tokStash.val = '\'';
+        break;
+      case '"':
+        tokStash.val = '"';
         break;
       case '0':
         tokStash.val = '\0';
@@ -477,10 +501,10 @@ static Tok tokPeek(char const *str) {
   }
   for (UInt i = 0; i < (sizeof(DIGRAPHS) / sizeof(DIGRAPHS[0])); ++i) {
     char const *dg = DIGRAPHS[i].name;
-    size_t dgl = strlen(dg);
-    if (strncmp(str, dg, dgl) == 0) {
+    UInt len = strlen(dg);
+    if (strncmp(str, dg, len) == 0) {
       tokStash.type = DIGRAPHS[i].type;
-      tokStash.len = dgl;
+      tokStash.len = len;
       return tokStash;
     }
   }
@@ -498,10 +522,10 @@ enum {
 typedef struct {
   UInt kind;
   Tok tok;
-  bool unary;
+  Bool unary;
 } Expr;
 
-static U8 tokPrec(Tok tok, bool unary) {
+static U8 tokPrec(Tok tok, Bool unary) {
   if (unary) {
     return 0;
   }
@@ -702,9 +726,9 @@ static Int solve() {
   return intStack[0];
 }
 
-static void pushOp(Tok tok, bool unary) {
+static void pushOp(Tok tok, Bool unary) {
   if (tok.type == '(') {
-    opStack[opCount++] = (Expr){EXPR_OP, tok, true};
+    opStack[opCount++] = (Expr){EXPR_OP, tok, TRUE};
     return;
   }
   while (opCount > 0) {
@@ -723,9 +747,9 @@ static Int parseExpr() {
   opCount = 0;
   exprCount = 0;
   intCount = 0;
-  bool expectOp = false;
+  Bool expectOp = FALSE;
   UInt parenDepth = 0;
-  while (true) {
+  while (TRUE) {
     Tok tok = tokPeek(NULL);
     switch (tok.type) {
     case '+':
@@ -736,14 +760,14 @@ static Int parseExpr() {
       // sometimes unary
       pushOp(tok, !expectOp);
       tokEat();
-      expectOp = false;
+      expectOp = FALSE;
       continue;
     case '!':
     case '~':
       // always unary
-      pushOp(tok, true);
+      pushOp(tok, TRUE);
       tokEat();
-      expectOp = false;
+      expectOp = FALSE;
       continue;
     case '&':
     case '|':
@@ -762,41 +786,41 @@ static Int parseExpr() {
       if (!expectOp) {
         return INT_MAX;
       }
-      pushOp(tok, false);
+      pushOp(tok, FALSE);
       tokEat();
-      expectOp = false;
+      expectOp = FALSE;
       continue;
     case TOK_NUM:
       if (expectOp) {
         return INT_MAX;
       }
-      exprStack[exprCount++] = (Expr){EXPR_NUM, tok, false};
+      exprStack[exprCount++] = (Expr){EXPR_NUM, tok, FALSE};
       tokEat();
-      expectOp = true;
+      expectOp = TRUE;
       continue;
     case TOK_ID:
       if (expectOp) {
         return INT_MAX;
       }
-      exprStack[exprCount++] = (Expr){EXPR_ID, tok, false};
+      exprStack[exprCount++] = (Expr){EXPR_ID, tok, FALSE};
       tokEat();
-      expectOp = true;
+      expectOp = TRUE;
       continue;
     case '(':
       if (expectOp) {
         return INT_MAX;
       }
-      pushOp(tok, true);
+      pushOp(tok, TRUE);
       tokEat();
       ++parenDepth;
-      expectOp = false;
+      expectOp = FALSE;
       continue;
     case ')':
       if (!expectOp) {
         return INT_MAX;
       }
       --parenDepth;
-      while (true) {
+      while (TRUE) {
         if (opCount == 0) {
           return INT_MAX;
         }
@@ -1040,18 +1064,18 @@ static char *dbgPrompt(EditLine *el) {
   return "> ";
 }
 
-static void dbgMatches(char const *prefix, size_t len) {
-  bool first = true;
+static void dbgMatches(char const *prefix, UInt len) {
+  Bool first = TRUE;
   for (DbgCmd const *cmd = DBG_TBL; cmd->name; ++cmd) {
     if (strncmp(prefix, cmd->name, len) == 0) {
       fprintf(stderr, "%s%s", first ? "" : ", ", cmd->name);
-      first = false;
+      first = FALSE;
     }
   }
   for (Symbol const *sym = symHead; sym; sym = sym->next) {
     if (strncmp(prefix, sym->name, len) == 0) {
       fprintf(stderr, "%s%s", first ? "" : ", ", sym->name);
-      first = false;
+      first = FALSE;
     }
   }
 }
@@ -1091,7 +1115,7 @@ static unsigned char dbgCompl(EditLine *el, int ch) {
   }
   if (matchcnt > 1) {
     fprintf(stderr, "\n");
-    dbgMatches(str, (size_t)len);
+    dbgMatches(str, len);
     fprintf(stderr, " ?\n");
     return CC_REDISPLAY;
   }
@@ -1119,7 +1143,7 @@ static void dbgTick() {
   }
   regs();
   disAsm(PC);
-  while (true) {
+  while (TRUE) {
     free(workline);
     int count;
     char const *line = el_gets(el, &count);
@@ -1170,7 +1194,7 @@ static void dbgTick() {
       break;
     }
     if (res == DBG_CONTINUE) {
-      debug = false;
+      debug = FALSE;
       termRawModeOn();
       return;
     }
@@ -1416,7 +1440,7 @@ static U16 disAsm(U16 addr) {
   return addr;
 }
 
-static void flag(U8 flag, bool cond) {
+static void flag(U8 flag, Bool cond) {
   if (cond) {
     P |= flag;
   } else {
@@ -1497,7 +1521,7 @@ static U8 *jid() {
 
 static void adc(U8 *val) {
   if (P & FLAG_DECIMAL) {
-    debug = true;
+    debug = TRUE;
   }
   U16 sum = A + *val + (P & FLAG_CARRY ? 1 : 0);
   U8 res = sum & 0xFF;
@@ -1566,12 +1590,12 @@ static void bpl(U8 *val) {
 
 static void brk_(U8 *val) {
   (void)val;
-  debug = true;
+  debug = TRUE;
   ++PC;
   MEM[0x0100 + SP--] = (U8)((PC >> 8) & 0xFF);
   MEM[0x0100 + SP--] = (U8)(PC & 0xFF);
   MEM[0x0100 + SP--] = P | FLAG_BREAK | FLAG_UNUSED;
-  flag(FLAG_INTERRUPT, true);
+  flag(FLAG_INTERRUPT, TRUE);
   U8 lo = MEM[0xFFFE];
   U8 hi = MEM[0xFFFF];
   PC = (((U16)hi) << 8) | lo;
@@ -1591,22 +1615,22 @@ static void bvs(U8 *val) {
 
 static void clc(U8 *val) {
   (void)val;
-  flag(FLAG_CARRY, false);
+  flag(FLAG_CARRY, FALSE);
 }
 
 static void cld(U8 *val) {
   (void)val;
-  flag(FLAG_DECIMAL, false);
+  flag(FLAG_DECIMAL, FALSE);
 }
 
 static void cli(U8 *val) {
   (void)val;
-  flag(FLAG_INTERRUPT, false);
+  flag(FLAG_INTERRUPT, FALSE);
 }
 
 static void clv(U8 *val) {
   (void)val;
-  flag(FLAG_OVERFLOW, false);
+  flag(FLAG_OVERFLOW, FALSE);
 }
 
 static void cmp(U8 *val) {
@@ -1725,7 +1749,7 @@ static void lsr(U8 *val) {
   flag(FLAG_CARRY, (*val & 0x01) != 0);
   *val >>= 1;
   flag(FLAG_ZERO, *val == 0);
-  flag(FLAG_NEGATIVE, false);
+  flag(FLAG_NEGATIVE, FALSE);
 }
 
 static void nop(U8 *val) { (void)val; }
@@ -1759,7 +1783,7 @@ static void plp(U8 *val) {
 }
 
 static void rol(U8 *val) {
-  bool cy = (P & FLAG_CARRY) != 0;
+  Bool cy = (P & FLAG_CARRY) != 0;
   flag(FLAG_CARRY, (*val & 0x80) != 0);
   *val = (*val << 1) | (cy ? 1 : 0);
   flag(FLAG_ZERO, *val == 0);
@@ -1767,7 +1791,7 @@ static void rol(U8 *val) {
 }
 
 static void ror(U8 *val) {
-  bool cy = (P & FLAG_CARRY) != 0;
+  Bool cy = (P & FLAG_CARRY) != 0;
   flag(FLAG_CARRY, (*val & 0x01) != 0);
   *val = (*val >> 1) | (cy ? 0x80 : 0);
   flag(FLAG_ZERO, *val == 0);
@@ -1791,7 +1815,7 @@ static void rts(U8 *val) {
 
 static void sbc(U8 *val) {
   if (P & FLAG_DECIMAL) {
-    debug = true;
+    debug = TRUE;
   }
   U16 diff = A - *val - (P & FLAG_CARRY ? 0 : 1);
   U8 res = diff & 0xFF;
@@ -1804,17 +1828,17 @@ static void sbc(U8 *val) {
 
 static void sec(U8 *val) {
   (void)val;
-  flag(FLAG_CARRY, true);
+  flag(FLAG_CARRY, TRUE);
 }
 
 static void sed(U8 *val) {
   (void)val;
-  flag(FLAG_DECIMAL, true);
+  flag(FLAG_DECIMAL, TRUE);
 }
 
 static void sei(U8 *val) {
   (void)val;
-  flag(FLAG_INTERRUPT, true);
+  flag(FLAG_INTERRUPT, TRUE);
 }
 
 static void sta(U8 *val) {
@@ -1962,6 +1986,6 @@ static void cpuTick() {
     entry->exec(entry->addr());
   } else {
     --PC;
-    debug = true;
+    debug = TRUE;
   }
 }
