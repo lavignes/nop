@@ -41,6 +41,6 @@ typedef struct {
   void (*write)(void *data, U16 addr, U8 val);
 } Bus;
 
-void cpuTick(Cpu *cpu, Bus *bus);
+UInt cpuTick(Cpu *cpu, Bus *bus);
 
 #endif // EMU_H
