@@ -1,312 +1,19 @@
-// stdlib
 #include <ctype.h>
-#include <inttypes.h>
-#include <limits.h>
-#include <signal.h>
-#include <stddef.h>
+#include <histedit.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
-// POSIX
-#include <poll.h>
-#include <termios.h>
-#include <unistd.h>
+#include "vm.h"
 
-// libedit
-#include <histedit.h>
-
-static volatile sig_atomic_t sigintFlag = 0;
-static Bool debug = FALSE;
-
-static struct termios termiosOrig;
-static Bool termRawMode = FALSE;
-
-static void sigintHandler(int sig) {
-  (void)sig;
-  if (debug) {
-    exit(EXIT_SUCCESS);
+U8 dbgRead(U16 addr) {
+  if (addr >= RAM_START_ADDR && addr <= RAM_END_ADDR) {
+    return bus.ram[addr - RAM_START_ADDR];
   }
-  sigintFlag = 1;
-}
-
-static void help(char const *name) {
-  fprintf(stderr, "Usage: %s [options] <romfile>\n\n", name);
-  fprintf(stderr, "Options:\n\n");
-  fprintf(stderr, "  -h, --help              Show this help message\n");
-  fprintf(stderr, "  -d, --debug             Start in debug mode\n");
-  fprintf(stderr,
-          "  -l, --labellist <file>  Load symbol labellist from file\n");
-  fprintf(stderr,
-          "  -r, --random            Initialize memory with random data\n");
-}
-
-static void emuTick();
-static void dbgTick();
-static void symLoad(char const *filename);
-static void termRawModeOn();
-static void termRawModeOff();
-
-int main(int argc, char const *const *argv) {
-  FILE *rom;
-  char const *labellist = NULL;
-  Bool random = FALSE;
-
-  atexit(termRawModeOff);
-  signal(SIGINT, sigintHandler);
-
-  if (argc < 2) {
-    help(argv[0]);
-    return EXIT_FAILURE;
+  if (addr >= ROM_START_ADDR && addr <= ROM_END_ADDR) {
+    return bus.rom[addr - ROM_START_ADDR];
   }
-  for (int argi = 1; argi < argc; ++argi) {
-    if ((strcmp(argv[argi], "-h") == 0) ||
-        (strcmp(argv[argi], "--help") == 0)) {
-      help(argv[0]);
-      return EXIT_SUCCESS;
-    }
-    if ((strcmp(argv[argi], "-d") == 0) ||
-        (strcmp(argv[argi], "--debug") == 0)) {
-      debug = TRUE;
-      continue;
-    }
-    if ((strcmp(argv[argi], "-l") == 0) ||
-        (strcmp(argv[argi], "--labellist") == 0)) {
-      ++argi;
-      if (argi == argc) {
-        fprintf(stderr, "No labellist file specified\n");
-        return EXIT_FAILURE;
-      }
-      labellist = argv[argi];
-      continue;
-    }
-    if ((strcmp(argv[argi], "-r") == 0) ||
-        (strcmp(argv[argi], "--random") == 0)) {
-      random = TRUE;
-      continue;
-    }
-    rom = fopen(argv[argi], "rb");
-    if (!rom) {
-      fprintf(stderr, "Could not open ROM file: %s\n", argv[argi]);
-      return EXIT_FAILURE;
-    }
-    ++argi;
-    if (argi != argc) {
-      fprintf(stderr, "Unexpected option: %s\n", argv[argi]);
-      return EXIT_FAILURE;
-    }
-  }
-
-  if (!rom) {
-    fprintf(stderr, "No ROM file specified\n");
-    return EXIT_FAILURE;
-  }
-
-  if (random) {
-    srand((unsigned int)time(NULL));
-    for (UInt i = 0; i < sizeof(MEM); ++i) {
-      MEM[i] = (U8)rand();
-    }
-  }
-
-  UInt read = fread(MEM + PC, 1, sizeof(MEM) - PC, rom);
-  if (read != (sizeof(MEM) - PC)) {
-    int err = ferror(rom);
-    if (err) {
-      fprintf(stderr, "Error reading ROM file: %s\n", strerror(err));
-      return EXIT_FAILURE;
-    }
-  }
-  fclose(rom);
-
-  if (labellist) {
-    symLoad(labellist);
-  }
-
-  if (!debug) {
-    termRawModeOn();
-  }
-
-  while (TRUE) {
-    emuTick();
-  }
-
-  return EXIT_SUCCESS;
-}
-
-static U8 ioAddr = 0x00;
-static U8 ioData = 0x00;
-static U8 ioStatus = 0x00;
-
-static U8 ioAddrRead() { return ioAddr; }
-
-static U8 ioDataRead() {
-  switch (ioAddr) {
-  case 0x00: {
-    if (ioStatus & 0x01) {
-      return ioStatus;
-    }
-    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
-    if (poll(&pfd, 1, 0) > 0) {
-      ioData = (U8)fgetc(stdin);
-      ioStatus |= 0x01;
-    }
-    return ioStatus;
-  }
-  case 0x01:
-    return ioData;
-  default:
-    return 0x00;
-  }
-}
-
-static void ioAddrWrite(U8 val) { ioAddr = val; }
-
-static void ioDataWrite(U8 val) {
-  switch (ioAddr) {
-  case 0x00:
-    ioStatus &= ~0x01;
-    return;
-  case 0x01:
-    fputc(val, stdout);
-    fflush(stdout);
-    return;
-  default:
-    return;
-  }
-}
-
-static void cpuTick();
-
-typedef struct Breakpoint Breakpoint;
-
-struct Breakpoint {
-  Breakpoint *next;
-  U16 num;
-  U16 addr;
-};
-
-static U16 bpCount = 0;
-static Breakpoint *bpHead = NULL;
-static Breakpoint nextpoint = {NULL, 0, 0};
-
-static void emuTick() {
-  if (sigintFlag) {
-    sigintFlag = 0;
-    debug = TRUE;
-  }
-  if (nextpoint.next && (PC == nextpoint.addr)) {
-    debug = TRUE;
-    nextpoint.next = NULL;
-  }
-  for (Breakpoint const *bp = bpHead; bp; bp = bp->next) {
-    if (PC != bp->addr) {
-      continue;
-    }
-    fprintf(stderr, "Hit breakpoint %u at $%04X\r\n", bp->num, bp->addr);
-    debug = TRUE;
-    break;
-  }
-  if (debug) {
-    dbgTick();
-  }
-  // TODO: check for interrupts here
-  cpuTick();
-}
-
-typedef struct Symbol Symbol;
-
-struct Symbol {
-  Symbol *next;
-  char const *name;
-  Int val;
-};
-
-static U16 symCount = 0;
-static Symbol *symHead = NULL;
-
-static Symbol *symAdd(char const *name, Int val) {
-  Symbol *sym = malloc(sizeof(Symbol));
-  sym->name = strdup(name);
-  sym->val = val;
-  sym->next = symHead;
-  symHead = sym;
-  ++symCount;
-  return sym;
-}
-
-static Symbol const *symFind(char const *name, UInt namelen) {
-  for (Symbol const *sym = symHead; sym; sym = sym->next) {
-    if (strlen(sym->name) != namelen) {
-      continue;
-    }
-    if (strncmp(sym->name, name, namelen) == 0) {
-      return sym;
-    }
-  }
-  return NULL;
-}
-
-static Symbol const *symValFind(Int val) {
-  for (Symbol const *sym = symHead; sym; sym = sym->next) {
-    if (val == sym->val) {
-      return sym;
-    }
-  }
-  return NULL;
-}
-
-static void symLoad(char const *filename) {
-  FILE *file = fopen(filename, "r");
-  if (!file) {
-    fprintf(stderr, "Could not open labellist file: %s\n", filename);
-    return;
-  }
-  char line[256];
-  for (UInt lineno = 0; fgets(line, sizeof(line), file); ++lineno) {
-    char name[64];
-    Int val;
-    Int block;
-    if (sscanf(line, "%63[^,], 0x%" INT_FMTX ", %" INT_FMT, name, &val,
-               &block) != 3) {
-      fprintf(stderr, "Invalid labellist line %" UINT_FMT ": %s", lineno, line);
-      continue;
-    }
-    // filter out invalid names
-    if (!isalpha(name[0]) && (name[0] != '_')) {
-      continue;
-    }
-    // filter out local labels (block != 0)
-    if (block != 0) {
-      continue;
-    }
-    symAdd(name, val);
-  }
-  fclose(file);
-}
-
-static void termRawModeOn() {
-  if (termRawMode) {
-    return;
-  }
-  if (tcgetattr(STDIN_FILENO, &termiosOrig) == -1) {
-    return;
-  }
-  struct termios raw = termiosOrig;
-  cfmakeraw(&raw);
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {
-    return;
-  }
-  termRawMode = TRUE;
-}
-
-static void termRawModeOff() {
-  if (!termRawMode) {
-    return;
-  }
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &termiosOrig);
-  termRawMode = FALSE;
+  return 0;
 }
 
 enum {
@@ -551,13 +258,13 @@ static Int solve() {
       if (expr->tok.len == 1) {
         switch (tolower((unsigned char)expr->tok.start[0])) {
         case 'a':
-          intStack[intCount++] = A;
+          intStack[intCount++] = bus.cpu.a;
           break;
         case 'x':
-          intStack[intCount++] = X;
+          intStack[intCount++] = bus.cpu.x;
           break;
         case 'y':
-          intStack[intCount++] = Y;
+          intStack[intCount++] = bus.cpu.y;
           break;
         default:
           break;
@@ -566,12 +273,12 @@ static Int solve() {
       if (expr->tok.len == 2) {
         if ((tolower((unsigned char)expr->tok.start[0]) == 'p') &&
             (tolower((unsigned char)expr->tok.start[1]) == 'c')) {
-          intStack[intCount++] = PC;
+          intStack[intCount++] = bus.cpu.pc;
           break;
         }
         if ((tolower((unsigned char)expr->tok.start[0]) == 's') &&
             (tolower((unsigned char)expr->tok.start[1]) == 'p')) {
-          intStack[intCount++] = 0x0100 | ((U16)SP);
+          intStack[intCount++] = 0x0100 | ((U16)bus.cpu.sp);
           break;
         }
       }
@@ -608,7 +315,7 @@ static Int solve() {
           if ((rhs < 0) || (rhs > U16_MAX)) {
             return INT_MAX;
           }
-          intStack[intCount++] = MEM[(U16)rhs];
+          intStack[intCount++] = bus.ram[(U16)rhs];
           break;
         default:
           abort();
@@ -816,8 +523,15 @@ static Int parseExpr() {
   }
 }
 
-static U16 disAsm(U16 addr);
-static void regs();
+static void dbgRegs() {
+  fprintf(stderr, "bus.cpu.pc:%04X bus.cpu.sp:01%02X bus.cpu.a:%02X bus.cpu.x:%02X bus.cpu.y:%02X bus.cpu.p:%02X |", bus.cpu.pc, bus.cpu.sp, bus.cpu.a,
+          bus.cpu.x, bus.cpu.y, bus.cpu.p);
+  fprintf(stderr, "%c%c%c%c%c%c%c%c|\n", (bus.cpu.p & CPU_FLAG_NEGATIVE) ? 'N' : '.',
+          (bus.cpu.p & CPU_FLAG_OVERFLOW) ? 'V' : '.', (bus.cpu.p & CPU_FLAG_UNUSED) ? '1' : '.',
+          (bus.cpu.p & CPU_FLAG_BREAK) ? 'B' : '.', (bus.cpu.p & CPU_FLAG_DECIMAL) ? 'D' : '.',
+          (bus.cpu.p & CPU_FLAG_INTERRUPT) ? 'I' : '.', (bus.cpu.p & CPU_FLAG_ZERO) ? 'Z' : '.',
+          (bus.cpu.p & CPU_FLAG_CARRY) ? 'C' : '.');
+}
 
 typedef enum { DBG_DEBUG, DBG_BREAK, DBG_CONTINUE, DBG_CLEAR } DbgResult;
 
@@ -830,17 +544,17 @@ static DbgResult dbgStep() { return DBG_BREAK; }
 static DbgResult dbgClear() { return DBG_CLEAR; }
 
 static DbgResult dbgNext() {
-  U8 op = MEM[PC];
+  U8 op = bus.ram[bus.cpu.pc];
   if (op == 0x20) { // JSR
-    nextpoint.addr = PC + 3;
+    nextpoint.addr = bus.cpu.pc + 3;
     nextpoint.next = bpHead; // to mark it active
     return DBG_CONTINUE;
   }
   return DBG_BREAK;
 }
 
-static DbgResult dbgRegs() {
-  regs();
+static DbgResult dbgRegsCmd() {
+  dbgRegs();
   return DBG_DEBUG;
 }
 
@@ -898,7 +612,7 @@ static DbgResult dbgDel() {
 }
 
 static DbgResult dbgExa() {
-  Int start = PC;
+  Int start = bus.cpu.pc;
   Int len = 16;
   Tok tok = tokPeek(NULL);
   if (tok.type != TOK_EOE) {
@@ -940,14 +654,14 @@ static DbgResult dbgExa() {
         fprintf(stderr, " ");
       }
       fprintf(stderr, (start + i) > end ? "   " : " %02X",
-              MEM[(U16)(start + i)]);
+              bus.ram[(U16)(start + i)]);
     }
     fprintf(stderr, "  |");
     for (UInt i = 0; i < 16; ++i) {
       if ((start + i) > end) {
         fprintf(stderr, " ");
       } else {
-        U8 byte = MEM[(U16)(start + i)];
+        U8 byte = bus.ram[(U16)(start + i)];
         fprintf(stderr, "%c", isprint(byte) ? (char)byte : '.');
       }
     }
@@ -958,7 +672,7 @@ static DbgResult dbgExa() {
 }
 
 static DbgResult dbgDis() {
-  Int start = PC;
+  Int start = bus.cpu.pc;
   Int len = 1;
   Tok tok = tokPeek(NULL);
   if (tok.type != TOK_EOE) {
@@ -1060,7 +774,7 @@ static DbgCmd const DBG_TBL[] = {
     {(char const *[]){"next", NULL}, dbgNext, HELP_NEXT},
     {(char const *[]){"break", NULL}, dbgBreak, HELP_BREAK},
     {(char const *[]){"delete", NULL}, dbgDel, HELP_DELETE},
-    {(char const *[]){"registers", NULL}, dbgRegs, HELP_REGS},
+    {(char const *[]){"registers", NULL}, dbgRegsCmd, HELP_REGS},
     {(char const *[]){"examine", "x", NULL}, dbgExa, HELP_EXA},
     {(char const *[]){"disasm", "das", "list", NULL}, dbgDis, HELP_DIS},
     {(char const *[]){"clear", NULL}, dbgClear, HELP_CLEAR},
@@ -1082,7 +796,7 @@ static void dbgMatches(char const *prefix, UInt len) {
       }
     }
   }
-  for (Symbol const *sym = symHead; sym; sym = sym->next) {
+  for (Symbol const *sym = symFirst(); sym; sym = sym->next) {
     if (strncmp(prefix, sym->name, len) == 0) {
       fprintf(stderr, "%s%s", first ? "" : ", ", sym->name);
       first = FALSE;
@@ -1114,7 +828,7 @@ static unsigned char dbgCompl(EditLine *el, int ch) {
       }
     }
   }
-  for (Symbol const *sym = symHead; sym; sym = sym->next) {
+  for (Symbol const *sym = symFirst(); sym; sym = sym->next) {
     if (strncmp(str, sym->name, len) == 0) {
       match = sym->name;
       ++matchcnt;
@@ -1172,7 +886,10 @@ static DbgResult dbgHelp() {
   return DBG_DEBUG;
 }
 
-static void dbgTick() {
+void dbgTick() {
+  extern void termRawModeOff();
+  extern void termRawModeOn();
+  extern Bool debug;
   static EditLine *el = NULL;
   static History *hist = NULL;
   static HistEvent ev;
@@ -1189,8 +906,8 @@ static void dbgTick() {
     history(hist, &ev, H_SETSIZE, 100);
     el_set(el, EL_HIST, history, hist);
   }
-  regs();
-  disAsm(PC);
+  dbgRegs();
+  disAsm(bus.cpu.pc);
   while (TRUE) {
     free(workline);
     int count;
@@ -1263,229 +980,3 @@ static void dbgTick() {
 #define CYAN(str) "\x1b[36m" str RESET
 #define WHITE(str) "\x1b[37m" str RESET
 
-static void regs() {
-  fprintf(stderr, "PC:%04X SP:01%02X A:%02X X:%02X Y:%02X P:%02X |", PC, SP, A,
-          X, Y, P);
-  fprintf(stderr, "%c%c%c%c%c%c%c%c|\n", (P & FLAG_NEGATIVE) ? 'N' : '.',
-          (P & FLAG_OVERFLOW) ? 'V' : '.', (P & FLAG_UNUSED) ? '1' : '.',
-          (P & FLAG_BREAK) ? 'B' : '.', (P & FLAG_DECIMAL) ? 'D' : '.',
-          (P & FLAG_INTERRUPT) ? 'I' : '.', (P & FLAG_ZERO) ? 'Z' : '.',
-          (P & FLAG_CARRY) ? 'C' : '.');
-}
-
-static void disSym(U16 addr) {
-  Symbol const *sym = symValFind((UInt)addr);
-  if (sym) {
-    fprintf(stderr, CYAN("; %s"), sym->name);
-    return;
-  }
-  sym = symValFind((UInt)(addr - 1));
-  if (sym) {
-    fprintf(stderr, CYAN("; %s+1"), sym->name);
-  }
-}
-
-static U16 disImpl(U8 op, U16 addr, char const *mne) {
-  fprintf(stderr, " %02X      ", op);
-  fprintf(stderr, "  " BLUE("%s") "            ", mne);
-  return addr;
-}
-
-static U16 disImm(U8 op, U16 addr, char const *mne) {
-  U8 val = MEM[addr++];
-  fprintf(stderr, " %02X %02X   ", op, val);
-  fprintf(stderr, "  " BLUE("%s") " " MAGENTA("#$%02X") "       ", mne, val);
-  return addr;
-}
-
-static U16 disZp(U8 op, U16 addr, char const *mne) {
-  U8 zp = MEM[addr++];
-  fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  " BLUE("%s") " $%02X        ", mne, zp);
-  disSym((U16)zp);
-  return addr;
-}
-
-static U16 disZpX(U8 op, U16 addr, char const *mne) {
-  U8 zp = MEM[addr++];
-  fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  " BLUE("%s") " $%02X,X      ", mne, zp);
-  disSym((U16)zp);
-  return addr;
-}
-
-static U16 disZpY(U8 op, U16 addr, char const *mne) {
-  U8 zp = MEM[addr++];
-  fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  " BLUE("%s") " $%02X,Y      ", mne, zp);
-  disSym((U16)zp);
-  return addr;
-}
-
-static U16 disAb(U8 op, U16 addr, char const *mne) {
-  U8 lo = MEM[addr++];
-  U8 hi = MEM[addr++];
-  U16 ab = (((U16)hi) << 8) | lo;
-  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, ab);
-  disSym(ab);
-  return addr;
-}
-
-static U16 disAbX(U8 op, U16 addr, char const *mne) {
-  U8 lo = MEM[addr++];
-  U8 hi = MEM[addr++];
-  U16 ab = (((U16)hi) << 8) | lo;
-  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr, "  " BLUE("%s") " $%04X,X    ", mne, ab);
-  disSym(ab);
-  return addr;
-}
-
-static U16 disAbY(U8 op, U16 addr, char const *mne) {
-  U8 lo = MEM[addr++];
-  U8 hi = MEM[addr++];
-  U16 ab = (((U16)hi) << 8) | lo;
-  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr, "  " BLUE("%s") " $%04X,Y    ", mne, ab);
-  disSym(ab);
-  return addr;
-}
-
-static U16 disId(U8 op, U16 addr, char const *mne) {
-  U8 lo = MEM[addr++];
-  U8 hi = MEM[addr++];
-  U16 ptr = (((U16)hi) << 8) | lo;
-  fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr, "  " BLUE("%s") " ($%04X)    ", mne, ptr);
-  disSym(ptr);
-  return addr;
-}
-
-static U16 disIdX(U8 op, U16 addr, char const *mne) {
-  U8 zp = MEM[addr++];
-  fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  " BLUE("%s") " ($%02X,X)    ", mne, zp);
-  disSym((U16)zp);
-  return addr;
-}
-
-static U16 disIdY(U8 op, U16 addr, char const *mne) {
-  U8 zp = MEM[addr++];
-  fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr, "  " BLUE("%s") " ($%02X),Y    ", mne, zp);
-  disSym((U16)zp);
-  return addr;
-}
-
-static U16 disRel(U8 op, U16 addr, char const *mne) {
-  I8 offset = (I8)MEM[addr++];
-  U16 target = addr + offset;
-  fprintf(stderr, " %02X %02X   ", op, (U8)offset);
-  fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, target);
-  disSym(target);
-  return addr;
-}
-
-typedef U16 (*DisFn)(U8, U16, char const *);
-
-typedef struct {
-  char const *mne;
-  DisFn fn;
-} DisEntry;
-
-static DisEntry const DIS_TBL[256] = {
-    [0x00] = {"BRK", disImm},  [0x01] = {"ORA", disIdX},
-    [0x05] = {"ORA", disZp},   [0x06] = {"ASL", disZp},
-    [0x08] = {"PHP", disImpl}, [0x09] = {"ORA", disImm},
-    [0x0A] = {"ASL", disImpl}, [0x0D] = {"ORA", disAb},
-    [0x0E] = {"ASL", disAb},   [0x10] = {"BPL", disRel},
-    [0x11] = {"ORA", disIdY},  [0x15] = {"ORA", disZpX},
-    [0x16] = {"ASL", disZpX},  [0x18] = {"CLC", disImpl},
-    [0x19] = {"ORA", disAbY},  [0x1D] = {"ORA", disAbX},
-    [0x1E] = {"ASL", disAbX},  [0x20] = {"JSR", disAb},
-    [0x21] = {"AND", disIdX},  [0x24] = {"BIT", disZp},
-    [0x25] = {"AND", disZp},   [0x26] = {"ROL", disZp},
-    [0x28] = {"PLP", disImpl}, [0x29] = {"AND", disImm},
-    [0x2A] = {"ROL", disImpl}, [0x2C] = {"BIT", disAb},
-    [0x2D] = {"AND", disAb},   [0x2E] = {"ROL", disAb},
-    [0x30] = {"BMI", disRel},  [0x31] = {"AND", disIdY},
-    [0x35] = {"AND", disZpX},  [0x36] = {"ROL", disZpX},
-    [0x38] = {"SEC", disImpl}, [0x39] = {"AND", disAbY},
-    [0x3D] = {"AND", disAbX},  [0x3E] = {"ROL", disAbX},
-    [0x40] = {"RTI", disImpl}, [0x41] = {"EOR", disIdX},
-    [0x45] = {"EOR", disZp},   [0x46] = {"LSR", disZp},
-    [0x48] = {"PHA", disImpl}, [0x49] = {"EOR", disImm},
-    [0x4A] = {"LSR", disImpl}, [0x4C] = {"JMP", disAb},
-    [0x4D] = {"EOR", disAb},   [0x4E] = {"LSR", disAb},
-    [0x50] = {"BVC", disRel},  [0x51] = {"EOR", disIdY},
-    [0x55] = {"EOR", disZpX},  [0x56] = {"LSR", disZpX},
-    [0x58] = {"CLI", disImpl}, [0x59] = {"EOR", disAbY},
-    [0x5D] = {"EOR", disAbX},  [0x5E] = {"LSR", disAbX},
-    [0x60] = {"RTS", disImpl}, [0x61] = {"ADC", disIdX},
-    [0x65] = {"ADC", disZp},   [0x66] = {"ROR", disZp},
-    [0x68] = {"PLA", disImpl}, [0x69] = {"ADC", disImm},
-    [0x6A] = {"ROR", disImpl}, [0x6C] = {"JMP", disId},
-    [0x6D] = {"ADC", disAb},   [0x6E] = {"ROR", disAb},
-    [0x70] = {"BVS", disRel},  [0x71] = {"ADC", disIdY},
-    [0x75] = {"ADC", disZpX},  [0x76] = {"ROR", disZpX},
-    [0x78] = {"SEI", disImpl}, [0x79] = {"ADC", disAbY},
-    [0x7D] = {"ADC", disAbX},  [0x7E] = {"ROR", disAbX},
-    [0x81] = {"STA", disIdX},  [0x84] = {"STY", disZp},
-    [0x85] = {"STA", disZp},   [0x86] = {"STX", disZp},
-    [0x88] = {"DEY", disImpl}, [0x8A] = {"TXA", disImpl},
-    [0x8C] = {"STY", disAb},   [0x8D] = {"STA", disAb},
-    [0x8E] = {"STX", disAb},   [0x90] = {"BCC", disRel},
-    [0x91] = {"STA", disIdY},  [0x94] = {"STY", disZpX},
-    [0x95] = {"STA", disZpX},  [0x96] = {"STX", disZpY},
-    [0x98] = {"TYA", disImpl}, [0x99] = {"STA", disAbY},
-    [0x9A] = {"TXS", disImpl}, [0x9D] = {"STA", disAbX},
-    [0xA0] = {"LDY", disImm},  [0xA1] = {"LDA", disIdX},
-    [0xA2] = {"LDX", disImm},  [0xA4] = {"LDY", disZp},
-    [0xA5] = {"LDA", disZp},   [0xA6] = {"LDX", disZp},
-    [0xA8] = {"TAY", disImpl}, [0xA9] = {"LDA", disImm},
-    [0xAA] = {"TAX", disImpl}, [0xAC] = {"LDY", disAb},
-    [0xAD] = {"LDA", disAb},   [0xAE] = {"LDX", disAb},
-    [0xB0] = {"BCS", disRel},  [0xB1] = {"LDA", disIdY},
-    [0xB4] = {"LDY", disZpX},  [0xB5] = {"LDA", disZpX},
-    [0xB6] = {"LDX", disZpY},  [0xB8] = {"CLV", disImpl},
-    [0xB9] = {"LDA", disAbY},  [0xBA] = {"TSX", disImpl},
-    [0xBC] = {"LDY", disAbX},  [0xBD] = {"LDA", disAbX},
-    [0xBE] = {"LDX", disAbY},  [0xC0] = {"CPY", disImm},
-    [0xC1] = {"CMP", disIdX},  [0xC4] = {"CPY", disZp},
-    [0xC5] = {"CMP", disZp},   [0xC6] = {"DEC", disZp},
-    [0xC8] = {"INY", disImpl}, [0xC9] = {"CMP", disImm},
-    [0xCA] = {"DEX", disImpl}, [0xCC] = {"CPY", disAb},
-    [0xCD] = {"CMP", disAb},   [0xCE] = {"DEC", disAb},
-    [0xD0] = {"BNE", disRel},  [0xD1] = {"CMP", disIdY},
-    [0xD5] = {"CMP", disZpX},  [0xD6] = {"DEC", disZpX},
-    [0xD8] = {"CLD", disImpl}, [0xD9] = {"CMP", disAbY},
-    [0xDD] = {"CMP", disAbX},  [0xDE] = {"DEC", disAbX},
-    [0xE0] = {"CPX", disImm},  [0xE1] = {"SBC", disIdX},
-    [0xE4] = {"CPX", disZp},   [0xE5] = {"SBC", disZp},
-    [0xE6] = {"INC", disZp},   [0xE8] = {"INX", disImpl},
-    [0xE9] = {"SBC", disImm},  [0xEA] = {"NOP", disImpl},
-    [0xEC] = {"CPX", disAb},   [0xED] = {"SBC", disAb},
-    [0xEE] = {"INC", disAb},   [0xF0] = {"BEQ", disRel},
-    [0xF1] = {"SBC", disIdY},  [0xF5] = {"SBC", disZpX},
-    [0xF6] = {"INC", disZpX},  [0xF8] = {"SED", disImpl},
-    [0xF9] = {"SBC", disAbY},  [0xFD] = {"SBC", disAbX},
-    [0xFE] = {"INC", disAbX},
-};
-
-static U16 disAsm(U16 addr) {
-  Symbol const *sym = symValFind((UInt)addr);
-  if (sym) {
-    fprintf(stderr, YELLOW("%s:") "\n", sym->name);
-  }
-  fprintf(stderr, "%04X ", addr);
-  U8 op = MEM[addr++];
-  DisEntry const *entry = &DIS_TBL[op];
-  if (entry->fn) {
-    addr = entry->fn(op, addr, entry->mne);
-  } else {
-    addr = disImpl(op, addr, "ILL");
-  }
-  fprintf(stderr, "\n");
-  return addr;
-}

@@ -1,16 +1,10 @@
-XA = xa
-
 .PHONY: all clean
 
-all: vm sys.bin
+all: vm
 
-vm: vm.c
-	$(CC) -g -Wimplicit -Wstrict-aliasing -o vm vm.c -ledit
-
-sys.bin sys.lst sys.lbl: sys.s
-	$(XA) -C -XMASM -XCA65 -P sys.lst -l sys.lbl -o sys.bin sys.s
+vm: vm.c cpu.c dis.c sym.c dbg.c abi.h vm.h
+	$(CC) -g -Wimplicit -Wstrict-aliasing -o vm vm.c cpu.c dis.c sym.c dbg.c -ledit
 
 clean:
 	rm -f vm
-	rm -f sys.bin sys.lst sys.lbl
 
