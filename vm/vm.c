@@ -14,17 +14,12 @@
 Emu emu = {0};
 
 volatile sig_atomic_t sigintFlag = 0;
-Bool debug = FALSE;
-U16 bpCount = 0;
-Breakpoint *bpHead = NULL;
-Breakpoint nextpoint = {NULL, 0, 0};
-
 static struct termios termiosOrig;
 static Bool termRawMode = FALSE;
 
 static void sigintHandler(int sig) {
   (void)sig;
-  if (debug) {
+  if (emu.dbg.debug) {
     exit(EXIT_SUCCESS);
   }
   sigintFlag = 1;
@@ -63,7 +58,7 @@ int main(int argc, char const *const *argv) {
     }
     if ((strcmp(argv[argi], "-d") == 0) ||
         (strcmp(argv[argi], "--debug") == 0)) {
-      debug = TRUE;
+      emu.dbg.debug = TRUE;
       continue;
     }
     if ((strcmp(argv[argi], "-l") == 0) ||
@@ -119,7 +114,7 @@ int main(int argc, char const *const *argv) {
     symLoad(labellist);
   }
 
-  if (!debug) {
+  if (!emu.dbg.debug) {
     termRawModeOn();
   }
 
@@ -133,21 +128,21 @@ int main(int argc, char const *const *argv) {
 static void emuTick() {
   if (sigintFlag) {
     sigintFlag = 0;
-    debug = TRUE;
+    emu.dbg.debug = TRUE;
   }
-  if (nextpoint.next && (emu.cpu.pc == nextpoint.addr)) {
-    debug = TRUE;
-    nextpoint.next = NULL;
+  if (emu.dbg.nextpoint.next && (emu.cpu.pc == emu.dbg.nextpoint.addr)) {
+    emu.dbg.debug = TRUE;
+    emu.dbg.nextpoint.next = NULL;
   }
-  for (Breakpoint const *bp = bpHead; bp; bp = bp->next) {
+  for (Breakpoint const *bp = emu.dbg.bpHead; bp; bp = bp->next) {
     if (emu.cpu.pc != bp->addr) {
       continue;
     }
     fprintf(stderr, "Hit breakpoint %u at $%04X\r\n", bp->num, bp->addr);
-    debug = TRUE;
+    emu.dbg.debug = TRUE;
     break;
   }
-  if (debug) {
+  if (emu.dbg.debug) {
     dbgTick(&emu);
   }
   // TODO: check for interrupts here

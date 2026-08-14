@@ -552,8 +552,8 @@ static DbgResult dbgClear(Emu *emu) { return DBG_CLEAR; }
 static DbgResult dbgNext(Emu *emu) {
   U8 op = dbgRead(emu, emu->cpu.pc);
   if (op == 0x20) { // JSR
-    nextpoint.addr = emu->cpu.pc + 3;
-    nextpoint.next = bpHead; // to mark it active
+    emu->dbg.nextpoint.addr = emu->cpu.pc + 3;
+    emu->dbg.nextpoint.next = emu->dbg.bpHead; // to mark it active
     return DBG_CONTINUE;
   }
   return DBG_BREAK;
@@ -579,10 +579,10 @@ static DbgResult dbgBreak(Emu *emu) {
     return DBG_DEBUG;
   }
   Breakpoint *bp = malloc(sizeof(Breakpoint));
-  bp->num = ++bpCount;
+  bp->num = ++emu->dbg.bpCount;
   bp->addr = (U16)addr;
-  bp->next = bpHead;
-  bpHead = bp;
+  bp->next = emu->dbg.bpHead;
+  emu->dbg.bpHead = bp;
   fprintf(stderr, "Breakpoint %u set at $%04X\n", bp->num, bp->addr);
   return DBG_DEBUG;
 }
@@ -601,8 +601,8 @@ static DbgResult dbgDel(Emu *emu) {
             tok.start);
     return DBG_DEBUG;
   }
-  Breakpoint **prev = &bpHead;
-  Breakpoint *bp = bpHead;
+  Breakpoint **prev = &emu->dbg.bpHead;
+  Breakpoint *bp = emu->dbg.bpHead;
   while (bp) {
     if (bp->num == (U16)num) {
       *prev = bp->next;
@@ -968,7 +968,7 @@ void dbgTick(Emu *emu) {
       break;
     }
     if (res == DBG_CONTINUE) {
-      debug = FALSE;
+      emu->dbg.debug = FALSE;
       termRawModeOn();
       return;
     }

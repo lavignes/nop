@@ -1,8 +1,6 @@
 #ifndef VM_H
 #define VM_H
 
-#include <signal.h>
-
 #include "abi.h"
 
 enum {
@@ -45,7 +43,22 @@ typedef struct {
 typedef struct {
 } Vdp;
 
+typedef struct Breakpoint Breakpoint;
+struct Breakpoint {
+  Breakpoint *next;
+  U16 num;
+  U16 addr;
+};
+
 typedef struct {
+  Bool debug;
+  U16 bpCount;
+  Breakpoint *bpHead;
+  Breakpoint nextpoint;
+} Dbg;
+
+typedef struct {
+  Dbg dbg;
   Cpu cpu;
   Vdp vdp;
   U8 ram[RAM_SIZE];
@@ -98,19 +111,6 @@ Symbol const *symValFind(Int val);
 Symbol const *symFind(char const *name, UInt namelen);
 Symbol const *symFirst(void);
 void symLoad(char const *filename);
-
-typedef struct Breakpoint Breakpoint;
-struct Breakpoint {
-  Breakpoint *next;
-  U16 num;
-  U16 addr;
-};
-
-extern U16 bpCount;
-extern Breakpoint *bpHead;
-extern Breakpoint nextpoint;
-extern Bool debug;
-extern volatile sig_atomic_t sigintFlag;
 
 U8 dbgRead(Emu const *emu, U16 addr);
 U16 disAsm(Emu const *emu, U16 addr);
