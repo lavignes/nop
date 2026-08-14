@@ -7,13 +7,14 @@
 #include "vm.h"
 
 U8 dbgRead(U16 addr) {
-  if (addr >= RAM_START_ADDR && addr <= RAM_END_ADDR) {
+  switch (addr) {
+  case RAM_START_ADDR ... RAM_END_ADDR:
     return bus.ram[addr - RAM_START_ADDR];
-  }
-  if (addr >= ROM_START_ADDR && addr <= ROM_END_ADDR) {
+  case ROM_START_ADDR ... ROM_END_ADDR:
     return bus.rom[addr - ROM_START_ADDR];
+  default:
+    return 0;
   }
-  return 0;
 }
 
 enum {
@@ -524,12 +525,16 @@ static Int parseExpr() {
 }
 
 static void dbgRegs() {
-  fprintf(stderr, "bus.cpu.pc:%04X bus.cpu.sp:01%02X bus.cpu.a:%02X bus.cpu.x:%02X bus.cpu.y:%02X bus.cpu.p:%02X |", bus.cpu.pc, bus.cpu.sp, bus.cpu.a,
-          bus.cpu.x, bus.cpu.y, bus.cpu.p);
-  fprintf(stderr, "%c%c%c%c%c%c%c%c|\n", (bus.cpu.p & CPU_FLAG_NEGATIVE) ? 'N' : '.',
-          (bus.cpu.p & CPU_FLAG_OVERFLOW) ? 'V' : '.', (bus.cpu.p & CPU_FLAG_UNUSED) ? '1' : '.',
-          (bus.cpu.p & CPU_FLAG_BREAK) ? 'B' : '.', (bus.cpu.p & CPU_FLAG_DECIMAL) ? 'D' : '.',
-          (bus.cpu.p & CPU_FLAG_INTERRUPT) ? 'I' : '.', (bus.cpu.p & CPU_FLAG_ZERO) ? 'Z' : '.',
+  fprintf(stderr, "PC:%04X SP:01%02X A:%02X X:%02X Y:%02X P:%02X |", bus.cpu.pc,
+          bus.cpu.sp, bus.cpu.a, bus.cpu.x, bus.cpu.y, bus.cpu.p);
+  fprintf(stderr, "%c%c%c%c%c%c%c%c|\n",
+          (bus.cpu.p & CPU_FLAG_NEGATIVE) ? 'N' : '.',
+          (bus.cpu.p & CPU_FLAG_OVERFLOW) ? 'V' : '.',
+          (bus.cpu.p & CPU_FLAG_UNUSED) ? '1' : '.',
+          (bus.cpu.p & CPU_FLAG_BREAK) ? 'B' : '.',
+          (bus.cpu.p & CPU_FLAG_DECIMAL) ? 'D' : '.',
+          (bus.cpu.p & CPU_FLAG_INTERRUPT) ? 'I' : '.',
+          (bus.cpu.p & CPU_FLAG_ZERO) ? 'Z' : '.',
           (bus.cpu.p & CPU_FLAG_CARRY) ? 'C' : '.');
 }
 
@@ -970,13 +975,3 @@ void dbgTick() {
     }
   }
 }
-
-#define RESET "\x1b[0m"
-#define RED(str) "\x1b[31m" str RESET
-#define GREEN(str) "\x1b[32m" str RESET
-#define YELLOW(str) "\x1b[33m" str RESET
-#define BLUE(str) "\x1b[34m" str RESET
-#define MAGENTA(str) "\x1b[35m" str RESET
-#define CYAN(str) "\x1b[36m" str RESET
-#define WHITE(str) "\x1b[37m" str RESET
-

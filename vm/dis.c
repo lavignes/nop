@@ -2,65 +2,44 @@
 
 #include "vm.h"
 
+#define RESET "\x1b[0m"
+#define RED(str) "\x1b[31m" str RESET
+#define GREEN(str) "\x1b[32m" str RESET
+#define YELLOW(str) "\x1b[33m" str RESET
+#define BLUE(str) "\x1b[34m" str RESET
+#define MAGENTA(str) "\x1b[35m" str RESET
+#define CYAN(str) "\x1b[36m" str RESET
+#define WHITE(str) "\x1b[37m" str RESET
+
 static void disSym(U16 addr) {
   Symbol const *sym = symValFind((UInt)addr);
   if (sym) {
-    fprintf(stderr,
-            "\033[36m"
-            "; %s"
-            "\033[0m",
-            sym->name);
+    fprintf(stderr, CYAN("; %s"), sym->name);
     return;
   }
   sym = symValFind((UInt)(addr - 1));
   if (sym) {
-    fprintf(stderr,
-            "\033[36m"
-            "; %s+1"
-            "\033[0m",
-            sym->name);
+    fprintf(stderr, CYAN("; %s+1"), sym->name);
   }
 }
 
 static U16 disImpl(U8 op, U16 addr, char const *mne) {
   fprintf(stderr, " %02X      ", op);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          "            ",
-          mne);
+  fprintf(stderr, "  " BLUE("%s") "            ", mne);
   return addr;
 }
 
 static U16 disImm(U8 op, U16 addr, char const *mne) {
   U8 val = dbgRead(addr++);
   fprintf(stderr, " %02X %02X   ", op, val);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " "
-          "\033[35m"
-          "#$%02X"
-          "\033[0m"
-          "       ",
-          mne, val);
+  fprintf(stderr, "  " BLUE("%s") " " MAGENTA("#$%02X") "       ", mne, val);
   return addr;
 }
 
 static U16 disZp(U8 op, U16 addr, char const *mne) {
   U8 zp = dbgRead(addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " $%02X        ",
-          mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " $%02X        ", mne, zp);
   disSym((U16)zp);
   return addr;
 }
@@ -68,13 +47,7 @@ static U16 disZp(U8 op, U16 addr, char const *mne) {
 static U16 disZpX(U8 op, U16 addr, char const *mne) {
   U8 zp = dbgRead(addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " $%02X,X      ",
-          mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " $%02X,X      ", mne, zp);
   disSym((U16)zp);
   return addr;
 }
@@ -82,13 +55,7 @@ static U16 disZpX(U8 op, U16 addr, char const *mne) {
 static U16 disZpY(U8 op, U16 addr, char const *mne) {
   U8 zp = dbgRead(addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " $%02X,Y      ",
-          mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " $%02X,Y      ", mne, zp);
   disSym((U16)zp);
   return addr;
 }
@@ -98,13 +65,7 @@ static U16 disAb(U8 op, U16 addr, char const *mne) {
   U8 hi = dbgRead(addr++);
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " $%04X      ",
-          mne, ab);
+  fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, ab);
   disSym(ab);
   return addr;
 }
@@ -114,13 +75,7 @@ static U16 disAbX(U8 op, U16 addr, char const *mne) {
   U8 hi = dbgRead(addr++);
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " $%04X,X    ",
-          mne, ab);
+  fprintf(stderr, "  " BLUE("%s") " $%04X,X    ", mne, ab);
   disSym(ab);
   return addr;
 }
@@ -130,13 +85,7 @@ static U16 disAbY(U8 op, U16 addr, char const *mne) {
   U8 hi = dbgRead(addr++);
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " $%04X,Y    ",
-          mne, ab);
+  fprintf(stderr, "  " BLUE("%s") " $%04X,Y    ", mne, ab);
   disSym(ab);
   return addr;
 }
@@ -146,13 +95,7 @@ static U16 disId(U8 op, U16 addr, char const *mne) {
   U8 hi = dbgRead(addr++);
   U16 ptr = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " ($%04X)    ",
-          mne, ptr);
+  fprintf(stderr, "  " BLUE("%s") " ($%04X)    ", mne, ptr);
   disSym(ptr);
   return addr;
 }
@@ -160,13 +103,7 @@ static U16 disId(U8 op, U16 addr, char const *mne) {
 static U16 disIdX(U8 op, U16 addr, char const *mne) {
   U8 zp = dbgRead(addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " ($%02X,X)    ",
-          mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " ($%02X,X)    ", mne, zp);
   disSym((U16)zp);
   return addr;
 }
@@ -174,13 +111,7 @@ static U16 disIdX(U8 op, U16 addr, char const *mne) {
 static U16 disIdY(U8 op, U16 addr, char const *mne) {
   U8 zp = dbgRead(addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " ($%02X),Y    ",
-          mne, zp);
+  fprintf(stderr, "  " BLUE("%s") " ($%02X),Y    ", mne, zp);
   disSym((U16)zp);
   return addr;
 }
@@ -189,13 +120,7 @@ static U16 disRel(U8 op, U16 addr, char const *mne) {
   I8 offset = (I8)dbgRead(addr++);
   U16 target = addr + offset;
   fprintf(stderr, " %02X %02X   ", op, (U8)offset);
-  fprintf(stderr,
-          "  "
-          "\033[34m"
-          "%s"
-          "\033[0m"
-          " $%04X      ",
-          mne, target);
+  fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, target);
   disSym(target);
   return addr;
 }
@@ -291,9 +216,7 @@ U16 disAsm(U16 addr) {
   if (sym) {
     fprintf(stderr,
             "\033[33m"
-            "%s:"
-            "\033[0m"
-            "\n",
+            "%s:" RESET "\n",
             sym->name);
   }
   fprintf(stderr, "%04X ", addr);
