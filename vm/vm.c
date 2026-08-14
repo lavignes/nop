@@ -11,7 +11,8 @@
 
 #include "vm.h"
 
-Bus bus = {0};
+Emu emu = {0};
+
 volatile sig_atomic_t sigintFlag = 0;
 Bool debug = FALSE;
 U16 bpCount = 0;
@@ -99,13 +100,13 @@ int main(int argc, char const *const *argv) {
 
   if (random) {
     srand((unsigned int)time(NULL));
-    for (UInt i = 0; i < sizeof(bus.ram); ++i) {
-      bus.ram[i] = (U8)rand();
+    for (UInt i = 0; i < sizeof(emu.ram); ++i) {
+      emu.ram[i] = (U8)rand();
     }
   }
 
-  UInt read = fread(bus.ram + bus.cpu.pc, 1, sizeof(bus.ram) - bus.cpu.pc, rom);
-  if (read != (sizeof(bus.ram) - bus.cpu.pc)) {
+  UInt read = fread(emu.rom, 1, sizeof(emu.rom), rom);
+  if (read != sizeof(emu.rom)) {
     int err = ferror(rom);
     if (err) {
       fprintf(stderr, "Error reading ROM file: %s\n", strerror(err));
@@ -134,12 +135,12 @@ static void emuTick() {
     sigintFlag = 0;
     debug = TRUE;
   }
-  if (nextpoint.next && (bus.cpu.pc == nextpoint.addr)) {
+  if (nextpoint.next && (emu.cpu.pc == nextpoint.addr)) {
     debug = TRUE;
     nextpoint.next = NULL;
   }
   for (Breakpoint const *bp = bpHead; bp; bp = bp->next) {
-    if (bus.cpu.pc != bp->addr) {
+    if (emu.cpu.pc != bp->addr) {
       continue;
     }
     fprintf(stderr, "Hit breakpoint %u at $%04X\r\n", bp->num, bp->addr);
@@ -147,10 +148,10 @@ static void emuTick() {
     break;
   }
   if (debug) {
-    dbgTick();
+    dbgTick(&emu);
   }
   // TODO: check for interrupts here
-  cpuTick(&bus.cpu, &bus);
+  cpuTick(&emu.cpu, &emu);
 }
 
 void termRawModeOn() {

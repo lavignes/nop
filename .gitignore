@@ -1,3 +1,7 @@
+*.dSYM
+*.o
+*.d
+
 /sys.bin
 /sys.lbl
 /sys.lst

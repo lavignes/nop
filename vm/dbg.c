@@ -6,12 +6,12 @@
 
 #include "vm.h"
 
-U8 dbgRead(U16 addr) {
+U8 dbgRead(Emu const *emu, U16 addr) {
   switch (addr) {
   case RAM_START_ADDR ... RAM_END_ADDR:
-    return bus.ram[addr - RAM_START_ADDR];
+    return emu->ram[addr - RAM_START_ADDR];
   case ROM_START_ADDR ... ROM_END_ADDR:
-    return bus.rom[addr - ROM_START_ADDR];
+    return emu->rom[addr - ROM_START_ADDR];
   default:
     return 0;
   }
@@ -248,7 +248,7 @@ static UInt opCount;
 static UInt exprCount;
 static UInt intCount;
 
-static Int solve() {
+static Int solve(Emu const *emu) {
   for (UInt i = 0; i < exprCount; ++i) {
     Expr const *expr = exprStack + i;
     switch (expr->kind) {
@@ -259,13 +259,13 @@ static Int solve() {
       if (expr->tok.len == 1) {
         switch (tolower((unsigned char)expr->tok.start[0])) {
         case 'a':
-          intStack[intCount++] = bus.cpu.a;
+          intStack[intCount++] = emu->cpu.a;
           break;
         case 'x':
-          intStack[intCount++] = bus.cpu.x;
+          intStack[intCount++] = emu->cpu.x;
           break;
         case 'y':
-          intStack[intCount++] = bus.cpu.y;
+          intStack[intCount++] = emu->cpu.y;
           break;
         default:
           break;
@@ -274,12 +274,12 @@ static Int solve() {
       if (expr->tok.len == 2) {
         if ((tolower((unsigned char)expr->tok.start[0]) == 'p') &&
             (tolower((unsigned char)expr->tok.start[1]) == 'c')) {
-          intStack[intCount++] = bus.cpu.pc;
+          intStack[intCount++] = emu->cpu.pc;
           break;
         }
         if ((tolower((unsigned char)expr->tok.start[0]) == 's') &&
             (tolower((unsigned char)expr->tok.start[1]) == 'p')) {
-          intStack[intCount++] = 0x0100 | ((U16)bus.cpu.sp);
+          intStack[intCount++] = 0x0100 | ((U16)emu->cpu.sp);
           break;
         }
       }
@@ -316,7 +316,7 @@ static Int solve() {
           if ((rhs < 0) || (rhs > U16_MAX)) {
             return INT_MAX;
           }
-          intStack[intCount++] = bus.ram[(U16)rhs];
+          intStack[intCount++] = dbgRead(emu, (U16)rhs);
           break;
         default:
           abort();
@@ -420,7 +420,7 @@ static void pushOp(Tok tok, Bool unary) {
   opStack[opCount++] = (Expr){EXPR_OP, tok, unary};
 }
 
-static Int parseExpr() {
+static Int parseExpr(Emu const *emu) {
   opCount = 0;
   exprCount = 0;
   intCount = 0;
@@ -519,57 +519,58 @@ static Int parseExpr() {
       while (opCount > 0) {
         exprStack[exprCount++] = opStack[--opCount];
       }
-      return solve();
+      return solve(emu);
     }
   }
 }
 
-static void dbgRegs() {
-  fprintf(stderr, "PC:%04X SP:01%02X A:%02X X:%02X Y:%02X P:%02X |", bus.cpu.pc,
-          bus.cpu.sp, bus.cpu.a, bus.cpu.x, bus.cpu.y, bus.cpu.p);
+static void dbgRegs(Emu *emu) {
+  fprintf(stderr, "PC:%04X SP:01%02X A:%02X X:%02X Y:%02X P:%02X |",
+          emu->cpu.pc, emu->cpu.sp, emu->cpu.a, emu->cpu.x, emu->cpu.y,
+          emu->cpu.p);
   fprintf(stderr, "%c%c%c%c%c%c%c%c|\n",
-          (bus.cpu.p & CPU_FLAG_NEGATIVE) ? 'N' : '.',
-          (bus.cpu.p & CPU_FLAG_OVERFLOW) ? 'V' : '.',
-          (bus.cpu.p & CPU_FLAG_UNUSED) ? '1' : '.',
-          (bus.cpu.p & CPU_FLAG_BREAK) ? 'B' : '.',
-          (bus.cpu.p & CPU_FLAG_DECIMAL) ? 'D' : '.',
-          (bus.cpu.p & CPU_FLAG_INTERRUPT) ? 'I' : '.',
-          (bus.cpu.p & CPU_FLAG_ZERO) ? 'Z' : '.',
-          (bus.cpu.p & CPU_FLAG_CARRY) ? 'C' : '.');
+          (emu->cpu.p & CPU_FLAG_NEGATIVE) ? 'N' : '.',
+          (emu->cpu.p & CPU_FLAG_OVERFLOW) ? 'V' : '.',
+          (emu->cpu.p & CPU_FLAG_UNUSED) ? '1' : '.',
+          (emu->cpu.p & CPU_FLAG_BREAK) ? 'B' : '.',
+          (emu->cpu.p & CPU_FLAG_DECIMAL) ? 'D' : '.',
+          (emu->cpu.p & CPU_FLAG_INTERRUPT) ? 'I' : '.',
+          (emu->cpu.p & CPU_FLAG_ZERO) ? 'Z' : '.',
+          (emu->cpu.p & CPU_FLAG_CARRY) ? 'C' : '.');
 }
 
 typedef enum { DBG_DEBUG, DBG_BREAK, DBG_CONTINUE, DBG_CLEAR } DbgResult;
 
-static DbgResult dbgQuit() { exit(EXIT_SUCCESS); }
+static DbgResult dbgQuit(Emu *emu) { exit(EXIT_SUCCESS); }
 
-static DbgResult dbgCont() { return DBG_CONTINUE; }
+static DbgResult dbgCont(Emu *emu) { return DBG_CONTINUE; }
 
-static DbgResult dbgStep() { return DBG_BREAK; }
+static DbgResult dbgStep(Emu *emu) { return DBG_BREAK; }
 
-static DbgResult dbgClear() { return DBG_CLEAR; }
+static DbgResult dbgClear(Emu *emu) { return DBG_CLEAR; }
 
-static DbgResult dbgNext() {
-  U8 op = bus.ram[bus.cpu.pc];
+static DbgResult dbgNext(Emu *emu) {
+  U8 op = dbgRead(emu, emu->cpu.pc);
   if (op == 0x20) { // JSR
-    nextpoint.addr = bus.cpu.pc + 3;
+    nextpoint.addr = emu->cpu.pc + 3;
     nextpoint.next = bpHead; // to mark it active
     return DBG_CONTINUE;
   }
   return DBG_BREAK;
 }
 
-static DbgResult dbgRegsCmd() {
-  dbgRegs();
+static DbgResult dbgRegsCmd(Emu *emu) {
+  dbgRegs(emu);
   return DBG_DEBUG;
 }
 
-static DbgResult dbgBreak() {
+static DbgResult dbgBreak(Emu *emu) {
   Tok tok = tokPeek(NULL);
   if (tok.type == TOK_EOE) {
     fprintf(stderr, "No address provided for breakpoint\n");
     return DBG_DEBUG;
   }
-  Int addr = parseExpr();
+  Int addr = parseExpr(emu);
   if ((addr == INT_MAX) || (addr > U16_MAX)) {
     Tok end = tokPeek(NULL);
     UInt len = end.start + end.len - tok.start;
@@ -586,13 +587,13 @@ static DbgResult dbgBreak() {
   return DBG_DEBUG;
 }
 
-static DbgResult dbgDel() {
+static DbgResult dbgDel(Emu *emu) {
   Tok tok = tokPeek(NULL);
   if (tok.type == TOK_EOE) {
     fprintf(stderr, "No breakpoint number provided for deletion\n");
     return DBG_DEBUG;
   }
-  Int num = parseExpr();
+  Int num = parseExpr(emu);
   if ((num == INT_MAX) || (num > U16_MAX)) {
     Tok end = tokPeek(NULL);
     UInt len = end.start + end.len - tok.start;
@@ -616,12 +617,12 @@ static DbgResult dbgDel() {
   return DBG_DEBUG;
 }
 
-static DbgResult dbgExa() {
-  Int start = bus.cpu.pc;
+static DbgResult dbgExa(Emu *emu) {
+  Int start = emu->cpu.pc;
   Int len = 16;
   Tok tok = tokPeek(NULL);
   if (tok.type != TOK_EOE) {
-    start = parseExpr();
+    start = parseExpr(emu);
     if ((start == INT_MAX) || (start > U16_MAX)) {
       Tok end = tokPeek(NULL);
       UInt len = end.start + end.len - tok.start;
@@ -642,7 +643,7 @@ static DbgResult dbgExa() {
       return DBG_DEBUG;
     }
     tokEat();
-    len = parseExpr();
+    len = parseExpr(emu);
     if ((len == INT_MAX) || (len <= 0)) {
       Tok end = tokPeek(NULL);
       UInt len = end.start + end.len - tok.start;
@@ -659,14 +660,14 @@ static DbgResult dbgExa() {
         fprintf(stderr, " ");
       }
       fprintf(stderr, (start + i) > end ? "   " : " %02X",
-              bus.ram[(U16)(start + i)]);
+              dbgRead(emu, (U16)(start + i)));
     }
     fprintf(stderr, "  |");
     for (UInt i = 0; i < 16; ++i) {
       if ((start + i) > end) {
         fprintf(stderr, " ");
       } else {
-        U8 byte = bus.ram[(U16)(start + i)];
+        U8 byte = dbgRead(emu, (U16)(start + i));
         fprintf(stderr, "%c", isprint(byte) ? (char)byte : '.');
       }
     }
@@ -676,12 +677,12 @@ static DbgResult dbgExa() {
   return DBG_DEBUG;
 }
 
-static DbgResult dbgDis() {
-  Int start = bus.cpu.pc;
+static DbgResult dbgDis(Emu *emu) {
+  Int start = emu->cpu.pc;
   Int len = 1;
   Tok tok = tokPeek(NULL);
   if (tok.type != TOK_EOE) {
-    start = parseExpr();
+    start = parseExpr(emu);
     if ((start == INT_MAX) || (start > U16_MAX)) {
       Tok end = tokPeek(NULL);
       UInt len = end.start + end.len - tok.start;
@@ -702,7 +703,7 @@ static DbgResult dbgDis() {
       fprintf(stderr, "No length provided for disasm\n");
       return DBG_DEBUG;
     }
-    len = parseExpr();
+    len = parseExpr(emu);
     if ((len == INT_MAX) || (len <= 0)) {
       Tok end = tokPeek(NULL);
       UInt len = end.start + end.len - tok.start;
@@ -714,7 +715,7 @@ static DbgResult dbgDis() {
   U16 addr = (U16)start;
   Int count = 0;
   while ((count < len) && (addr <= U16_MAX)) {
-    addr = disAsm(addr);
+    addr = disAsm(emu, addr);
     ++count;
   }
   return DBG_DEBUG;
@@ -724,52 +725,55 @@ static DbgResult dbgHelp();
 
 typedef struct {
   char const *breif;
+  char const *usage;
   char const *body;
 } DbgHelp;
 
 typedef struct {
   char const **names;
-  DbgResult (*fn)();
+  DbgResult (*fn)(Emu *emu);
   DbgHelp help;
 } DbgCmd;
 
 static DbgHelp const HELP_QUIT = {
-    "Quit the debugger",
-    "Usage: quit\n\nExit the debugger and terminate the program."};
+    "Quit the debugger", "quit",
+    "Exit the debugger and terminate the program."};
 static DbgHelp const HELP_CONT = {
     "Continue execution", "Usage: continue\n\nResume execution of the program "
                           "until the next breakpoint or termination."};
 static DbgHelp const HELP_STEP = {
-    "Step into the next instruction",
-    "Usage: step\n\nExecute the next instruction and return to the debugger."};
+    "Step into the next instruction", "step",
+    "Execute the next instruction and return to the debugger."};
 static DbgHelp const HELP_NEXT = {
-    "Step over the next instruction",
-    "Usage: next\n\nExecute the next instruction, stepping over function "
+    "Step over the next instruction", "next",
+    "Execute the next instruction, stepping over function "
     "calls, and return to the debugger."};
 static DbgHelp const HELP_BREAK = {
-    "Set a breakpoint",
-    "Usage: break <address>\n\nSet a breakpoint at the specified address. The "
+    "Set a breakpoint", "break <address>",
+    "Set a breakpoint at the specified address. The "
     "program will pause execution when it reaches this address."};
-static DbgHelp const HELP_DELETE = {
-    "Delete a breakpoint", "Usage: delete <breakpoint_number>\n\nRemove the "
-                           "specified breakpoint from the debugger."};
+static DbgHelp const HELP_DELETE = {"Delete a breakpoint",
+                                    "delete <breakpoint_number>",
+                                    "Remove the "
+                                    "specified breakpoint from the debugger."};
 static DbgHelp const HELP_REGS = {
-    "Display CPU registers",
-    "Usage: registers\n\nShow the current values of the CPU registers."};
+    "Display CPU registers", "registers",
+    "Show the current values of the CPU registers."};
 static DbgHelp const HELP_EXA = {
-    "Examine memory", "Usage: examine <address>[, <length>]\n\nDisplay the "
-                      "contents of memory starting from the specified address. "
-                      "Optionally, specify the number of bytes to display."};
+    "Examine memory", "examine <address>[, <length>]",
+    "Display the "
+    "contents of memory starting from the specified address. "
+    "Optionally, specify the number of bytes to display."};
 static DbgHelp const HELP_DIS = {
-    "Disassemble code",
-    "Usage: disasm <address>[, <length>]\n\nDisassemble the code starting from "
+    "Disassemble code", "disasm <address>[, <length>]",
+    "Disassemble the code starting from "
     "the specified address. Optionally, specify the number of instructions to "
     "disassemble."};
-static DbgHelp const HELP_CLEAR = {
-    "Clear screen", "Usage: clear\n\nClear the debugger's output screen."};
+static DbgHelp const HELP_CLEAR = {"Clear screen", "clear",
+                                   "Clear the debugger's output screen."};
 static DbgHelp const HELP_HELP = {
-    "Display help information",
-    "Usage: help [command]\n\nShow a list of available commands or detailed "
+    "Display help information", "help [command]",
+    "Show a list of available commands or detailed "
     "help for a specific command."};
 
 static DbgCmd const DBG_TBL[] = {
@@ -882,6 +886,7 @@ static DbgResult dbgHelp() {
     for (char const **name = cmd->names; *name; ++name) {
       if (strncmp(tok.start, *name, tok.len) == 0) {
         fprintf(stderr, "%s  %s\n", *name, cmd->help.breif);
+        fprintf(stderr, "Usage: %s\n\n", cmd->help.usage);
         fprintf(stderr, "%s\n", cmd->help.body);
         return DBG_DEBUG;
       }
@@ -891,10 +896,7 @@ static DbgResult dbgHelp() {
   return DBG_DEBUG;
 }
 
-void dbgTick() {
-  extern void termRawModeOff();
-  extern void termRawModeOn();
-  extern Bool debug;
+void dbgTick(Emu *emu) {
   static EditLine *el = NULL;
   static History *hist = NULL;
   static HistEvent ev;
@@ -911,8 +913,8 @@ void dbgTick() {
     history(hist, &ev, H_SETSIZE, 100);
     el_set(el, EL_HIST, history, hist);
   }
-  dbgRegs();
-  disAsm(bus.cpu.pc);
+  dbgRegs(emu);
+  disAsm(emu, emu->cpu.pc);
   while (TRUE) {
     free(workline);
     int count;
@@ -961,7 +963,7 @@ void dbgTick() {
       continue;
     }
     tokEat();
-    DbgResult res = match->fn();
+    DbgResult res = match->fn(emu);
     if (res == DBG_BREAK) {
       break;
     }

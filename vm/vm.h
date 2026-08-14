@@ -50,31 +50,29 @@ typedef struct {
   Vdp vdp;
   U8 ram[RAM_SIZE];
   U8 rom[ROM_SIZE];
-} Bus;
-
-extern Bus bus;
+} Emu;
 
 #ifdef BUS_MOCK
-U8 busRead(Bus *bus, U16 addr);
-void busWrite(Bus *bus, U16 addr, U8 val);
+U8 busRead(Emu *emu, U16 addr);
+void busWrite(Emu *emu, U16 addr, U8 val);
 #else
-static inline U8 busRead(Bus *bus, U16 addr) {
+static inline U8 busRead(Emu *emu, U16 addr) {
   switch (addr) {
   case RAM_START_ADDR ... RAM_END_ADDR:
-    return bus->ram[addr - RAM_START_ADDR];
+    return emu->ram[addr - RAM_START_ADDR];
   case IO_START_ADDR ... IO_END_ADDR:
     return 0;
   case ROM_START_ADDR ... ROM_END_ADDR:
-    return bus->rom[addr - ROM_START_ADDR];
+    return emu->rom[addr - ROM_START_ADDR];
   default:
     return 0;
   }
 }
 
-static inline void busWrite(Bus *bus, U16 addr, U8 val) {
+static inline void busWrite(Emu *emu, U16 addr, U8 val) {
   switch (addr) {
   case RAM_START_ADDR ... RAM_END_ADDR:
-    bus->ram[addr - RAM_START_ADDR] = val;
+    emu->ram[addr - RAM_START_ADDR] = val;
     break;
   case IO_START_ADDR ... IO_END_ADDR:
     break;
@@ -86,7 +84,7 @@ static inline void busWrite(Bus *bus, U16 addr, U8 val) {
 }
 #endif // BUS_MOCK
 
-UInt cpuTick(Cpu *cpu, Bus *bus);
+UInt cpuTick(Cpu *cpu, Emu *bus);
 
 typedef struct Symbol Symbol;
 
@@ -114,9 +112,9 @@ extern Breakpoint nextpoint;
 extern Bool debug;
 extern volatile sig_atomic_t sigintFlag;
 
-U8 dbgRead(U16 addr);
-U16 disAsm(U16 addr);
-void dbgTick(void);
+U8 dbgRead(Emu const *emu, U16 addr);
+U16 disAsm(Emu const *emu, U16 addr);
+void dbgTick(Emu *emu);
 
 void termRawModeOn(void);
 void termRawModeOff(void);

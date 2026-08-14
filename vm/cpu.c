@@ -8,110 +8,110 @@ static void flag(Cpu *cpu, U8 flag, Bool cond) {
   }
 }
 
-static void IMP(Cpu *cpu, Bus *bus) {
+static void IMP(Cpu *cpu, Emu *emu) {
   (void)cpu;
-  (void)bus;
+  (void)emu;
 }
 
-static void ACC(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void ACC(Cpu *cpu, Emu *emu) {
+  (void)emu;
   cpu->ea = &cpu->a;
 }
 
-static void IMM(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
+static void IMM(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
   cpu->eaAddr = cpu->pc++;
 }
 
-static void ZPG(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  cpu->eaAddr = busRead(bus, cpu->pc++);
+static void ZPG(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  cpu->eaAddr = busRead(emu, cpu->pc++);
 }
 
-static void ZPX(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  cpu->eaAddr = busRead(bus, cpu->pc++) + cpu->x;
+static void ZPX(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  cpu->eaAddr = busRead(emu, cpu->pc++) + cpu->x;
 }
 
-static void ZPY(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  cpu->eaAddr = busRead(bus, cpu->pc++) + cpu->y;
+static void ZPY(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  cpu->eaAddr = busRead(emu, cpu->pc++) + cpu->y;
 }
 
-static void ABS(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  U8 lo = busRead(bus, cpu->pc++);
-  U8 hi = busRead(bus, cpu->pc++);
+static void ABS(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 lo = busRead(emu, cpu->pc++);
+  U8 hi = busRead(emu, cpu->pc++);
   cpu->eaAddr = (((U16)hi) << 8) | lo;
 }
 
-static void ABX(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  U8 lo = busRead(bus, cpu->pc++);
-  U8 hi = busRead(bus, cpu->pc++);
+static void ABX(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 lo = busRead(emu, cpu->pc++);
+  U8 hi = busRead(emu, cpu->pc++);
   U16 base = (((U16)hi) << 8) | lo;
   cpu->eaAddr = base + cpu->x;
 }
 
-static void ABY(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  U8 lo = busRead(bus, cpu->pc++);
-  U8 hi = busRead(bus, cpu->pc++);
+static void ABY(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 lo = busRead(emu, cpu->pc++);
+  U8 hi = busRead(emu, cpu->pc++);
   U16 base = (((U16)hi) << 8) | lo;
   cpu->eaAddr = base + cpu->y;
 }
 
-static void IDX(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  U8 zpAddr = busRead(bus, cpu->pc++) + cpu->x;
-  U8 lo = busRead(bus, zpAddr);
-  U8 hi = busRead(bus, (U8)(zpAddr + 1));
+static void IDX(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 zpAddr = busRead(emu, cpu->pc++) + cpu->x;
+  U8 lo = busRead(emu, zpAddr);
+  U8 hi = busRead(emu, (U8)(zpAddr + 1));
   cpu->eaAddr = (((U16)hi) << 8) | lo;
 }
 
-static void IDY(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  U8 zpAddr = busRead(bus, cpu->pc++);
-  U8 lo = busRead(bus, zpAddr);
-  U8 hi = busRead(bus, (U8)(zpAddr + 1));
+static void IDY(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 zpAddr = busRead(emu, cpu->pc++);
+  U8 lo = busRead(emu, zpAddr);
+  U8 hi = busRead(emu, (U8)(zpAddr + 1));
   U16 base = (((U16)hi) << 8) | lo;
   cpu->eaAddr = base + cpu->y;
 }
 
-static void JAB(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  U8 lo = busRead(bus, cpu->pc++);
-  U8 hi = busRead(bus, cpu->pc++);
+static void JAB(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 lo = busRead(emu, cpu->pc++);
+  U8 hi = busRead(emu, cpu->pc++);
   cpu->eaAddr = (((U16)hi) << 8) | lo;
 }
 
-static void JID(Cpu *cpu, Bus *bus) {
-  cpu->ea = bus;
-  U8 idLo = busRead(bus, cpu->pc++);
-  U8 idHi = busRead(bus, cpu->pc++);
-  U8 lo = busRead(bus, (((U16)idHi) << 8) | idLo);
-  U8 hi = busRead(bus, (((U16)idHi) << 8) | (U8)(idLo + 1));
+static void JID(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 idLo = busRead(emu, cpu->pc++);
+  U8 idHi = busRead(emu, cpu->pc++);
+  U8 lo = busRead(emu, (((U16)idHi) << 8) | idLo);
+  U8 hi = busRead(emu, (((U16)idHi) << 8) | (U8)(idLo + 1));
   cpu->eaAddr = (((U16)hi) << 8) | lo;
 }
 
-static U8 read(Cpu *cpu, Bus *bus) {
-  if (cpu->ea == bus) {
-    return busRead(bus, cpu->eaAddr);
+static U8 read(Cpu *cpu, Emu *emu) {
+  if (cpu->ea == emu) {
+    return busRead(emu, cpu->eaAddr);
   } else {
     return *(U8 *)cpu->ea;
   }
 }
 
-static void write(Cpu *cpu, Bus *bus, U8 val) {
-  if (cpu->ea == bus) {
-    busWrite(bus, cpu->eaAddr, val);
+static void write(Cpu *cpu, Emu *emu, U8 val) {
+  if (cpu->ea == emu) {
+    busWrite(emu, cpu->eaAddr, val);
   } else {
     *(U8 *)cpu->ea = val;
   }
 }
 
-static void ADC(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void ADC(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   U8 carry = cpu->p & CPU_FLAG_CARRY ? 1 : 0;
   if (cpu->p & CPU_FLAG_DECIMAL) {
     U8 al = cpu->a & 0x0F;
@@ -145,303 +145,303 @@ static void ADC(Cpu *cpu, Bus *bus) {
   }
 }
 
-static void AND(Cpu *cpu, Bus *bus) {
-  cpu->a &= read(cpu, bus);
+static void AND(Cpu *cpu, Emu *emu) {
+  cpu->a &= read(cpu, emu);
   flag(cpu, CPU_FLAG_ZERO, cpu->a == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->a & 0x80) != 0);
 }
 
-static void ASL(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void ASL(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   flag(cpu, CPU_FLAG_CARRY, (val & 0x80) != 0);
   val <<= 1;
-  write(cpu, bus, val);
+  write(cpu, emu, val);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
 }
 
-static void BCC(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BCC(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   if (!(cpu->p & CPU_FLAG_CARRY)) {
     U16 newPc = cpu->pc + (I8)val;
     cpu->pc = newPc;
   }
 }
 
-static void BCS(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BCS(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   if (cpu->p & CPU_FLAG_CARRY) {
     U16 newPc = cpu->pc + (I8)val;
     cpu->pc = newPc;
   }
 }
 
-static void BEQ(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BEQ(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   if (cpu->p & CPU_FLAG_ZERO) {
     U16 newPc = cpu->pc + (I8)val;
     cpu->pc = newPc;
   }
 }
 
-static void BIT(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BIT(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   U8 res = cpu->a & val;
   flag(cpu, CPU_FLAG_ZERO, res == 0);
   flag(cpu, CPU_FLAG_OVERFLOW, (val & 0x40) != 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
 }
 
-static void BMI(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BMI(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   if (cpu->p & CPU_FLAG_NEGATIVE) {
     U16 newPc = cpu->pc + (I8)val;
     cpu->pc = newPc;
   }
 }
 
-static void BNE(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BNE(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   if (!(cpu->p & CPU_FLAG_ZERO)) {
     U16 newPc = cpu->pc + (I8)val;
     cpu->pc = newPc;
   }
 }
 
-static void BPL(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BPL(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   if (!(cpu->p & CPU_FLAG_NEGATIVE)) {
     U16 newPc = cpu->pc + (I8)val;
     cpu->pc = newPc;
   }
 }
 
-static void BRK(Cpu *cpu, Bus *bus) {
+static void BRK(Cpu *cpu, Emu *emu) {
   ++cpu->pc;
-  busWrite(bus, 0x0100 + cpu->sp--, (U8)((cpu->pc >> 8) & 0xFF));
-  busWrite(bus, 0x0100 + cpu->sp--, (U8)(cpu->pc & 0xFF));
-  busWrite(bus, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
+  busWrite(emu, 0x0100 + cpu->sp--, (U8)((cpu->pc >> 8) & 0xFF));
+  busWrite(emu, 0x0100 + cpu->sp--, (U8)(cpu->pc & 0xFF));
+  busWrite(emu, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
   flag(cpu, CPU_FLAG_INTERRUPT, TRUE);
-  U8 lo = busRead(bus, 0xFFFE);
-  U8 hi = busRead(bus, 0xFFFF);
+  U8 lo = busRead(emu, 0xFFFE);
+  U8 hi = busRead(emu, 0xFFFF);
   cpu->pc = (((U16)hi) << 8) | lo;
 }
 
-static void BVC(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BVC(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   if (!(cpu->p & CPU_FLAG_OVERFLOW)) {
     U16 newPc = cpu->pc + (I8)val;
     cpu->pc = newPc;
   }
 }
 
-static void BVS(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void BVS(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   if (cpu->p & CPU_FLAG_OVERFLOW) {
     U16 newPc = cpu->pc + (I8)val;
     cpu->pc = newPc;
   }
 }
 
-static void CLC(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void CLC(Cpu *cpu, Emu *emu) {
+  (void)emu;
   flag(cpu, CPU_FLAG_CARRY, FALSE);
 }
 
-static void CLD(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void CLD(Cpu *cpu, Emu *emu) {
+  (void)emu;
   flag(cpu, CPU_FLAG_DECIMAL, FALSE);
 }
 
-static void CLI(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void CLI(Cpu *cpu, Emu *emu) {
+  (void)emu;
   flag(cpu, CPU_FLAG_INTERRUPT, FALSE);
 }
 
-static void CLV(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void CLV(Cpu *cpu, Emu *emu) {
+  (void)emu;
   flag(cpu, CPU_FLAG_OVERFLOW, FALSE);
 }
 
-static void CMP(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void CMP(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   U8 res = cpu->a - val;
   flag(cpu, CPU_FLAG_CARRY, cpu->a >= val);
   flag(cpu, CPU_FLAG_ZERO, res == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (res & 0x80) != 0);
 }
 
-static void CPX(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void CPX(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   U8 res = cpu->x - val;
   flag(cpu, CPU_FLAG_CARRY, cpu->x >= val);
   flag(cpu, CPU_FLAG_ZERO, res == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (res & 0x80) != 0);
 }
 
-static void CPY(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void CPY(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   U8 res = cpu->y - val;
   flag(cpu, CPU_FLAG_CARRY, cpu->y >= val);
   flag(cpu, CPU_FLAG_ZERO, res == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (res & 0x80) != 0);
 }
 
-static void DEC(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus) - 1;
-  write(cpu, bus, val);
+static void DEC(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu) - 1;
+  write(cpu, emu, val);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
 }
 
-static void DEX(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void DEX(Cpu *cpu, Emu *emu) {
+  (void)emu;
   --cpu->x;
   flag(cpu, CPU_FLAG_ZERO, cpu->x == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->x & 0x80) != 0);
 }
 
-static void DEY(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void DEY(Cpu *cpu, Emu *emu) {
+  (void)emu;
   --cpu->y;
   flag(cpu, CPU_FLAG_ZERO, cpu->y == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->y & 0x80) != 0);
 }
 
-static void EOR(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void EOR(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   cpu->a ^= val;
   flag(cpu, CPU_FLAG_ZERO, cpu->a == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->a & 0x80) != 0);
 }
 
-static void INC(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus) + 1;
-  write(cpu, bus, val);
+static void INC(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu) + 1;
+  write(cpu, emu, val);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
 }
 
-static void INX(Cpu *cpu, Bus *bus) {
+static void INX(Cpu *cpu, Emu *emu) {
   ++cpu->x;
   flag(cpu, CPU_FLAG_ZERO, cpu->x == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->x & 0x80) != 0);
 }
 
-static void INY(Cpu *cpu, Bus *bus) {
+static void INY(Cpu *cpu, Emu *emu) {
   ++cpu->y;
   flag(cpu, CPU_FLAG_ZERO, cpu->y == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->y & 0x80) != 0);
 }
 
-static void JMP(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void JMP(Cpu *cpu, Emu *emu) {
+  (void)emu;
   cpu->pc = cpu->eaAddr;
 }
 
-static void JSR(Cpu *cpu, Bus *bus) {
+static void JSR(Cpu *cpu, Emu *emu) {
   U16 ret = cpu->pc - 1;
-  busWrite(bus, 0x0100 + cpu->sp--, (U8)((ret >> 8) & 0xFF));
-  busWrite(bus, 0x0100 + cpu->sp--, (U8)(ret & 0xFF));
+  busWrite(emu, 0x0100 + cpu->sp--, (U8)((ret >> 8) & 0xFF));
+  busWrite(emu, 0x0100 + cpu->sp--, (U8)(ret & 0xFF));
   cpu->pc = cpu->eaAddr;
 }
 
-static void LDA(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void LDA(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
   cpu->a = val;
 }
 
-static void LDX(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void LDX(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
   cpu->x = val;
 }
 
-static void LDY(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void LDY(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
   cpu->y = val;
 }
 
-static void LSR(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void LSR(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   flag(cpu, CPU_FLAG_CARRY, (val & 0x01) != 0);
   val >>= 1;
-  write(cpu, bus, val);
+  write(cpu, emu, val);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, FALSE);
 }
 
-static void NOP(Cpu *cpu, Bus *bus) {
+static void NOP(Cpu *cpu, Emu *emu) {
   (void)cpu;
-  (void)bus;
+  (void)emu;
 }
 
-static void ORA(Cpu *cpu, Bus *bus) {
-  cpu->a |= read(cpu, bus);
+static void ORA(Cpu *cpu, Emu *emu) {
+  cpu->a |= read(cpu, emu);
   flag(cpu, CPU_FLAG_ZERO, cpu->a == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->a & 0x80) != 0);
 }
 
-static void PHA(Cpu *cpu, Bus *bus) {
-  busWrite(bus, 0x0100 + cpu->sp--, cpu->a);
+static void PHA(Cpu *cpu, Emu *emu) {
+  busWrite(emu, 0x0100 + cpu->sp--, cpu->a);
 }
 
-static void PHP(Cpu *cpu, Bus *bus) {
-  busWrite(bus, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
+static void PHP(Cpu *cpu, Emu *emu) {
+  busWrite(emu, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
 }
 
-static void PLA(Cpu *cpu, Bus *bus) {
-  cpu->a = busRead(bus, 0x0100 + ++cpu->sp);
+static void PLA(Cpu *cpu, Emu *emu) {
+  cpu->a = busRead(emu, 0x0100 + ++cpu->sp);
   flag(cpu, CPU_FLAG_ZERO, cpu->a == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->a & 0x80) != 0);
 }
 
-static void PLP(Cpu *cpu, Bus *bus) {
+static void PLP(Cpu *cpu, Emu *emu) {
   cpu->p =
-      busRead(bus, 0x0100 + ++cpu->sp) & ~(CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
+      busRead(emu, 0x0100 + ++cpu->sp) & ~(CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
 }
 
-static void ROL(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void ROL(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   Bool cy = (cpu->p & CPU_FLAG_CARRY) != 0;
   flag(cpu, CPU_FLAG_CARRY, (val & 0x80) != 0);
   val = (val << 1) | (cy ? 1 : 0);
-  write(cpu, bus, val);
+  write(cpu, emu, val);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
 }
 
-static void ROR(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void ROR(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   Bool cy = (cpu->p & CPU_FLAG_CARRY) != 0;
   flag(cpu, CPU_FLAG_CARRY, (val & 0x01) != 0);
   val = (val >> 1) | (cy ? 0x80 : 0);
-  write(cpu, bus, val);
+  write(cpu, emu, val);
   flag(cpu, CPU_FLAG_ZERO, val == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (val & 0x80) != 0);
 }
 
-static void RTI(Cpu *cpu, Bus *bus) {
+static void RTI(Cpu *cpu, Emu *emu) {
   cpu->p =
-      busRead(bus, 0x0100 + ++cpu->sp) & ~(CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
-  U8 lo = busRead(bus, 0x0100 + ++cpu->sp);
-  U8 hi = busRead(bus, 0x0100 + ++cpu->sp);
+      busRead(emu, 0x0100 + ++cpu->sp) & ~(CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
+  U8 lo = busRead(emu, 0x0100 + ++cpu->sp);
+  U8 hi = busRead(emu, 0x0100 + ++cpu->sp);
   cpu->pc = (((U16)hi) << 8) | lo;
 }
 
-static void RTS(Cpu *cpu, Bus *bus) {
-  U8 lo = busRead(bus, 0x0100 + ++cpu->sp);
-  U8 hi = busRead(bus, 0x0100 + ++cpu->sp);
+static void RTS(Cpu *cpu, Emu *emu) {
+  U8 lo = busRead(emu, 0x0100 + ++cpu->sp);
+  U8 hi = busRead(emu, 0x0100 + ++cpu->sp);
   cpu->pc = ((((U16)hi) << 8) | lo) + 1;
 }
 
-static void SBC(Cpu *cpu, Bus *bus) {
-  U8 val = read(cpu, bus);
+static void SBC(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
   U8 carry = cpu->p & CPU_FLAG_CARRY ? 0 : 1;
   if (cpu->p & CPU_FLAG_DECIMAL) {
     U8 al = cpu->a & 0x0F;
@@ -474,70 +474,70 @@ static void SBC(Cpu *cpu, Bus *bus) {
   }
 }
 
-static void SEC(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void SEC(Cpu *cpu, Emu *emu) {
+  (void)emu;
   flag(cpu, CPU_FLAG_CARRY, TRUE);
 }
 
-static void SED(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void SED(Cpu *cpu, Emu *emu) {
+  (void)emu;
   flag(cpu, CPU_FLAG_DECIMAL, TRUE);
 }
 
-static void SEI(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void SEI(Cpu *cpu, Emu *emu) {
+  (void)emu;
   flag(cpu, CPU_FLAG_INTERRUPT, TRUE);
 }
 
-static void STA(Cpu *cpu, Bus *bus) { write(cpu, bus, cpu->a); }
+static void STA(Cpu *cpu, Emu *emu) { write(cpu, emu, cpu->a); }
 
-static void STX(Cpu *cpu, Bus *bus) { write(cpu, bus, cpu->x); }
+static void STX(Cpu *cpu, Emu *emu) { write(cpu, emu, cpu->x); }
 
-static void STY(Cpu *cpu, Bus *bus) { write(cpu, bus, cpu->y); }
+static void STY(Cpu *cpu, Emu *emu) { write(cpu, emu, cpu->y); }
 
-static void TAX(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void TAX(Cpu *cpu, Emu *emu) {
+  (void)emu;
   cpu->x = cpu->a;
   flag(cpu, CPU_FLAG_ZERO, cpu->x == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->x & 0x80) != 0);
 }
 
-static void TAY(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void TAY(Cpu *cpu, Emu *emu) {
+  (void)emu;
   cpu->y = cpu->a;
   flag(cpu, CPU_FLAG_ZERO, cpu->y == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->y & 0x80) != 0);
 }
 
-static void TSX(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void TSX(Cpu *cpu, Emu *emu) {
+  (void)emu;
   cpu->x = cpu->sp;
   flag(cpu, CPU_FLAG_ZERO, cpu->x == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->x & 0x80) != 0);
 }
 
-static void TXA(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void TXA(Cpu *cpu, Emu *emu) {
+  (void)emu;
   cpu->a = cpu->x;
   flag(cpu, CPU_FLAG_ZERO, cpu->a == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->a & 0x80) != 0);
 }
 
-static void TXS(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void TXS(Cpu *cpu, Emu *emu) {
+  (void)emu;
   cpu->sp = cpu->x;
 }
 
-static void TYA(Cpu *cpu, Bus *bus) {
-  (void)bus;
+static void TYA(Cpu *cpu, Emu *emu) {
+  (void)emu;
   cpu->a = cpu->y;
   flag(cpu, CPU_FLAG_ZERO, cpu->a == 0);
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->a & 0x80) != 0);
 }
 
 typedef struct {
-  void (*exec)(Cpu *cpu, Bus *bus);
-  void (*addr)(Cpu *cpu, Bus *bus);
+  void (*exec)(Cpu *, Emu *);
+  void (*addr)(Cpu *, Emu *);
   UInt cycles;
 } OpEntry;
 
@@ -595,15 +595,15 @@ static OpEntry const OP_TBL[256] = {
     [0XFE] = {INC, ABX, 7},
 };
 
-UInt cpuTick(Cpu *cpu, Bus *bus) {
-  U8 op = busRead(bus, cpu->pc++);
+UInt cpuTick(Cpu *cpu, Emu *emu) {
+  U8 op = busRead(emu, cpu->pc++);
   OpEntry const *entry = &OP_TBL[op];
   if (entry->exec) {
-    entry->addr(cpu, bus);
-    entry->exec(cpu, bus);
+    entry->addr(cpu, emu);
+    entry->exec(cpu, emu);
     return entry->cycles;
   }
-  IMP(cpu, bus);
-  NOP(cpu, bus);
+  IMP(cpu, emu);
+  NOP(cpu, emu);
   return 1;
 }
