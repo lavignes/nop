@@ -6,21 +6,18 @@
 
 #include "vm.h"
 
-static U16 symCount = 0;
-static Symbol *symHead = NULL;
-
-static Symbol *symAdd(char const *name, Int val) {
+static Symbol *symAdd(Dbg *dbg, char const *name, Int val) {
   Symbol *sym = malloc(sizeof(Symbol));
   sym->name = strdup(name);
   sym->val = val;
-  sym->next = symHead;
-  symHead = sym;
-  ++symCount;
+  sym->next = dbg->symHead;
+  dbg->symHead = sym;
+  ++dbg->symCount;
   return sym;
 }
 
-Symbol const *symFind(char const *name, UInt namelen) {
-  for (Symbol const *sym = symHead; sym; sym = sym->next) {
+Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen) {
+  for (Symbol const *sym = dbg->symHead; sym; sym = sym->next) {
     if (strlen(sym->name) != namelen) {
       continue;
     }
@@ -31,12 +28,8 @@ Symbol const *symFind(char const *name, UInt namelen) {
   return NULL;
 }
 
-Symbol const *symFirst(void) {
-  return symHead;
-}
-
-Symbol const *symValFind(Int val) {
-  for (Symbol const *sym = symHead; sym; sym = sym->next) {
+Symbol const *symValFind(Dbg const *dbg, Int val) {
+  for (Symbol const *sym = dbg->symHead; sym; sym = sym->next) {
     if (val == sym->val) {
       return sym;
     }
@@ -44,7 +37,7 @@ Symbol const *symValFind(Int val) {
   return NULL;
 }
 
-void symLoad(char const *filename) {
+void symLoad(Dbg *dbg, char const *filename) {
   FILE *file = fopen(filename, "r");
   if (!file) {
     fprintf(stderr, "Could not open labellist file: %s\n", filename);
@@ -66,7 +59,7 @@ void symLoad(char const *filename) {
     if (block != 0) {
       continue;
     }
-    symAdd(name, val);
+    symAdd(dbg, name, val);
   }
   fclose(file);
 }

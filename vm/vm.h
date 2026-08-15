@@ -1,6 +1,8 @@
 #ifndef VM_H
 #define VM_H
 
+#include <histedit.h>
+
 #include "abi.h"
 
 enum {
@@ -51,10 +53,49 @@ struct Breakpoint {
 };
 
 typedef struct {
+  char const *start;
+  UInt len;
+  UInt type;
+  Int val;
+} Tok;
+
+typedef struct {
+  UInt kind;
+  Tok tok;
+  Bool unary;
+} Expr;
+
+typedef struct Symbol Symbol;
+
+struct Symbol {
+  Symbol *next;
+  char const *name;
+  Int val;
+};
+
+typedef struct {
   Bool debug;
   U16 bpCount;
   Breakpoint *bpHead;
   Breakpoint nextpoint;
+
+  U16 symCount;
+  Symbol *symHead;
+
+  Tok tokStash;
+
+  Expr opStack[64];
+  Expr exprStack[64];
+  Int intStack[64];
+  UInt opCount;
+  UInt exprCount;
+  UInt intCount;
+
+  EditLine *el;
+  History *hist;
+  HistEvent ev;
+  char *prevline;
+  char *workline;
 } Dbg;
 
 typedef struct {
@@ -99,24 +140,15 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
 
 UInt cpuTick(Cpu *cpu, Emu *bus);
 
-typedef struct Symbol Symbol;
-
-struct Symbol {
-  Symbol *next;
-  char const *name;
-  Int val;
-};
-
-Symbol const *symValFind(Int val);
-Symbol const *symFind(char const *name, UInt namelen);
-Symbol const *symFirst(void);
-void symLoad(char const *filename);
+Symbol const *symValFind(Dbg const *dbg, Int val);
+Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
+void symLoad(Dbg *dbg, char const *filename);
 
 U8 dbgRead(Emu const *emu, U16 addr);
-U16 disAsm(Emu const *emu, U16 addr);
 void dbgTick(Emu *emu);
+U16 disAsm(Emu const *emu, U16 addr);
 
-void termRawModeOn(void);
-void termRawModeOff(void);
+void termRawModeOn();
+void termRawModeOff();
 
 #endif // VM_H

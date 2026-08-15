@@ -6,6 +6,7 @@
 #include <time.h>
 
 // POSIX
+#include <signal.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -111,7 +112,7 @@ int main(int argc, char const *const *argv) {
   fclose(rom);
 
   if (labellist) {
-    symLoad(labellist);
+    symLoad(&emu.dbg, labellist);
   }
 
   if (!emu.dbg.debug) {
