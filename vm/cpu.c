@@ -595,6 +595,17 @@ static OpEntry const OP_TBL[256] = {
     [0XFE] = {INC, ABX, 7},
 };
 
+void cpuReset(Cpu *cpu, Emu *bus) {
+  cpu->a = 0;
+  cpu->x = 0;
+  cpu->y = 0;
+  cpu->sp = 0xFD;
+  cpu->p = CPU_FLAG_UNUSED | CPU_FLAG_INTERRUPT;
+  U8 lo = busRead(bus, 0xFFFC);
+  U8 hi = busRead(bus, 0xFFFD);
+  cpu->pc = (((U16)hi) << 8) | lo;
+}
+
 UInt cpuTick(Cpu *cpu, Emu *emu) {
   U8 op = busRead(emu, cpu->pc++);
   OpEntry const *entry = &OP_TBL[op];

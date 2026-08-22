@@ -874,45 +874,61 @@ static DbgResult dbgHelp(Emu *emu) {
   return DBG_DEBUG;
 }
 
-void dbgTick(Emu *emu) {
+void dbgTick(Dbg *dbg, Emu *emu) {
+  if (dbg->nextpoint.next && (emu->cpu.pc == dbg->nextpoint.addr)) {
+    dbg->debug = TRUE;
+    dbg->nextpoint.next = NULL;
+  }
+  for (Breakpoint const *bp = dbg->bpHead; bp; bp = bp->next) {
+    if (emu->cpu.pc != bp->addr) {
+      continue;
+    }
+    fprintf(stderr, "Hit breakpoint %u at $%04X\r\n", bp->num, bp->addr);
+    dbg->debug = TRUE;
+    break;
+  }
+  if (!dbg->debug) {
+    return;
+  }
+
   termRawModeOff();
-  if (!emu->dbg.el) {
-    emu->dbg.el = el_init("vm", stdin, stderr, stderr);
-    el_set(emu->dbg.el, EL_PROMPT, &dbgPrompt);
-    el_set(emu->dbg.el, EL_EDITOR, "emacs");
-    el_set(emu->dbg.el, EL_ADDFN, "ed-complete", "Complete command", dbgCompl);
-    el_set(emu->dbg.el, EL_BIND, "^I", "ed-complete", NULL);
-    emu->dbg.hist = history_init();
-    history(emu->dbg.hist, &emu->dbg.ev, H_SETSIZE, 100);
-    el_set(emu->dbg.el, EL_HIST, history, emu->dbg.hist);
+  if (!dbg->el) {
+    dbg->el = el_init("vm", stdin, stderr, stderr);
+    el_set(dbg->el, EL_PROMPT, &dbgPrompt);
+    el_set(dbg->el, EL_EDITOR, "emacs");
+    el_set(dbg->el, EL_ADDFN, "ed-complete", "Complete command", dbgCompl);
+    el_set(dbg->el, EL_BIND, "^I", "ed-complete", NULL);
+    dbg->hist = history_init();
+    history(dbg->hist, &dbg->ev, H_SETSIZE, 100);
+    el_set(dbg->el, EL_HIST, history, dbg->hist);
   }
   dbgRegs(emu);
   disAsm(emu, emu->cpu.pc);
   while (TRUE) {
-    free(emu->dbg.workline);
+    free(dbg->workline);
     int count;
-    char const *line = el_gets(emu->dbg.el, &count);
+    char const *line = el_gets(dbg->el, &count);
     if (!line || (count <= 0)) {
       exit(EXIT_FAILURE);
     }
-    emu->dbg.workline = strdup(line);
-    Tok tok = tokPeek(&emu->dbg, emu->dbg.workline);
+    dbg->workline = strdup(line);
+    Tok tok = tokPeek(dbg, dbg->workline);
     if (tok.type == TOK_EOE) {
-      if (emu->dbg.prevline) {
-        free(emu->dbg.workline);
-        emu->dbg.workline = strdup(emu->dbg.prevline);
-        tok = tokPeek(&emu->dbg, emu->dbg.workline);
+      if (dbg->prevline) {
+        free(dbg->workline);
+        dbg->workline = strdup(dbg->prevline);
+        tok = tokPeek(dbg, dbg->workline);
       }
       if (tok.type == TOK_EOE) {
         continue;
       }
     } else {
       // save history if not the same as prev command
-      if (!emu->dbg.prevline || (strcmp(emu->dbg.prevline, line) != 0)) {
-        history(emu->dbg.hist, &emu->dbg.ev, H_ENTER, line);
+      if (!dbg->prevline || (strcmp(dbg->prevline, line) != 0)) {
+        history(dbg->hist, &dbg->ev, H_ENTER, line);
       }
-      free(emu->dbg.prevline);
-      emu->dbg.prevline = strdup(line);
+      free(dbg->prevline);
+      dbg->prevline = strdup(line);
     }
     DbgCmd const *match = NULL;
     UInt matchCount = 0;
@@ -931,22 +947,22 @@ void dbgTick(Emu *emu) {
     }
     if (matchCount > 1) {
       fprintf(stderr, "Ambiguous command: %.*s (", (int)tok.len, tok.start);
-      dbgMatches(&emu->dbg, tok.start, tok.len);
+      dbgMatches(dbg, tok.start, tok.len);
       fprintf(stderr, ")\n");
       continue;
     }
-    tokEat(&emu->dbg);
+    tokEat(dbg);
     DbgResult res = match->fn(emu);
     if (res == DBG_BREAK) {
       break;
     }
     if (res == DBG_CONTINUE) {
-      emu->dbg.debug = FALSE;
+      dbg->debug = FALSE;
       termRawModeOn();
       return;
     }
     if (res == DBG_CLEAR) {
-      el_push(emu->dbg.el, "\x0C");
+      el_push(dbg->el, "\x0C");
     }
   }
 }

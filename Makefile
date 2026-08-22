@@ -1,10 +1,10 @@
 XA = xa
 
-.PHONY: all clean
+.PHONY: all clean vm
 
-all: vm/vm sys.bin
+all: vm sys.bin
 
-vm/vm:
+vm:
 	$(MAKE) -C vm
 
 sys.bin sys.lst sys.lbl: sys.s

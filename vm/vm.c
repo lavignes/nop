@@ -1,4 +1,10 @@
 // stdlib
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_hints.h>
+#include <SDL3/SDL_init.h>
+#include <SDL3/SDL_oldnames.h>
+#include <SDL3/SDL_render.h>
+#include <SDL3/SDL_video.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +16,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <SDL3/SDL.h>
+
 #include "vm.h"
 
 Emu emu = {0};
@@ -17,6 +25,9 @@ Emu emu = {0};
 volatile sig_atomic_t sigintFlag = 0;
 static struct termios termiosOrig;
 static Bool termRawMode = FALSE;
+
+static SDL_Renderer *render = NULL;
+static SDL_Texture *tex = NULL;
 
 static void sigintHandler(int sig) {
   (void)sig;
@@ -37,6 +48,7 @@ static void help(char const *name) {
           "  -r, --random            Initialize memory with random data\n");
 }
 
+static void emuReset();
 static void emuTick();
 
 int main(int argc, char const *const *argv) {
@@ -119,34 +131,69 @@ int main(int argc, char const *const *argv) {
     termRawModeOn();
   }
 
-  while (TRUE) {
-    emuTick();
+  SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+  int exitCode = EXIT_FAILURE;
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+    fprintf(stderr, "SDL_InitSubSystem failed: %s\n", SDL_GetError());
+    goto cleanupSDL;
+  }
+  SDL_Window *win = NULL;
+  if (!SDL_CreateWindowAndRenderer("nop", SCREEN_WIDTH * 4, SCREEN_HEIGHT * 4,
+                                   SDL_WINDOW_HIGH_PIXEL_DENSITY |
+                                       SDL_WINDOW_RESIZABLE,
+                                   &win, &render)) {
+    fprintf(stderr, "SDL_CreateWindowAndRenderer failed: %s\n", SDL_GetError());
+    goto cleanupWindow;
+  }
+  SDL_ShowWindow(win);
+  tex = SDL_CreateTexture(render, SDL_PIXELFORMAT_RGBA8888,
+                          SDL_TEXTUREACCESS_STREAMING, SCREEN_WIDTH,
+                          SCREEN_HEIGHT);
+  if (!tex) {
+    fprintf(stderr, "SDL_CreateTexture failed: %s\n", SDL_GetError());
+    goto cleanupTexture;
   }
 
-  return EXIT_SUCCESS;
+  emuReset();
+
+  SDL_Event event;
+  while (TRUE) {
+    while (SDL_PollEvent(&event)) {
+      switch (event.type) {
+      case SDL_EVENT_QUIT:
+        goto cleanup;
+      }
+    }
+    emuTick();
+    SDL_RenderPresent(render);
+  }
+
+cleanup:
+  exitCode = EXIT_SUCCESS;
+cleanupTexture:
+  if (tex) {
+    SDL_DestroyTexture(tex);
+  }
+cleanupWindow:
+  if (render) {
+    SDL_DestroyRenderer(render);
+  }
+  if (win) {
+    SDL_DestroyWindow(win);
+  }
+cleanupSDL:
+  SDL_Quit();
+  return exitCode;
 }
+
+static void emuReset() { cpuReset(&emu.cpu, &emu); }
 
 static void emuTick() {
   if (sigintFlag) {
     sigintFlag = 0;
     emu.dbg.debug = TRUE;
   }
-  if (emu.dbg.nextpoint.next && (emu.cpu.pc == emu.dbg.nextpoint.addr)) {
-    emu.dbg.debug = TRUE;
-    emu.dbg.nextpoint.next = NULL;
-  }
-  for (Breakpoint const *bp = emu.dbg.bpHead; bp; bp = bp->next) {
-    if (emu.cpu.pc != bp->addr) {
-      continue;
-    }
-    fprintf(stderr, "Hit breakpoint %u at $%04X\r\n", bp->num, bp->addr);
-    emu.dbg.debug = TRUE;
-    break;
-  }
-  if (emu.dbg.debug) {
-    dbgTick(&emu);
-  }
-  // TODO: check for interrupts here
+  dbgTick(&emu.dbg, &emu);
   cpuTick(&emu.cpu, &emu);
 }
 

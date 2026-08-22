@@ -28,6 +28,13 @@ enum {
   ROM_SIZE = 0x2000,
   ROM_START_ADDR = 0xD000,
   ROM_END_ADDR = ROM_START_ADDR + ROM_SIZE - 1,
+
+  VRAM_SIZE = 0x4000,
+};
+
+enum {
+  SCREEN_WIDTH = 256 + 8 + 8,
+  SCREEN_HEIGHT = 192 + 27 + 24,
 };
 
 typedef struct {
@@ -43,6 +50,19 @@ typedef struct {
 } Cpu;
 
 typedef struct {
+  U16 addrLatch;
+  U8 dataLatch;
+
+  U8 stat;
+  U8 ctrl0;
+  U8 ctrl1;
+  U8 nmTblAddr;
+  U8 colTblAddr;
+  U8 patTblAddr;
+  U8 sprAttrTblAddr;
+  U8 sprGenTblAddr;
+  U8 colors;
+  U8 vram[VRAM_SIZE];
 } Vdp;
 
 typedef struct Breakpoint Breakpoint;
@@ -138,14 +158,18 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
 }
 #endif // BUS_MOCK
 
-UInt cpuTick(Cpu *cpu, Emu *bus);
+void cpuReset(Cpu *cpu, Emu *emu);
+UInt cpuTick(Cpu *cpu, Emu *emu);
+
+void vdpReset(Vdp *vdp, Emu *emu);
+void vdpTick(Vdp *vdp, Emu *emu, UInt cycles);
 
 Symbol const *symValFind(Dbg const *dbg, Int val);
 Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
 void symLoad(Dbg *dbg, char const *filename);
 
 U8 dbgRead(Emu const *emu, U16 addr);
-void dbgTick(Emu *emu);
+void dbgTick(Dbg *dbg, Emu *emu);
 U16 disAsm(Emu const *emu, U16 addr);
 
 void termRawModeOn();
