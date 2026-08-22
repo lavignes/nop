@@ -1,10 +1,4 @@
 // stdlib
-#include <SDL3/SDL_events.h>
-#include <SDL3/SDL_hints.h>
-#include <SDL3/SDL_init.h>
-#include <SDL3/SDL_oldnames.h>
-#include <SDL3/SDL_render.h>
-#include <SDL3/SDL_video.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -138,14 +132,17 @@ int main(int argc, char const *const *argv) {
     goto cleanupSDL;
   }
   SDL_Window *win = NULL;
-  if (!SDL_CreateWindowAndRenderer("nop", SCREEN_WIDTH * 4, SCREEN_HEIGHT * 4,
+  if (!SDL_CreateWindowAndRenderer("nop", SCREEN_WIDTH * 4, SCREEN_HEIGHT * 8,
                                    SDL_WINDOW_HIGH_PIXEL_DENSITY |
                                        SDL_WINDOW_RESIZABLE,
                                    &win, &render)) {
     fprintf(stderr, "SDL_CreateWindowAndRenderer failed: %s\n", SDL_GetError());
     goto cleanupWindow;
   }
-  SDL_ShowWindow(win);
+  if (!SDL_ShowWindow(win)) {
+    fprintf(stderr, "SDL_ShowWindow failed: %s\n", SDL_GetError());
+    goto cleanupWindow;
+  }
   tex = SDL_CreateTexture(render, SDL_PIXELFORMAT_RGBA8888,
                           SDL_TEXTUREACCESS_STREAMING, SCREEN_WIDTH,
                           SCREEN_HEIGHT);
@@ -165,7 +162,10 @@ int main(int argc, char const *const *argv) {
       }
     }
     emuTick();
-    SDL_RenderPresent(render);
+    if (!SDL_RenderPresent(render)) {
+      fprintf(stderr, "SDL_RenderPresent failed: %s\n", SDL_GetError());
+      goto cleanup;
+    }
   }
 
 cleanup:
@@ -186,7 +186,10 @@ cleanupSDL:
   return exitCode;
 }
 
-static void emuReset() { cpuReset(&emu.cpu, &emu); }
+static void emuReset() {
+  cpuReset(&emu.cpu, &emu);
+  vdpReset(&emu.vdp, &emu);
+}
 
 static void emuTick() {
   if (sigintFlag) {
@@ -194,7 +197,19 @@ static void emuTick() {
     emu.dbg.debug = TRUE;
   }
   dbgTick(&emu.dbg, &emu);
-  cpuTick(&emu.cpu, &emu);
+  UInt cycles = cpuTick(&emu.cpu, &emu);
+  vdpTick(&emu.vdp, &emu, cycles * 2);
+}
+
+U8 emuRead(Emu const *emu, U16 addr) {
+  switch (addr) {
+  case RAM_START_ADDR ... RAM_END_ADDR:
+    return emu->ram[addr - RAM_START_ADDR];
+  case ROM_START_ADDR ... ROM_END_ADDR:
+    return emu->rom[addr - ROM_START_ADDR];
+  default:
+    return 0;
+  }
 }
 
 void termRawModeOn() {

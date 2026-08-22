@@ -33,7 +33,7 @@ enum {
 };
 
 enum {
-  SCREEN_WIDTH = 256 + 8 + 8,
+  SCREEN_WIDTH = 256 + 13 + 15,
   SCREEN_HEIGHT = 192 + 27 + 24,
 };
 
@@ -52,6 +52,9 @@ typedef struct {
 typedef struct {
   U16 addrLatch;
   U8 dataLatch;
+  U16 line;
+  U16 col;
+  U32 pix[SCREEN_HEIGHT][SCREEN_WIDTH];
 
   U8 stat;
   U8 ctrl0;
@@ -158,6 +161,8 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
 }
 #endif // BUS_MOCK
 
+U8 emuRead(Emu const *emu, U16 addr);
+
 void cpuReset(Cpu *cpu, Emu *emu);
 UInt cpuTick(Cpu *cpu, Emu *emu);
 
@@ -168,7 +173,6 @@ Symbol const *symValFind(Dbg const *dbg, Int val);
 Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
 void symLoad(Dbg *dbg, char const *filename);
 
-U8 dbgRead(Emu const *emu, U16 addr);
 void dbgTick(Dbg *dbg, Emu *emu);
 U16 disAsm(Emu const *emu, U16 addr);
 

@@ -30,14 +30,14 @@ static U16 disImpl(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disImm(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 val = dbgRead(emu, addr++);
+  U8 val = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, val);
   fprintf(stderr, "  " BLUE("%s") " " MAGENTA("#$%02X") "       ", mne, val);
   return addr;
 }
 
 static U16 disZp(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 zp = dbgRead(emu, addr++);
+  U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " $%02X        ", mne, zp);
   disSym(&emu->dbg, (U16)zp);
@@ -45,7 +45,7 @@ static U16 disZp(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disZpX(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 zp = dbgRead(emu, addr++);
+  U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " $%02X,X      ", mne, zp);
   disSym(&emu->dbg, (U16)zp);
@@ -53,7 +53,7 @@ static U16 disZpX(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disZpY(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 zp = dbgRead(emu, addr++);
+  U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " $%02X,Y      ", mne, zp);
   disSym(&emu->dbg, (U16)zp);
@@ -61,8 +61,8 @@ static U16 disZpY(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disAb(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 lo = dbgRead(emu, addr++);
-  U8 hi = dbgRead(emu, addr++);
+  U8 lo = emuRead(emu, addr++);
+  U8 hi = emuRead(emu, addr++);
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, ab);
@@ -71,8 +71,8 @@ static U16 disAb(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disAbX(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 lo = dbgRead(emu, addr++);
-  U8 hi = dbgRead(emu, addr++);
+  U8 lo = emuRead(emu, addr++);
+  U8 hi = emuRead(emu, addr++);
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  " BLUE("%s") " $%04X,X    ", mne, ab);
@@ -81,8 +81,8 @@ static U16 disAbX(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disAbY(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 lo = dbgRead(emu, addr++);
-  U8 hi = dbgRead(emu, addr++);
+  U8 lo = emuRead(emu, addr++);
+  U8 hi = emuRead(emu, addr++);
   U16 ab = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  " BLUE("%s") " $%04X,Y    ", mne, ab);
@@ -91,8 +91,8 @@ static U16 disAbY(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disId(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 lo = dbgRead(emu, addr++);
-  U8 hi = dbgRead(emu, addr++);
+  U8 lo = emuRead(emu, addr++);
+  U8 hi = emuRead(emu, addr++);
   U16 ptr = (((U16)hi) << 8) | lo;
   fprintf(stderr, " %02X %02X %02X", op, lo, hi);
   fprintf(stderr, "  " BLUE("%s") " ($%04X)    ", mne, ptr);
@@ -101,7 +101,7 @@ static U16 disId(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disIdX(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 zp = dbgRead(emu, addr++);
+  U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " ($%02X,X)    ", mne, zp);
   disSym(&emu->dbg, (U16)zp);
@@ -109,7 +109,7 @@ static U16 disIdX(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disIdY(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  U8 zp = dbgRead(emu, addr++);
+  U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " ($%02X),Y    ", mne, zp);
   disSym(&emu->dbg, (U16)zp);
@@ -117,7 +117,7 @@ static U16 disIdY(Emu const *emu, U8 op, U16 addr, char const *mne) {
 }
 
 static U16 disRel(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  I8 offset = (I8)dbgRead(emu, addr++);
+  I8 offset = (I8)emuRead(emu, addr++);
   U16 target = addr + offset;
   fprintf(stderr, " %02X %02X   ", op, (U8)offset);
   fprintf(stderr, "  " BLUE("%s") " $%04X      ", mne, target);
@@ -218,7 +218,7 @@ U16 disAsm(Emu const *emu, U16 addr) {
             sym->name);
   }
   fprintf(stderr, "%04X ", addr);
-  U8 op = dbgRead(emu, addr++);
+  U8 op = emuRead(emu, addr++);
   DisEntry const *entry = &DIS_TBL[op];
   if (entry->fn) {
     addr = entry->fn(emu, op, addr, entry->mne);

@@ -5,17 +5,6 @@
 
 #include "vm.h"
 
-U8 dbgRead(Emu const *emu, U16 addr) {
-  switch (addr) {
-  case RAM_START_ADDR ... RAM_END_ADDR:
-    return emu->ram[addr - RAM_START_ADDR];
-  case ROM_START_ADDR ... ROM_END_ADDR:
-    return emu->rom[addr - ROM_START_ADDR];
-  default:
-    return 0;
-  }
-}
-
 enum {
   TOK_EOE = 0x04,
   TOK_ERR = 0x256,
@@ -293,7 +282,7 @@ static Int solve(Emu *emu) {
           if ((rhs < 0) || (rhs > U16_MAX)) {
             return INT_MAX;
           }
-          emu->dbg.intStack[emu->dbg.intCount++] = dbgRead(emu, (U16)rhs);
+          emu->dbg.intStack[emu->dbg.intCount++] = emuRead(emu, (U16)rhs);
           break;
         default:
           abort();
@@ -528,7 +517,7 @@ static DbgResult dbgStep(Emu *emu) { return DBG_BREAK; }
 static DbgResult dbgClear(Emu *emu) { return DBG_CLEAR; }
 
 static DbgResult dbgNext(Emu *emu) {
-  U8 op = dbgRead(emu, emu->cpu.pc);
+  U8 op = emuRead(emu, emu->cpu.pc);
   if (op == 0x20) { // JSR
     emu->dbg.nextpoint.addr = emu->cpu.pc + 3;
     emu->dbg.nextpoint.next = emu->dbg.bpHead; // to mark it active
@@ -638,14 +627,14 @@ static DbgResult dbgExa(Emu *emu) {
         fprintf(stderr, " ");
       }
       fprintf(stderr, (start + i) > end ? "   " : " %02X",
-              dbgRead(emu, (U16)(start + i)));
+              emuRead(emu, (U16)(start + i)));
     }
     fprintf(stderr, "  |");
     for (UInt i = 0; i < 16; ++i) {
       if ((start + i) > end) {
         fprintf(stderr, " ");
       } else {
-        U8 byte = dbgRead(emu, (U16)(start + i));
+        U8 byte = emuRead(emu, (U16)(start + i));
         fprintf(stderr, "%c", isprint(byte) ? (char)byte : '.');
       }
     }
@@ -716,9 +705,9 @@ typedef struct {
 static DbgHelp const HELP_QUIT = {
     "Quit the debugger", "quit",
     "Exit the debugger and terminate the program."};
-static DbgHelp const HELP_CONT = {
-    "Continue execution", "Usage: continue\n\nResume execution of the program "
-                          "until the next breakpoint or termination."};
+static DbgHelp const HELP_CONT = {"Continue execution", "continue",
+                                  "Resume execution of the program "
+                                  "until the next breakpoint or termination."};
 static DbgHelp const HELP_STEP = {
     "Step into the next instruction", "step",
     "Execute the next instruction and return to the debugger."};
@@ -738,19 +727,20 @@ static DbgHelp const HELP_REGS = {
     "Display CPU registers", "registers",
     "Show the current values of the CPU registers."};
 static DbgHelp const HELP_EXA = {
-    "Examine memory", "examine <address>[, <length>]",
+    "Examine memory", "examine [<address>[, <length>]]",
     "Display the "
-    "contents of memory starting from the specified address. "
+    "contents of memory starting from the specified address (default: PC). "
     "Optionally, specify the number of bytes to display."};
 static DbgHelp const HELP_DIS = {
-    "Disassemble code", "disasm <address>[, <length>]",
+    "Disassemble code", "disasm [<address>[, <length>]]",
     "Disassemble the code starting from "
-    "the specified address. Optionally, specify the number of instructions to "
+    "the specified address (default: PC). Optionally, specify the number of "
+    "instructions to "
     "disassemble."};
 static DbgHelp const HELP_CLEAR = {"Clear screen", "clear",
                                    "Clear the debugger's output screen."};
 static DbgHelp const HELP_HELP = {
-    "Display help information", "help [command]",
+    "Display help information", "help [<command>]",
     "Show a list of available commands or detailed "
     "help for a specific command."};
 
