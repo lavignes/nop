@@ -162,10 +162,6 @@ int main(int argc, char const *const *argv) {
       }
     }
     emuTick();
-    if (!SDL_RenderPresent(render)) {
-      fprintf(stderr, "SDL_RenderPresent failed: %s\n", SDL_GetError());
-      goto cleanup;
-    }
   }
 
 cleanup:
@@ -186,6 +182,17 @@ cleanupSDL:
   return exitCode;
 }
 
+static void vblank() {
+  void *pixels;
+  int pitch;
+  SDL_LockTexture(tex, NULL, &pixels, &pitch);
+  memcpy(pixels, emu.vdp.pix, sizeof(emu.vdp.pix));
+  SDL_UnlockTexture(tex);
+  SDL_RenderClear(render);
+  SDL_RenderTexture(render, tex, NULL, NULL);
+  SDL_RenderPresent(render);
+}
+
 static void emuReset() {
   cpuReset(&emu.cpu, &emu);
   vdpReset(&emu.vdp, &emu);
@@ -198,7 +205,11 @@ static void emuTick() {
   }
   dbgTick(&emu.dbg, &emu);
   UInt cycles = cpuTick(&emu.cpu, &emu);
-  vdpTick(&emu.vdp, &emu, cycles * 2);
+  for (UInt i = 0; i < cycles; ++i) {
+    if (vdpTick(&emu.vdp, &emu)) {
+      vblank();
+    }
+  }
 }
 
 U8 emuRead(Emu const *emu, U16 addr) {

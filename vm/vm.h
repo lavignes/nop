@@ -57,14 +57,7 @@ typedef struct {
   U32 pix[SCREEN_HEIGHT][SCREEN_WIDTH];
 
   U8 stat;
-  U8 ctrl0;
-  U8 ctrl1;
-  U8 nmTblAddr;
-  U8 colTblAddr;
-  U8 patTblAddr;
-  U8 sprAttrTblAddr;
-  U8 sprGenTblAddr;
-  U8 colors;
+  U8 reg[8];
   U8 vram[VRAM_SIZE];
 } Vdp;
 
@@ -122,6 +115,7 @@ typedef struct {
 } Dbg;
 
 typedef struct {
+  Bool nmi;
   Dbg dbg;
   Cpu cpu;
   Vdp vdp;
@@ -167,7 +161,7 @@ void cpuReset(Cpu *cpu, Emu *emu);
 UInt cpuTick(Cpu *cpu, Emu *emu);
 
 void vdpReset(Vdp *vdp, Emu *emu);
-void vdpTick(Vdp *vdp, Emu *emu, UInt cycles);
+Bool vdpTick(Vdp *vdp, Emu *emu);
 
 Symbol const *symValFind(Dbg const *dbg, Int val);
 Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
