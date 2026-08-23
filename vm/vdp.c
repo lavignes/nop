@@ -33,7 +33,6 @@ enum {
 };
 
 enum {
-  REG0_EXTVID = 1 << 0,
   REG0_MODE2 = 1 << 1,
 };
 
@@ -83,7 +82,7 @@ void vdpReset(Vdp *vdp, Emu *emu) {
          (LINES_BORDER_TOP + LINES_ACTIVE + LINES_BORDER_BOTTOM));
 }
 
-static void mode0DrawLine(Vdp *vdp, Emu *emu) {
+static void mode0DrawLine(Vdp *vdp, Emu const *emu) {
   for (UInt i = 0; i < COLS_GFX_BORDER_LEFT; ++i) {
     vdp->pix[vdp->line][i] = COLORS[vdp->reg[7] & 0x0F];
   }
@@ -98,7 +97,7 @@ static void mode0DrawLine(Vdp *vdp, Emu *emu) {
   }
 }
 
-static void mode0Tick(Vdp *vdp, Emu *emu) {
+static void mode0Tick(Vdp *vdp, Emu const *emu) {
   if (vdp->line < LINES_BORDER_TOP) {
     if (vdp->col <
         (COLS_GFX_BORDER_LEFT + COLS_GFX_ACTIVE + COLS_GFX_BORDER_RIGHT)) {
@@ -118,22 +117,68 @@ static void mode0Tick(Vdp *vdp, Emu *emu) {
   }
 }
 
-static void mode1Tick(Vdp *vdp, Emu *emu) {}
+static void mode1DrawLine(Vdp *vdp, Emu const *emu) {
+  for (UInt i = 0; i < COLS_TXT_BORDER_LEFT; ++i) {
+    vdp->pix[vdp->line][i] = COLORS[vdp->reg[7] & 0x0F];
+  }
+  for (UInt i = COLS_GFX_BORDER_LEFT;
+       i < (COLS_GFX_BORDER_LEFT + COLS_GFX_ACTIVE); ++i) {
+    vdp->pix[vdp->line][i] = COLORS[0x0F];
+  }
+  for (UInt i = (COLS_TXT_BORDER_LEFT + COLS_TXT_ACTIVE);
+       i < (COLS_TXT_BORDER_LEFT + COLS_TXT_ACTIVE + COLS_TXT_BORDER_RIGHT);
+       ++i) {
+    vdp->pix[vdp->line][i] = COLORS[vdp->reg[7] & 0x0F];
+  }
+}
+
+static void mode1Tick(Vdp *vdp, Emu const *emu) {
+  if (vdp->line < LINES_BORDER_TOP) {
+    if (vdp->col <
+        (COLS_TXT_BORDER_LEFT + COLS_TXT_ACTIVE + COLS_TXT_BORDER_RIGHT)) {
+      vdp->pix[vdp->line][vdp->col] = COLORS[vdp->reg[7] & 0x0F];
+    }
+  } else if (vdp->line < (LINES_BORDER_TOP + LINES_ACTIVE)) {
+    if (vdp->col ==
+        (COLS_TXT_BORDER_LEFT + COLS_TXT_ACTIVE + COLS_TXT_BORDER_RIGHT)) {
+      mode1DrawLine(vdp, emu);
+    }
+  } else if (vdp->line <
+             (LINES_BORDER_TOP + LINES_ACTIVE + LINES_BORDER_BOTTOM)) {
+    if (vdp->col <
+        (COLS_TXT_BORDER_LEFT + COLS_TXT_ACTIVE + COLS_TXT_BORDER_RIGHT)) {
+      vdp->pix[vdp->line][vdp->col] = COLORS[vdp->reg[7] & 0x0F];
+    }
+  }
+}
+
+static void blankTick(Vdp *vdp) {
+  if (vdp->line < (LINES_BORDER_TOP + LINES_ACTIVE + LINES_BORDER_BOTTOM)) {
+    if (vdp->col ==
+        (COLS_GFX_BORDER_LEFT + COLS_GFX_ACTIVE + COLS_GFX_BORDER_RIGHT)) {
+      vdp->pix[vdp->line][vdp->col] = COLORS[vdp->reg[7] & 0x0F];
+    }
+  }
+}
 
 Bool vdpTick(Vdp *vdp, Emu *emu) {
-  U8 mode = ((vdp->reg[1] & REG1_MODE3) >> 1) | (vdp->reg[0] & REG0_MODE2) |
-            ((vdp->reg[1] & REG1_MODE1) >> 4);
-  switch (mode) {
-  case 0:
-    mode0Tick(vdp, emu);
-    break;
-  case 1:
-    mode1Tick(vdp, emu);
-    break;
-  default:
-    // TODO: Mode 2
-    mode0Tick(vdp, emu);
-    break;
+  if (vdp->reg[1] & REG1_BLANK) {
+    U8 mode = ((vdp->reg[1] & REG1_MODE3) >> 1) | (vdp->reg[0] & REG0_MODE2) |
+              ((vdp->reg[1] & REG1_MODE1) >> 4);
+    switch (mode) {
+    case 0:
+      mode0Tick(vdp, emu);
+      break;
+    case 1:
+      mode1Tick(vdp, emu);
+      break;
+    default:
+      // TODO: Mode 2
+      mode0Tick(vdp, emu);
+      break;
+    }
+  } else {
+    blankTick(vdp);
   }
   ++vdp->col;
   if (vdp->col == COLS_NTSC) {
@@ -145,7 +190,9 @@ Bool vdpTick(Vdp *vdp, Emu *emu) {
   }
   if ((vdp->col == 1) && (vdp->line == (LINES_BORDER_TOP + LINES_ACTIVE))) {
     vdp->stat |= STAT_INTERRUPT;
-    emu->nmi = TRUE;
+    if (vdp->reg[1] & REG1_INT_ENABLE) {
+      emu->nmi = TRUE;
+    }
   }
   return (vdp->line == (LINES_BORDER_TOP + LINES_ACTIVE + LINES_BORDER_BOTTOM));
 }

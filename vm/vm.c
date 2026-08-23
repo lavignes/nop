@@ -132,7 +132,7 @@ int main(int argc, char const *const *argv) {
     goto cleanupSDL;
   }
   SDL_Window *win = NULL;
-  if (!SDL_CreateWindowAndRenderer("nop", SCREEN_WIDTH * 4, SCREEN_HEIGHT * 8,
+  if (!SDL_CreateWindowAndRenderer("nop", SCREEN_WIDTH * 2, SCREEN_HEIGHT * 2,
                                    SDL_WINDOW_HIGH_PIXEL_DENSITY |
                                        SDL_WINDOW_RESIZABLE,
                                    &win, &render)) {
