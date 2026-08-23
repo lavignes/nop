@@ -1,3 +1,5 @@
+// A little TMS9918A emulator
+
 #include <assert.h>
 #include <stdlib.h>
 

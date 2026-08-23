@@ -1,3 +1,5 @@
+// A little 6502 emulator
+
 #include "vm.h"
 
 static void flag(Cpu *cpu, U8 flag, Bool cond) {
