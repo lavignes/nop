@@ -1,7 +1,9 @@
 // A little TMS9918A emulator
 
 #include <assert.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "vm.h"
 
@@ -45,6 +47,14 @@ enum {
 };
 
 enum {
+  SPRITE_OVERLAP = 1 << 0,
+  SPRITE_PRIO = 1 << 1,
+
+  SPRITE_MAX_PER_ROW = 4,
+  SPRITE_TERMINATOR = 0xD0,
+};
+
+enum {
   STAT_SPRITE_TRUNC_INDEX_MASK = 0x1F,
   STAT_SPRITE_OVERLAP = 1 << 5,
   STAT_SPRITE_TRUNC = 1 << 6,
@@ -64,7 +74,7 @@ enum {
   REG1_MODE3 = 1 << 3,
   REG1_MODE1 = 1 << 4,
   REG1_INT_ENABLE = 1 << 5,
-  REG1_BLANK = 1 << 6,
+  REG1_ENABLE = 1 << 6,
   REG1_VRAM_16K = 1 << 7,
 };
 
@@ -130,17 +140,17 @@ static void mode1DrawActiveLine(Vdp *vdp, Emu const *emu) {
   for (UInt i = 0; i < COLS_TXT_BORDER_LEFT; ++i) {
     vdp->pix[vdp->line][i] = bdColor;
   }
-  U16 nameBase = (vdp->reg[2] & 0x0F) << 10;
-  U16 colorBase = vdp->reg[3] << 6;
-  U16 patBase = (vdp->reg[4] & 0x07) << 11;
-  U16 ny = (vdp->line - LINES_BORDER_TOP) / TXT_CHARS_ROWS;
-  U16 cy = (vdp->line - LINES_BORDER_TOP) % TXT_CHARS_ROWS;
+  U16 nameBase = ((U16)(vdp->reg[2] & 0x0F)) << 10;
+  U16 colorBase = ((U16)vdp->reg[3]) << 6;
+  U16 patBase = ((U16)(vdp->reg[4] & 0x07)) << 11;
+  U16 ny = (vdp->line - LINES_BORDER_TOP) / TXT_CHAR_HEIGHT;
+  U16 cy = (vdp->line - LINES_BORDER_TOP) % TXT_CHAR_HEIGHT;
   for (U16 nx = 0; nx < TXT_CHARS_PER_ROW; ++nx) {
     U8 ch = vdp->vram[nameBase + (ny * TXT_CHARS_PER_ROW) + nx];
     U8 pat = vdp->vram[patBase + (ch * TXT_CHAR_HEIGHT) + cy];
     for (UInt i = 0; i < TXT_CHAR_WIDTH; ++i) {
       vdp->pix[vdp->line][COLS_TXT_BORDER_LEFT + (nx * TXT_CHAR_WIDTH) + i] =
-          colors[(pat & (1 << i)) ? 1 : 0];
+          colors[(pat & (0x80 >> i)) ? 1 : 0];
     }
   }
   for (UInt i = (COLS_TXT_BORDER_LEFT + COLS_TXT_ACTIVE);
@@ -172,8 +182,63 @@ static void mode1Tick(Vdp *vdp, Emu const *emu) {
 }
 
 static void drawSpriteLine(Vdp *vdp, Emu const *emu) {
-  U16 attrBase = (vdp->reg[5] & 0x7F) << 7;
-  U16 sprBase = (vdp->reg[6] & 0x07) << 11;
+  memset(vdp->sprStat, 0, sizeof(vdp->sprStat));
+  U16 attrBase = ((U16)(vdp->reg[5] & 0x7F)) << 7;
+  U16 patBase = ((U16)(vdp->reg[6] & 0x07)) << 11;
+  UInt lenBase = (vdp->reg[1] & REG1_SPRITE_16X16) ? 16 : 8;
+  UInt scale = (vdp->reg[1] & REG1_SPRITE_MAG) ? 2 : 1;
+  UInt len = lenBase * scale;
+  Int ly = (Int)vdp->line - LINES_BORDER_TOP;
+  UInt sprCount = 0;
+  for (UInt sn = 0; sn < 32; ++sn) {
+    U16 attrIdx = attrBase + (sn * 4);
+    U8 sy = vdp->vram[attrIdx];
+    if (sy == SPRITE_TERMINATOR) {
+      break;
+    }
+    UInt row = ((UInt)(ly - sy - 1)) & 0xFF;
+    if (row >= len) {
+      continue;
+    }
+    if (sprCount == SPRITE_MAX_PER_ROW) {
+      if ((vdp->stat & STAT_SPRITE_TRUNC) == 0) {
+        vdp->stat = (vdp->stat & ~STAT_SPRITE_TRUNC_INDEX_MASK) |
+                    STAT_SPRITE_TRUNC | sn;
+      }
+      break;
+    }
+    ++sprCount;
+    U8 sx = vdp->vram[attrIdx + 1];
+    U8 patNum = vdp->vram[attrIdx + 2];
+    U8 attr = vdp->vram[attrIdx + 3];
+    Int x = (Int)sx - ((attr & 0x80) ? 32 : 0);
+    U8 color = attr & 0x0F;
+    UInt patRow = row / scale;
+    if (lenBase == 16) {
+      patNum &= 0xFC;
+    }
+    for (UInt i = 0; i < len; ++i) {
+      UInt col = i / scale;
+      U8 pat =
+          vdp->vram[patBase + (patNum * 8) + ((col >= 8) ? 16 : 0) + patRow];
+      if ((pat & (0x80 >> (col & 0x07))) == 0) {
+        continue;
+      }
+      Int ax = x + (Int)i;
+      if ((ax < 0) || (ax >= COLS_GFX_ACTIVE)) {
+        continue;
+      }
+      UInt dst = COLS_GFX_BORDER_LEFT + ax;
+      if (vdp->sprStat[dst] & SPRITE_OVERLAP) {
+        vdp->stat |= STAT_SPRITE_OVERLAP;
+      }
+      vdp->sprStat[dst] |= SPRITE_OVERLAP;
+      if (color && !(vdp->sprStat[dst] & SPRITE_PRIO)) {
+        vdp->pix[vdp->line][dst] = COLORS[color];
+        vdp->sprStat[dst] |= SPRITE_PRIO;
+      }
+    }
+  }
 }
 
 static void mode0DrawActiveLine(Vdp *vdp, Emu const *emu) {
@@ -181,11 +246,11 @@ static void mode0DrawActiveLine(Vdp *vdp, Emu const *emu) {
   for (UInt i = 0; i < COLS_GFX_BORDER_LEFT; ++i) {
     vdp->pix[vdp->line][i] = bdColor;
   }
-  U16 nameBase = (vdp->reg[2] & 0x0F) << 10;
-  U16 colorBase = vdp->reg[3] << 6;
-  U16 patBase = (vdp->reg[4] & 0x07) << 11;
-  U16 ny = (vdp->line - LINES_BORDER_TOP) / GFX_CHARS_ROWS;
-  U16 cy = (vdp->line - LINES_BORDER_TOP) % GFX_CHARS_ROWS;
+  U16 nameBase = ((U16)(vdp->reg[2] & 0x0F)) << 10;
+  U16 colorBase = ((U16)vdp->reg[3]) << 6;
+  U16 patBase = ((U16)(vdp->reg[4] & 0x07)) << 11;
+  U16 ny = (vdp->line - LINES_BORDER_TOP) / GFX_CHAR_HEIGHT;
+  U16 cy = (vdp->line - LINES_BORDER_TOP) % GFX_CHAR_HEIGHT;
   for (U16 nx = 0; nx < GFX_CHARS_PER_ROW; ++nx) {
     U8 ch = vdp->vram[nameBase + (ny * GFX_CHARS_PER_ROW) + nx];
     U8 pat = vdp->vram[patBase + (ch * GFX_CHAR_HEIGHT) + cy];
@@ -194,7 +259,7 @@ static void mode0DrawActiveLine(Vdp *vdp, Emu const *emu) {
                      (color & 0x0F) ? COLORS[color & 0x0F] : bdColor};
     for (UInt i = 0; i < GFX_CHAR_WIDTH; ++i) {
       vdp->pix[vdp->line][COLS_GFX_BORDER_LEFT + (nx * GFX_CHAR_WIDTH) + i] =
-          colors[(pat & (1 << i)) ? 1 : 0];
+          colors[(pat & (0x80 >> i)) ? 1 : 0];
     }
   }
   for (UInt i = (COLS_GFX_BORDER_LEFT + COLS_GFX_ACTIVE);
@@ -202,6 +267,7 @@ static void mode0DrawActiveLine(Vdp *vdp, Emu const *emu) {
        ++i) {
     vdp->pix[vdp->line][i] = bdColor;
   }
+  drawSpriteLine(vdp, emu);
 }
 
 static void mode0Tick(Vdp *vdp, Emu const *emu) {
@@ -230,11 +296,11 @@ static void mode3DrawActiveLine(Vdp *vdp, Emu const *emu) {
   for (UInt i = 0; i < COLS_GFX_BORDER_LEFT; ++i) {
     vdp->pix[vdp->line][i] = bdColor;
   }
-  U16 nameBase = (vdp->reg[2] & 0x0F) << 10;
+  U16 nameBase = ((U16)(vdp->reg[2] & 0x0F)) << 10;
   U16 colorBase = (vdp->reg[3] & REG3_MODE2_COLOR) ? 0x2000 : 0x0000;
   U16 patBase = (vdp->reg[4] & REG4_MODE2_PAT) ? 0x2000 : 0x0000;
-  U16 ny = (vdp->line - LINES_BORDER_TOP) / GFX_CHARS_ROWS;
-  U16 cy = (vdp->line - LINES_BORDER_TOP) % GFX_CHARS_ROWS;
+  U16 ny = (vdp->line - LINES_BORDER_TOP) / GFX_CHAR_HEIGHT;
+  U16 cy = (vdp->line - LINES_BORDER_TOP) % GFX_CHAR_HEIGHT;
   U16 chBase = ((ny / 8) & vdp->reg[4]) << 8;
   for (U16 nx = 0; nx < GFX_CHARS_PER_ROW; ++nx) {
     U16 ch = chBase + vdp->vram[nameBase + (ny * GFX_CHARS_PER_ROW) + nx];
@@ -244,7 +310,7 @@ static void mode3DrawActiveLine(Vdp *vdp, Emu const *emu) {
                      (color & 0x0F) ? COLORS[color & 0x0F] : bdColor};
     for (UInt i = 0; i < GFX_CHAR_WIDTH; ++i) {
       vdp->pix[vdp->line][COLS_GFX_BORDER_LEFT + (nx * GFX_CHAR_WIDTH) + i] =
-          colors[(pat & (1 << i)) ? 1 : 0];
+          colors[(pat & (0x80 >> i)) ? 1 : 0];
     }
   }
   for (UInt i = (COLS_GFX_BORDER_LEFT + COLS_GFX_ACTIVE);
@@ -252,6 +318,7 @@ static void mode3DrawActiveLine(Vdp *vdp, Emu const *emu) {
        ++i) {
     vdp->pix[vdp->line][i] = bdColor;
   }
+  drawSpriteLine(vdp, emu);
 }
 
 static void mode3Tick(Vdp *vdp, Emu const *emu) {
@@ -277,7 +344,7 @@ static void mode3Tick(Vdp *vdp, Emu const *emu) {
 
 static void blankTick(Vdp *vdp) {
   if (vdp->line < (LINES_BORDER_TOP + LINES_ACTIVE + LINES_BORDER_BOTTOM)) {
-    if (vdp->col ==
+    if (vdp->col <
         (COLS_GFX_BORDER_LEFT + COLS_GFX_ACTIVE + COLS_GFX_BORDER_RIGHT)) {
       vdp->pix[vdp->line][vdp->col] = COLORS[vdp->reg[7] & 0x0F];
     }
@@ -285,10 +352,14 @@ static void blankTick(Vdp *vdp) {
 }
 
 Bool vdpTick(Vdp *vdp, Emu *emu) {
-  if (vdp->reg[1] & REG1_BLANK) {
+  if ((vdp->col == 0) && (vdp->line == LINES_BORDER_TOP)) {
+    vdp->stat &= ~(STAT_SPRITE_TRUNC_INDEX_MASK | STAT_SPRITE_OVERLAP |
+                   STAT_SPRITE_TRUNC);
+  }
+  if (vdp->reg[1] & REG1_ENABLE) {
     if (vdp->reg[1] & REG1_MODE3) {
       mode3Tick(vdp, emu);
-    } else if (vdp->reg[0] & REG1_MODE1) {
+    } else if (vdp->reg[1] & REG1_MODE1) {
       mode1Tick(vdp, emu);
     } else {
       mode0Tick(vdp, emu);
@@ -305,12 +376,14 @@ Bool vdpTick(Vdp *vdp, Emu *emu) {
     }
   }
   if ((vdp->col == 1) && (vdp->line == (LINES_BORDER_TOP + LINES_ACTIVE))) {
-    vdp->stat |= STAT_INTERRUPT;
-    if (vdp->reg[1] & REG1_INT_ENABLE) {
+    if (((vdp->stat & STAT_INTERRUPT) == 0) &&
+        (vdp->reg[1] & REG1_INT_ENABLE)) {
       emu->nmi = TRUE;
     }
+    vdp->stat |= STAT_INTERRUPT;
   }
-  return (vdp->line == (LINES_BORDER_TOP + LINES_ACTIVE + LINES_BORDER_BOTTOM));
+  return (vdp->col == 0) &&
+         (vdp->line == (LINES_BORDER_TOP + LINES_ACTIVE + LINES_BORDER_BOTTOM));
 }
 
 U8 vdpRead(Vdp *vdp, U16 addr) {
@@ -335,11 +408,11 @@ void vdpWrite(Vdp *vdp, U16 addr, U8 val) {
     if (vdp->cmdIdx) {
       vdp->cmdIdx = FALSE;
       if (vdp->cmd[1] & CMD_REG) {
-        vdp->reg[vdp->cmd[1] & 0x03] = vdp->cmd[0];
+        vdp->reg[vdp->cmd[1] & 0x07] = vdp->cmd[0];
         return;
       }
-      vdp->addr = ((vdp->cmd[1] & 0x3F) << 8) | vdp->cmd[0];
-      if (!(vdp->cmd[1] & CMD_WRITE)) {
+      vdp->addr = (((U16)(vdp->cmd[1] & 0x3F)) << 8) | vdp->cmd[0];
+      if ((vdp->cmd[1] & CMD_WRITE) == 0) {
         vdp->buf = vdp->vram[vdp->addr];
         ++vdp->addr;
         if (vdp->addr == sizeof(vdp->vram)) {

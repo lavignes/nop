@@ -100,7 +100,7 @@ static U8 read(Cpu *cpu, Emu *emu) {
   if (cpu->ea == emu) {
     return busRead(emu, cpu->eaAddr);
   } else {
-    return *(U8 *)cpu->ea;
+    return *((U8 *)cpu->ea);
   }
 }
 
@@ -108,7 +108,7 @@ static void write(Cpu *cpu, Emu *emu, U8 val) {
   if (cpu->ea == emu) {
     busWrite(emu, cpu->eaAddr, val);
   } else {
-    *(U8 *)cpu->ea = val;
+    *((U8 *)cpu->ea) = val;
   }
 }
 
@@ -606,9 +606,42 @@ void cpuReset(Cpu *cpu, Emu *bus) {
   U8 lo = busRead(bus, 0xFFFC);
   U8 hi = busRead(bus, 0xFFFD);
   cpu->pc = (((U16)hi) << 8) | lo;
+
+  cpu->nmi = FALSE;
+  cpu->irq = FALSE;
+}
+
+static void nmi(Cpu *cpu, Emu *emu) {
+  busWrite(emu, 0x0100 + cpu->sp--, (U8)((cpu->pc >> 8) & 0xFF));
+  busWrite(emu, 0x0100 + cpu->sp--, (U8)(cpu->pc & 0xFF));
+  busWrite(emu, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_UNUSED);
+  flag(cpu, CPU_FLAG_INTERRUPT, TRUE);
+  U8 lo = busRead(emu, 0xFFFA);
+  U8 hi = busRead(emu, 0xFFFB);
+  cpu->pc = (((U16)hi) << 8) | lo;
+}
+
+static void irq(Cpu *cpu, Emu *emu) {
+  busWrite(emu, 0x0100 + cpu->sp--, (U8)((cpu->pc >> 8) & 0xFF));
+  busWrite(emu, 0x0100 + cpu->sp--, (U8)(cpu->pc & 0xFF));
+  busWrite(emu, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_UNUSED);
+  flag(cpu, CPU_FLAG_INTERRUPT, TRUE);
+  U8 lo = busRead(emu, 0xFFFE);
+  U8 hi = busRead(emu, 0xFFFF);
+  cpu->pc = (((U16)hi) << 8) | lo;
 }
 
 UInt cpuTick(Cpu *cpu, Emu *emu) {
+  if (cpu->nmi) {
+    cpu->nmi = FALSE;
+    nmi(cpu, emu);
+    return 7;
+  }
+  if (cpu->irq && (cpu->p & CPU_FLAG_INTERRUPT)) {
+    cpu->irq = FALSE;
+    irq(cpu, emu);
+    return 7;
+  }
   U8 op = busRead(emu, cpu->pc++);
   OpEntry const *entry = &OP_TBL[op];
   if (entry->exec) {

@@ -1,629 +1,169 @@
 ; vim: ft=a65
 
-#define FLAG_MASK      %00111111
-#define FLAG_NONE      %00000000
-#define FLAG_IMMEDIATE %10000000
-#define FLAG_HIDDEN    %01000000
+* = $E000
 
-#define STATE_INTERPRET %0
-#define STATE_COMPILE   %1
-
-#define BUFCAP 40
-
-#define ETIMEOUT 1
-#define ENOOP    2
-
-; Instruction Pointer
-IP  = $02
-IPL = $02
-IPH = $03
-
-; Native Scratch Register
-M = $04
-
-; Indirect Address Pointer
-ADRJ = $06
-ADR  = $07
-ADRL = $07
-ADRH = $08
-
-* = $0200
-
-    jmp _Abort
-
-CURRENT: .word _Cmd-3           ; Current dictionary pointer
-HERE:    .word HERESTART        ; Heap pointer
-STATE:   .byt STATE_INTERPRET   ; Interpreter state
-ERR:     .byt 0                 ; Error/status register
-DEV:     .byt 0                 ; 'dev current device
-READ:    .word Read             ; 'rd syscall
-WRITE:   .word Write            ; 'wr syscall
-SEEK:    .word Seek             ; 'sk syscall
-
-BUFOFF:  .byt 0
-BUFEND:  .byt 0
-BUF:     .dsb BUFCAP, 0         ; Scratch/text buffer area
-
-; ----- Inner Interpreter -----
-
-DoCol:
-    pla
-    sta ADRL
-    pla
-    sta ADRH
-    lda IPH
-    pha
-    lda IPL
-    pha
-    inc ADRL
-    bne :+
-    inc ADRH
-:   lda ADRL
-    ldy ADRH
-    jmp IncIP
-
-DoLoad:
-    dex
-    dex
-    pla
-    sta $01, x
-    pla
-    sta $02, x
-    inc $01, x
-    bne :+
-    inc $02, x
-:
-
-Next:
-    lda IPL
-    sta ADRL
-    ldy IPH
-    sty ADRH
-
-IncIP:
-    clc
-    adc #2
-    bcc :+
-    iny
-:   sta IPL
-    sty IPH
-    jmp ADRJ
-
-; ----- Drivers -----
-
-; ( buf len -- n )
-Read:
-    lda $00, x      ; M = len
-    sta M+0
-    lda $01, x
-    sta M+1
-    inx
-    inx
-    lda $00, x      ; ADR = buf
-    sta ADRL
-    lda $01, x
-    sta ADRH
-    txa
-    pha
-    ldy #0
-    sty ERR
-@ChkLen:
-    lda M+0
-    eor M+1
-    beq @Return
-    lda M+0
-    bne :+
-    dec M+1
-:   dec M+0
-    lda #0
-    tax             ; Timeout counter
-    sta $00         ; Select status byte
-@Poll:
-    dex
-    beq @Timeout
-    lda $01
-    beq @Poll
-:   lda #1          ; Select data byte
-    sta $00
-    lda $01
-    sta (ADR), y
-    inc ADRL
-    bne :+
-    inc ADRH
-:   jmp @ChkLen
-@Timeout:
-    lda #ETIMEOUT
-    sta ERR
-@Return:
-    pla
-    tax
-    lda ADRL        ; Compute bytes read
-    sec
-    sbc $00, x
-    sta $00, x
-    lda ADRH
-    sbc $01, x
-    sta $01, x
-    jmp Next
-
-; ( buf len -- n )
-Write:
-    lda $00, x      ; M = len
-    sta M+0
-    lda $01, x
-    sta M+1
-    inx
-    inx
-    lda $00, x      ; ADR = buf
-    sta ADRL
-    lda $01, x
-    sta ADRH
-    ldy #0
-    sty ERR
-    iny             ; Select data byte
-    sty $00
-@ChkLen:
-    lda M+0
-    eor M+1
-    beq @Return
-    lda M+0
-    bne :+
-    dec M+1
-:   dec M+0
-    lda (ADR), y
-    sta $01
-    inc ADRL
-    bne :+
-    inc ADRH
-    jmp @ChkLen
-@Return:
-    lda ADRL        ; Compute bytes written
-    sec
-    sbc $00, x
-    sta $00, x
-    lda ADRH
-    sbc $01, x
-    sta $01, x
-    jmp Next
-
-; ( pos -- pos )
-Seek:
-    lda #ENOOP
-    sta ERR
-    jmp Next
-
-; ----- Primitive Words -----
-
-; ( addr -- n )
-.byt "@"
-.word 0
-.byt 1 | FLAG_NONE
-_Load:
-    lda ($01, x)
-    tay
-    inc $01, x
-    bne :+
-    inc $02, x
-:   lda ($01, x)
-    sty $01, x
-    sta $02, x
-    jmp Next
-
-; ( addr -- b )
-.byt "@b"
-.word _Load-3
-.byt 2 | FLAG_NONE
-_LoadByte:
-    ldy #0
-    lda ($01, x)
-    sta $01, x
-    bpl :+
-    dey
-:   sty $02, x
-    jmp Next
-
-; ( addr -- bu )
-.byt "@bu"
-.word _LoadByte-3
-.byt 3 | FLAG_NONE
-_LoadByteUnsigned:
-    lda ($01, x)
-    sta $01, x
-    lda #0
-    sta $02, x
-    jmp Next
-
-; ( n addr -- )
-.byt "!"
-.word _LoadByteUnsigned-3
-.byt 1 | FLAG_NONE
-_Store:
-    lda $03, x
-    sta ($01, x)
-    inc $01, x
-    bne :+
-    inc $02, x
-:   lda $04, x
-    sta ($01, x)
-    inx
-    inx
-    inx
-    inx
-    jmp Next
-
-; ( b addr -- )
-.byt "!b"
-.word _Store-3
-.byt 2 | FLAG_NONE
-_StoreByte:
-    lda $03, x
-    sta ($01, x)
-    inx
-    inx
-    inx
-    inx
-    jmp Next
-
-; P: ( n -- ) R: ( -- n )
-.byt ">r"
-.word _StoreByte-3
-.byt 2 | FLAG_NONE
-_PushR:
-    lda $02, x
-    pha
-    lda $01, x
-    pha
-    inx
-    inx
-    jmp Next
-
-; R: ( n -- ) P: ( -- n )
-.byt "r>"
-.word _PushR-3
-.byt 2 | FLAG_NONE
-_PullR:
-    dex
-    dex
-    pla
-    sta $01, x
-    pla
-    sta $02, x
-    jmp Next
-
-; ( n -- )
-.byt "drop"
-.word _PullR-3
-.byt 4 | FLAG_NONE
-_Drop:
-    inx
-    inx
-    jmp Next
-
-; ( n -- n n )
-.byt "dup"
-.word _Drop-3
-.byt 3 | FLAG_NONE
-_Dup:
-    lda $01, x
-    ldy $02, x
-    dex
-    dex
-    sta $01, x
-    sty $02, x
-    jmp Next
-
-; ( n1 n2 -- n2 n1 )
-.byt "swap"
-.word _Dup-3
-.byt 4 | FLAG_NONE
-_Swap:
-    lda $01, x
-    tay
-    lda $03, x
-    sta $01, x
-    sty $03, x
-    lda $02, x
-    tay
-    lda $04, x
-    sta $02, x
-    sty $04, x
-    jmp Next
-
-; ( n1 n2 -- n1 n2 n1 )
-; TODO: >R dup R> swap
-.byt "over"
-.word _Swap-3
-.byt 4 | FLAG_NONE
-_Over:
-    lda $03, x
-    ldy $04, x
-    dex
-    dex
-    sta $01, x
-    sty $02, x
-    jmp Next
-
-; ( n1 n2 -- n1 & n2 )
-.byt "and"
-.word _Over-3
-.byt 3 | FLAG_NONE
-_And:
-    lda $03, x
-    and $01, x
-    sta $03, x
-    lda $04, x
-    and $02, x
-    sta $04, x
-    inx
-    inx
-    jmp Next
-
-; ( n1 n2 -- n1 | n2 )
-.byt "or"
-.word _And-3
-.byt 2 | FLAG_NONE
-_Or:
-    lda $03, x
-    ora $01, x
-    sta $03, x
-    lda $04, x
-    ora $02, x
-    sta $04, x
-    inx
-    inx
-    jmp Next
-
-; ( n1 n2 -- n1 ^ n2 )
-.byt "xor"
-.word _Or-3
-.byt 3 | FLAG_NONE
-_Xor:
-    lda $03, x
-    eor $01, x
-    sta $03, x
-    lda $04, x
-    eor $02, x
-    sta $04, x
-    inx
-    inx
-    jmp Next
-
-; ( n1 n2 -- n1 + n2 )
-.byt "+"
-.word _Xor-3
-.byt 1 | FLAG_NONE
-_Add:
-    clc
-    lda $03, x
-    adc $01, x
-    sta $03, x
-    lda $04, x
-    adc $02, x
-    sta $04, x
-    inx
-    inx
-    jmp Next
-
-; ( n1 n2 -- n1 - n2 )
-.byt "-"
-.word _Add-3
-.byt 1 | FLAG_NONE
-_Sub:
-    sec
-    lda $03, x
-    sbc $01, x
-    sta $03, x
-    lda $04, x
-    sbc $02, x
-    sta $04, x
-    inx
-    inx
-    jmp Next
-
-; ( n1 n2 -- n1 < n2 )
-.byt "<"
-.word _Sub-3
-.byt 1 | FLAG_NONE
-_LessThan:
-    ldy #0
-    sec
-    lda $03, x
-    sbc $01, x
-    lda $04, x
-    sbc $02, x
-    sty $04, x
-    bcs :+
-    iny
-:   sty $03, x
-    inx
-    inx
-    jmp Next
-
-; ( n1 n2 -- n1 = n2 )
-.byt "="
-.word _LessThan-3
-.byt 1 | FLAG_NONE
-_Equal:
-    ldy #0
-    sec
-    lda $03, x
-    sbc $01, x
-    lda $04, x
-    sbc $02, x
-    sty $04, x
-    bne :+
-    iny
-:   sty $03, x
-    inx
-    inx
-    jmp Next
-
-; ( n -- )
-.byt "0br?"
-.word _Equal-3
-.byt 4 | FLAG_NONE
-_0Branch:
-    lda $01, x
-    ora $02, x
-    bne :+
-    lda IPL
-    sta ADRL
-    lda IPH
-    sta ADRH
-    ldy #0
-    lda (ADR), y
-    sta IPL
-    iny
-    lda (ADR), y
-    sta IPH
-    jmp :+++
-:   clc
-    lda #2
-    adc IPL
-    bcc :+
-    inc IPH
-:   sta IPL
-:   inx
-    inx
-    jmp Next
-
-; ( -- n )
-.byt "lit"
-.word _0Branch-3
-.byt 3 | FLAG_NONE
-_Lit:
-    lda IPL
-    sta ADRL
-    lda IPH
-    sta ADRH
-    dex
-    dex
-    ldy #0
-    lda (ADR), y
-    sta $01, x
-    iny
-    lda (ADR), y
-    sta $02, x
-    clc
-    lda #2
-    adc IPL
-    bcc :+
-    inc IPH
-:   sta IPL
-    jmp Next
-
-.byt "exit"
-.word _Lit-3
-.byt 4 | FLAG_NONE
-_Exit:
-    pla
-    sta IPL
-    pla
-    sta IPH
-    jmp Next
-
-; ( addr -- )
-.byt "exec"
-.word _Exit-3
-.byt 4 | FLAG_NONE
-_Exec:
-    lda $01, x
-    sta ADRL
-    lda $02, x
-    sta ADRH
-    inx
-    inx
-    jmp (ADR)
-
-.byt "abort"
-.word _Exec-3
-.byt 5 | FLAG_NONE
-_Abort:
-    sei
+Reset:
     cld
-    ; TODO: reset SYSVARS
-    lda #$6C
-    sta ADRJ
-    ldx #$FF
-    jmp _Shell
+    cli
+    jsr VdpInitMin
+@Halt:
+    jmp @Halt
 
-.byt "shell"
-.word _Abort-3
-.byt 5 | FLAG_NONE
-_Shell:
+Nmi:
+    pha
     txa
-    ldx #$FF
-    txs
+    pha
+    lda VDP_PORT1
+    ldx #$00
+@Move:
+    inc SPRITE_SHADOW + 1, X
+    txa
+    clc
+    adc #$04
     tax
-    lda #STATE_INTERPRET
-    sta STATE
-    lda #0
-    sta DEV
-    sta ERR
-    sta BUFOFF
-    sta BUFEND
-:   jsr DoCol
-    .word _Cmd
-    ; TODO check for under/overflow
-    .word _PullR
-    .word _Drop
-    .word :-
+    cpx #(SPRITE_COUNT * 4)
+    bne @Move
+    jsr VdpWriteSprites
+    pla
+    tax
+    pla
+    rti
 
-; ----- Outer Interpreter -----
+Irq:
+    rti
 
-.byt "rdb"
-.word _Shell-3
-.byt 3 | FLAG_NONE
-_RdByte:
-    jsr DoCol
-    .word _Lit, BUF, _Lit, BUFOFF, _LoadByteUnsigned, _Add
-:   .word _Dup
-    .word _Lit, 1
-    .word _Lit, READ, _Load, _Exec,
-    .word _Lit, 0, _Equal,
-    .word _0Branch, :+
-    .word _Lit, ERR, _LoadByteUnsigned, _Lit, ETIMEOUT, _Sub,
-    .word _0Branch, :-
-:
-    ; Echo
-    .word _Lit, 1
-    .word _Lit, WRITE, _Load, _Exec
-    .word _Drop
-    .word _Exit
+VDP_TRANSPARENT  = $0
+VDP_BLACK        = $1
+VDP_MEDIUM_GREEN = $2
+VDP_LIGHT_GREEN  = $3
+VDP_DARK_BLUE    = $4
+VDP_LIGHT_BLUE   = $5
+VDP_DARK_RED     = $6
+VDP_CYAN         = $7
+VDP_MEDIUM_RED   = $8
+VDP_LIGHT_RED    = $9
+VDP_DARK_YELLOW  = $A
+VDP_LIGHT_YELLOW = $B
+VDP_DARK_GREEN   = $C
+VDP_MAGENTA      = $D
+VDP_GRAY         = $E
+VDP_WHITE        = $F
 
-.byt "rdln"
-.word _RdByte-3
-.byt 4 | FLAG_NONE
-_RdLn:
-    jsr DoCol
-    .word _RdByte
-    .word _Exit
+#define VDP_COLOR(F, B) (((F) << 4) | (B))
+#define VDP_CMD_REG(R) ($80 | ((R) & $07))
+VDP_CMD_WRITE = $40
 
-.byt "tok"
-.word _RdLn-3
-.byt 3 | FLAG_NONE
-_Tok:
-    jsr DoCol
-    .word _Lit, BUFOFF, _LoadByteUnsigned
-    .word _Lit, BUFEND, _LoadByteUnsigned
-    .word _Equal
-    .word _0Branch, :+
-    .word _RdLn
-:   .word _Exit
+VDP_PORT0 = $C000
+VDP_PORT1 = $C001
 
-; ( buf len base -- n )
-.byt "parse"
-.word _Shell-3
-.byt 5 | FLAG_NONE
-_Parse:
-    jmp Next
+SPRITE_SHADOW = $0200
+SPRITE_COUNT  = 32
 
-.byt "cmd"
-.word _RdLn-3
-.byt 4 | FLAG_NONE
-_Cmd:
-    jsr DoCol
-    .word _Tok
-    .word _Exit
+VdpInitRegs:
+    .byt $00
+    .byt $E1
+    .byt $05
+    .byt $80
+    .byt $01
+    .byt $20
+    .byt $00
+    .byt VDP_COLOR(VDP_TRANSPARENT, VDP_BLACK)
 
-HERESTART = *
+VdpStar:
+    .byt $00, $44, $6C, $38, $7C, $FE, $10, $10
+
+VdpBall:
+    .byt $18, $3C, $7E, $FF, $FF, $7E, $3C, $18
+
+VdpSprites:
+    .byt $30, $40, $00, VDP_WHITE
+    .byt $50, $60, $00, VDP_CYAN
+    .byt $70, $80, $00, VDP_MEDIUM_RED
+    .byt $34, $44, $00, VDP_LIGHT_YELLOW
+    .byt $D0
+VdpSpritesEnd:
+
+VdpInitMin:
+    lda $00           ; random RAM byte (randomized at startup with -r)
+    and #$1B          ; keep mode (M1/M3) + sprite size/mag bits
+    ora #$E0          ; force display on + interrupts + 16K
+    sta VDP_PORT1
+    lda #VDP_CMD_REG(1)
+    sta VDP_PORT1
+    lda #$20
+    sta VDP_PORT1
+    lda #VDP_CMD_REG(5)
+    sta VDP_PORT1
+    rts
+
+VdpInit:
+    lda VDP_PORT1
+    ldx #$07
+@Loop:
+    lda VdpInitRegs, X
+    sta VDP_PORT1
+    txa
+    ora #VDP_CMD_REG(0)
+    sta VDP_PORT1
+    dex
+    bpl @Loop
+
+    lda #$00
+    sta VDP_PORT1
+    lda #(VDP_CMD_WRITE | $08)
+    sta VDP_PORT1
+    ldx #$07
+@Loop2:
+    lda VdpStar, X
+    sta VDP_PORT0
+    dex
+    bpl @Loop2
+
+    lda #$00
+    sta VDP_PORT1
+    lda #(VDP_CMD_WRITE | $14)
+    sta VDP_PORT1
+    lda #$00
+    sta VDP_PORT0
+
+    lda #$00
+    sta VDP_PORT1
+    lda #(VDP_CMD_WRITE | $00)
+    sta VDP_PORT1
+    ldx #$07
+@Loop3:
+    lda VdpBall, X
+    sta VDP_PORT0
+    dex
+    bpl @Loop3
+
+    ldx #$00
+@Loop4:
+    lda VdpSprites, X
+    sta SPRITE_SHADOW, X
+    inx
+    cpx #(VdpSpritesEnd - VdpSprites)
+    bne @Loop4
+    jsr VdpWriteSprites
+
+    rts
+
+VdpWriteSprites:
+    lda #$00
+    sta VDP_PORT1
+    lda #(VDP_CMD_WRITE | $10)
+    sta VDP_PORT1
+    ldx #$00
+@Loop:
+    lda SPRITE_SHADOW, X
+    sta VDP_PORT0
+    inx
+    cpx #(SPRITE_COUNT * 4)
+    bne @Loop
+    rts
+
+.dsb $FFFA - *, $00
+Vectors:
+    .word Nmi
+    .word Reset
+    .word Irq

@@ -14,14 +14,22 @@
 
 #include "vm.h"
 
-Emu emu = {0};
+static Emu emu = {0};
 
 volatile sig_atomic_t sigintFlag = 0;
 static struct termios termiosOrig;
 static Bool termRawMode = FALSE;
 
+static SDL_Window *win = NULL;
 static SDL_Renderer *render = NULL;
 static SDL_Texture *tex = NULL;
+
+static Bool quit = FALSE;
+static U64 cycleCount = 0;
+static U64 vdpAccum = 0;
+static U64 nextFrameNs = 0;
+
+static U64 const FRAME_NS = 1000000000ULL * 342 * 262 / VDP_HZ;
 
 static void sigintHandler(int sig) {
   (void)sig;
@@ -128,7 +136,6 @@ int main(int argc, char const *const *argv) {
     fprintf(stderr, "SDL_InitSubSystem failed: %s\n", SDL_GetError());
     goto cleanupSDL;
   }
-  SDL_Window *win = NULL;
   if (!SDL_CreateWindowAndRenderer("nop", SCREEN_WIDTH * 3, SCREEN_HEIGHT * 3,
                                    SDL_WINDOW_HIGH_PIXEL_DENSITY |
                                        SDL_WINDOW_RESIZABLE,
@@ -140,6 +147,9 @@ int main(int argc, char const *const *argv) {
     fprintf(stderr, "SDL_ShowWindow failed: %s\n", SDL_GetError());
     goto cleanupWindow;
   }
+  if (!SDL_SetRenderVSync(render, 1)) {
+    fprintf(stderr, "SDL_SetRenderVSync failed: %s\n", SDL_GetError());
+  }
   tex = SDL_CreateTexture(render, SDL_PIXELFORMAT_RGBA8888,
                           SDL_TEXTUREACCESS_STREAMING, SCREEN_WIDTH,
                           SCREEN_HEIGHT);
@@ -150,18 +160,9 @@ int main(int argc, char const *const *argv) {
 
   emuReset(random);
 
-  SDL_Event event;
-  while (TRUE) {
-    while (SDL_PollEvent(&event)) {
-      switch (event.type) {
-      case SDL_EVENT_QUIT:
-        goto cleanup;
-      }
-    }
+  while (!quit) {
     emuTick();
   }
-
-cleanup:
   exitCode = EXIT_SUCCESS;
 cleanupTexture:
   if (tex) {
@@ -180,6 +181,20 @@ cleanupSDL:
 }
 
 static void vblank() {
+  SDL_Event event;
+  while (SDL_PollEvent(&event)) {
+    switch (event.type) {
+    case SDL_EVENT_QUIT:
+      quit = TRUE;
+      break;
+    case SDL_EVENT_KEY_DOWN:
+      if (event.key.key == SDLK_R) {
+        emuReset(TRUE);
+      }
+      break;
+    }
+  }
+
   void *pixels;
   int pitch;
   SDL_LockTexture(tex, NULL, &pixels, &pitch);
@@ -188,11 +203,35 @@ static void vblank() {
   SDL_RenderClear(render);
   SDL_RenderTexture(render, tex, NULL, NULL);
   SDL_RenderPresent(render);
+
+  static U64 last = 0;
+  static UInt fps = 0;
+  ++fps;
+  U64 now = SDL_GetTicksNS();
+  if ((now - last) >= 1000000000ULL) {
+    char title[64];
+    snprintf(title, sizeof(title), "nop - %" UINT_FMT " fps - %.2f MHz", fps,
+             ((F64)cycleCount) / 1000000.0);
+    SDL_SetWindowTitle(win, title);
+    fps = 0;
+    cycleCount = 0;
+    last = now;
+  }
+
+  if (now < nextFrameNs) {
+    SDL_DelayNS(nextFrameNs - now);
+    nextFrameNs += FRAME_NS;
+  } else {
+    nextFrameNs = now + FRAME_NS;
+  }
 }
 
 static void emuReset(Bool random) {
-  for (UInt i = 0; i < sizeof(emu.ram); ++i) {
-    emu.ram[i] = (U8)rand();
+  emu.nmi = FALSE;
+  if (random) {
+    for (UInt i = 0; i < sizeof(emu.ram); ++i) {
+      emu.ram[i] = (U8)rand();
+    }
   }
   cpuReset(&emu.cpu, &emu);
   vdpReset(&emu.vdp, &emu, random);
@@ -205,10 +244,17 @@ static void emuTick() {
   }
   dbgTick(&emu.dbg, &emu);
   UInt cycles = cpuTick(&emu.cpu, &emu);
-  for (UInt i = 0; i < cycles; ++i) {
+  cycleCount += cycles;
+  vdpAccum += ((U64)cycles) * VDP_HZ;
+  while (vdpAccum >= CPU_HZ) {
+    vdpAccum -= CPU_HZ;
     if (vdpTick(&emu.vdp, &emu)) {
       vblank();
     }
+  }
+  if (emu.nmi) {
+    emu.nmi = FALSE;
+    emu.cpu.nmi = TRUE;
   }
 }
 

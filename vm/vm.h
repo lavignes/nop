@@ -21,12 +21,12 @@ enum {
   RAM_START_ADDR = 0x0000,
   RAM_END_ADDR = RAM_START_ADDR + RAM_SIZE - 1,
 
-  IO_SIZE = 0x1000,
+  IO_SIZE = 0x2000,
   IO_START_ADDR = 0xC000,
   IO_END_ADDR = IO_START_ADDR + IO_SIZE - 1,
 
   ROM_SIZE = 0x2000,
-  ROM_START_ADDR = 0xD000,
+  ROM_START_ADDR = 0xE000,
   ROM_END_ADDR = ROM_START_ADDR + ROM_SIZE - 1,
 
   VRAM_SIZE = 0x4000,
@@ -37,6 +37,11 @@ enum {
   SCREEN_HEIGHT = 192 + 27 + 24,
 };
 
+enum {
+  CPU_HZ = 1000000,
+  VDP_HZ = 10738635 / 2,
+};
+
 typedef struct {
   U8 a;
   U8 x;
@@ -44,6 +49,9 @@ typedef struct {
   U8 sp;
   U8 p;
   U16 pc;
+
+  Bool nmi;
+  Bool irq;
 
   void *ea;
   U16 eaAddr;
@@ -57,6 +65,7 @@ typedef struct {
   U16 line;
   U16 col;
   U32 pix[SCREEN_HEIGHT][SCREEN_WIDTH];
+  U8 sprStat[SCREEN_WIDTH];
 
   U8 stat;
   U8 reg[8];
@@ -168,7 +177,7 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
     emu->ram[addr - RAM_START_ADDR] = val;
     break;
   case IO_START_ADDR ... IO_END_ADDR:
-    vdpWrite(&emu->vdp, addr, val);
+    vdpWrite(&emu->vdp, addr - IO_START_ADDR, val);
     break;
   case ROM_START_ADDR ... ROM_END_ADDR:
     break;

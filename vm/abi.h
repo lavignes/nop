@@ -39,6 +39,19 @@ typedef int32_t I32;
 #define I32_FMT PRIi32
 #define U32_FMTX PRIx32
 
+typedef uint64_t U64;
+typedef int64_t I64;
+#define U64_MAX UINT64_MAX
+#define I64_MAX INT64_MAX
+#define I64_MIN INT64_MIN
+
+#define U64_FMT PRIu64
+#define I64_FMT PRIi64
+#define U64_FMTX PRIx64
+
+typedef float F32;
+typedef double F64;
+
 #undef UINT_MAX
 #undef INT_MAX
 #undef INT_MIN
