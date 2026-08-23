@@ -52,6 +52,8 @@ typedef struct {
 
   Bool nmi;
   Bool irq;
+  Bool wai;
+  Bool stp;
 
   void *ea;
   U16 eaAddr;

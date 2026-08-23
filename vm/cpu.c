@@ -91,9 +91,32 @@ static void JID(Cpu *cpu, Emu *emu) {
   cpu->ea = emu;
   U8 idLo = busRead(emu, cpu->pc++);
   U8 idHi = busRead(emu, cpu->pc++);
-  U8 lo = busRead(emu, (((U16)idHi) << 8) | idLo);
+  U16 ptr = (((U16)idHi) << 8) | idLo;
+  U8 lo = busRead(emu, ptr);
+#ifndef CPU_NMOS
+  U8 hi = busRead(emu, (U16)(ptr + 1));
+#else
   U8 hi = busRead(emu, (((U16)idHi) << 8) | (U8)(idLo + 1));
+#endif
   cpu->eaAddr = (((U16)hi) << 8) | lo;
+}
+
+static void IZP(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 zpAddr = busRead(emu, cpu->pc++);
+  U8 lo = busRead(emu, zpAddr);
+  U8 hi = busRead(emu, (U8)(zpAddr + 1));
+  cpu->eaAddr = (((U16)hi) << 8) | lo;
+}
+
+static void JIX(Cpu *cpu, Emu *emu) {
+  cpu->ea = emu;
+  U8 lo = busRead(emu, cpu->pc++);
+  U8 hi = busRead(emu, cpu->pc++);
+  U16 ptr = ((((U16)hi) << 8) | lo) + cpu->x;
+  U8 tlo = busRead(emu, ptr);
+  U8 thi = busRead(emu, (U16)(ptr + 1));
+  cpu->eaAddr = (((U16)thi) << 8) | tlo;
 }
 
 static U8 read(Cpu *cpu, Emu *emu) {
@@ -224,6 +247,9 @@ static void BRK(Cpu *cpu, Emu *emu) {
   busWrite(emu, 0x0100 + cpu->sp--, (U8)(cpu->pc & 0xFF));
   busWrite(emu, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_BREAK | CPU_FLAG_UNUSED);
   flag(cpu, CPU_FLAG_INTERRUPT, TRUE);
+#ifndef CPU_NMOS
+  flag(cpu, CPU_FLAG_DECIMAL, FALSE);
+#endif
   U8 lo = busRead(emu, 0xFFFE);
   U8 hi = busRead(emu, 0xFFFF);
   cpu->pc = (((U16)hi) << 8) | lo;
@@ -537,6 +563,120 @@ static void TYA(Cpu *cpu, Emu *emu) {
   flag(cpu, CPU_FLAG_NEGATIVE, (cpu->a & 0x80) != 0);
 }
 
+static void BRA(Cpu *cpu, Emu *emu) { cpu->pc = cpu->pc + (I8)read(cpu, emu); }
+
+static void BITI(Cpu *cpu, Emu *emu) {
+  flag(cpu, CPU_FLAG_ZERO, (cpu->a & read(cpu, emu)) == 0);
+}
+
+static void STZ(Cpu *cpu, Emu *emu) { write(cpu, emu, 0); }
+
+static void TSB(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
+  flag(cpu, CPU_FLAG_ZERO, (cpu->a & val) == 0);
+  write(cpu, emu, val | cpu->a);
+}
+
+static void TRB(Cpu *cpu, Emu *emu) {
+  U8 val = read(cpu, emu);
+  flag(cpu, CPU_FLAG_ZERO, (cpu->a & val) == 0);
+  write(cpu, emu, val & ~cpu->a);
+}
+
+static void PHX(Cpu *cpu, Emu *emu) {
+  busWrite(emu, 0x0100 + cpu->sp--, cpu->x);
+}
+
+static void PHY(Cpu *cpu, Emu *emu) {
+  busWrite(emu, 0x0100 + cpu->sp--, cpu->y);
+}
+
+static void PLX(Cpu *cpu, Emu *emu) {
+  cpu->x = busRead(emu, 0x0100 + ++cpu->sp);
+  flag(cpu, CPU_FLAG_ZERO, cpu->x == 0);
+  flag(cpu, CPU_FLAG_NEGATIVE, (cpu->x & 0x80) != 0);
+}
+
+static void PLY(Cpu *cpu, Emu *emu) {
+  cpu->y = busRead(emu, 0x0100 + ++cpu->sp);
+  flag(cpu, CPU_FLAG_ZERO, cpu->y == 0);
+  flag(cpu, CPU_FLAG_NEGATIVE, (cpu->y & 0x80) != 0);
+}
+
+static void WAI(Cpu *cpu, Emu *emu) {
+  (void)emu;
+  cpu->wai = TRUE;
+}
+
+static void STP(Cpu *cpu, Emu *emu) {
+  (void)emu;
+  cpu->stp = TRUE;
+}
+
+#define RMB(N)                                                                 \
+  static void RMB##N(Cpu *cpu, Emu *emu) {                                     \
+    write(cpu, emu, read(cpu, emu) & ~(1 << (N)));                             \
+  }
+
+RMB(0)
+RMB(1)
+RMB(2)
+RMB(3)
+RMB(4)
+RMB(5)
+RMB(6)
+RMB(7)
+
+#define SMB(N)                                                                 \
+  static void SMB##N(Cpu *cpu, Emu *emu) {                                     \
+    write(cpu, emu, read(cpu, emu) | (1 << (N)));                              \
+  }
+
+SMB(0)
+SMB(1)
+SMB(2)
+SMB(3)
+SMB(4)
+SMB(5)
+SMB(6)
+SMB(7)
+
+#define BBR(N)                                                                 \
+  static void BBR##N(Cpu *cpu, Emu *emu) {                                     \
+    U8 zp = busRead(emu, cpu->pc++);                                           \
+    I8 off = (I8)busRead(emu, cpu->pc++);                                      \
+    if ((busRead(emu, zp) & (1 << (N))) == 0) {                                \
+      cpu->pc += off;                                                          \
+    }                                                                          \
+  }
+
+BBR(0)
+BBR(1)
+BBR(2)
+BBR(3)
+BBR(4)
+BBR(5)
+BBR(6)
+BBR(7)
+
+#define BBS(N)                                                                 \
+  static void BBS##N(Cpu *cpu, Emu *emu) {                                     \
+    U8 zp = busRead(emu, cpu->pc++);                                           \
+    I8 off = (I8)busRead(emu, cpu->pc++);                                      \
+    if ((busRead(emu, zp) & (1 << (N))) != 0) {                                \
+      cpu->pc += off;                                                          \
+    }                                                                          \
+  }
+
+BBS(0)
+BBS(1)
+BBS(2)
+BBS(3)
+BBS(4)
+BBS(5)
+BBS(6)
+BBS(7)
+
 typedef struct {
   void (*exec)(Cpu *, Emu *);
   void (*addr)(Cpu *, Emu *);
@@ -544,57 +684,80 @@ typedef struct {
 } OpEntry;
 
 static OpEntry const OP_TBL[256] = {
-    [0X00] = {BRK, IMM, 7}, [0X01] = {ORA, IDX, 6}, [0X05] = {ORA, ZPG, 3},
-    [0X06] = {ASL, ZPG, 5}, [0X08] = {PHP, IMP, 3}, [0X09] = {ORA, IMM, 2},
-    [0X0A] = {ASL, ACC, 2}, [0X0D] = {ORA, ABS, 4}, [0X0E] = {ASL, ABS, 6},
-    [0X10] = {BPL, IMM, 2}, [0X11] = {ORA, IDY, 5}, [0X15] = {ORA, ZPX, 4},
-    [0X16] = {ASL, ZPX, 6}, [0X18] = {CLC, IMP, 2}, [0X19] = {ORA, ABY, 4},
-    [0X1D] = {ORA, ABX, 4}, [0X1E] = {ASL, ABX, 7}, [0X20] = {JSR, JAB, 6},
-    [0X21] = {AND, IDX, 6}, [0X24] = {BIT, ZPG, 3}, [0X25] = {AND, ZPG, 3},
-    [0X26] = {ROL, ZPG, 5}, [0X28] = {PLP, IMP, 4}, [0X29] = {AND, IMM, 2},
-    [0X2A] = {ROL, ACC, 2}, [0X2C] = {BIT, ABS, 4}, [0X2D] = {AND, ABS, 4},
-    [0X2E] = {ROL, ABS, 6}, [0X30] = {BMI, IMM, 2}, [0X31] = {AND, IDY, 5},
-    [0X35] = {AND, ZPX, 4}, [0X36] = {ROL, ZPX, 6}, [0X38] = {SEC, IMP, 2},
-    [0X39] = {AND, ABY, 4}, [0X3D] = {AND, ABX, 4}, [0X3E] = {ROL, ABX, 7},
-    [0X40] = {RTI, IMP, 6}, [0X41] = {EOR, IDX, 6}, [0X45] = {EOR, ZPG, 3},
-    [0X46] = {LSR, ZPG, 5}, [0X48] = {PHA, IMP, 3}, [0X49] = {EOR, IMM, 2},
-    [0X4A] = {LSR, ACC, 2}, [0X4C] = {JMP, JAB, 3}, [0X4D] = {EOR, ABS, 4},
-    [0X4E] = {LSR, ABS, 6}, [0X50] = {BVC, IMM, 2}, [0X51] = {EOR, IDY, 5},
-    [0X55] = {EOR, ZPX, 4}, [0X56] = {LSR, ZPX, 6}, [0X58] = {CLI, IMP, 2},
-    [0X59] = {EOR, ABY, 4}, [0X5D] = {EOR, ABX, 4}, [0X5E] = {LSR, ABX, 7},
-    [0X60] = {RTS, IMP, 6}, [0X61] = {ADC, IDX, 6}, [0X65] = {ADC, ZPG, 3},
-    [0X66] = {ROR, ZPG, 5}, [0X68] = {PLA, IMP, 4}, [0X69] = {ADC, IMM, 2},
-    [0X6A] = {ROR, ACC, 2}, [0X6C] = {JMP, JID, 5}, [0X6D] = {ADC, ABS, 4},
-    [0X6E] = {ROR, ABS, 6}, [0X70] = {BVS, IMM, 2}, [0X71] = {ADC, IDY, 5},
-    [0X75] = {ADC, ZPX, 4}, [0X76] = {ROR, ZPX, 6}, [0X78] = {SEI, IMP, 2},
-    [0X79] = {ADC, ABY, 4}, [0X7D] = {ADC, ABX, 4}, [0X7E] = {ROR, ABX, 7},
-    [0X81] = {STA, IDX, 6}, [0X84] = {STY, ZPG, 3}, [0X85] = {STA, ZPG, 3},
-    [0X86] = {STX, ZPG, 3}, [0X88] = {DEY, IMP, 2}, [0X8A] = {TXA, IMP, 2},
-    [0X8C] = {STY, ABS, 4}, [0X8D] = {STA, ABS, 4}, [0X8E] = {STX, ABS, 4},
-    [0X90] = {BCC, IMM, 2}, [0X91] = {STA, IDY, 6}, [0X94] = {STY, ZPX, 4},
-    [0X95] = {STA, ZPX, 4}, [0X96] = {STX, ZPY, 4}, [0X98] = {TYA, IMP, 2},
-    [0X99] = {STA, ABY, 5}, [0X9A] = {TXS, IMP, 2}, [0X9D] = {STA, ABX, 5},
-    [0XA0] = {LDY, IMM, 2}, [0XA1] = {LDA, IDX, 6}, [0XA2] = {LDX, IMM, 2},
-    [0XA4] = {LDY, ZPG, 3}, [0XA5] = {LDA, ZPG, 3}, [0XA6] = {LDX, ZPG, 3},
-    [0XA8] = {TAY, IMP, 2}, [0XA9] = {LDA, IMM, 2}, [0XAA] = {TAX, IMP, 2},
-    [0XAC] = {LDY, ABS, 4}, [0XAD] = {LDA, ABS, 4}, [0XAE] = {LDX, ABS, 4},
-    [0XB0] = {BCS, IMM, 2}, [0XB1] = {LDA, IDY, 5}, [0XB4] = {LDY, ZPX, 4},
-    [0XB5] = {LDA, ZPX, 4}, [0XB6] = {LDX, ZPY, 4}, [0XB8] = {CLV, IMP, 2},
-    [0XB9] = {LDA, ABY, 4}, [0XBA] = {TSX, IMP, 2}, [0XBC] = {LDY, ABX, 4},
-    [0XBD] = {LDA, ABX, 4}, [0XBE] = {LDX, ABY, 4}, [0XC0] = {CPY, IMM, 2},
-    [0XC1] = {CMP, IDX, 6}, [0XC4] = {CPY, ZPG, 3}, [0XC5] = {CMP, ZPG, 3},
-    [0XC6] = {DEC, ZPG, 5}, [0XC8] = {INY, IMP, 2}, [0XC9] = {CMP, IMM, 2},
-    [0XCA] = {DEX, IMP, 2}, [0XCC] = {CPY, ABS, 4}, [0XCD] = {CMP, ABS, 4},
-    [0XCE] = {DEC, ABS, 6}, [0XD0] = {BNE, IMM, 2}, [0XD1] = {CMP, IDY, 5},
-    [0XD5] = {CMP, ZPX, 4}, [0XD6] = {DEC, ZPX, 6}, [0XD8] = {CLD, IMP, 2},
-    [0XD9] = {CMP, ABY, 4}, [0XDD] = {CMP, ABX, 4}, [0XDE] = {DEC, ABX, 7},
-    [0XE0] = {CPX, IMM, 2}, [0XE1] = {SBC, IDX, 6}, [0XE4] = {CPX, ZPG, 3},
-    [0XE5] = {SBC, ZPG, 3}, [0XE6] = {INC, ZPG, 5}, [0XE8] = {INX, IMP, 2},
-    [0XE9] = {SBC, IMM, 2}, [0XEA] = {NOP, IMP, 2}, [0XEC] = {CPX, ABS, 4},
-    [0XED] = {SBC, ABS, 4}, [0XEE] = {INC, ABS, 6}, [0XF0] = {BEQ, IMM, 2},
-    [0XF1] = {SBC, IDY, 5}, [0XF5] = {SBC, ZPX, 4}, [0XF6] = {INC, ZPX, 6},
-    [0XF8] = {SED, IMP, 2}, [0XF9] = {SBC, ABY, 4}, [0XFD] = {SBC, ABX, 4},
+    [0X00] = {BRK, IMM, 7},  [0X01] = {ORA, IDX, 6},  [0X05] = {ORA, ZPG, 3},
+    [0X06] = {ASL, ZPG, 5},  [0X08] = {PHP, IMP, 3},  [0X09] = {ORA, IMM, 2},
+    [0X0A] = {ASL, ACC, 2},  [0X0D] = {ORA, ABS, 4},  [0X0E] = {ASL, ABS, 6},
+    [0X10] = {BPL, IMM, 2},  [0X11] = {ORA, IDY, 5},  [0X15] = {ORA, ZPX, 4},
+    [0X16] = {ASL, ZPX, 6},  [0X18] = {CLC, IMP, 2},  [0X19] = {ORA, ABY, 4},
+    [0X1D] = {ORA, ABX, 4},  [0X1E] = {ASL, ABX, 7},  [0X20] = {JSR, JAB, 6},
+    [0X21] = {AND, IDX, 6},  [0X24] = {BIT, ZPG, 3},  [0X25] = {AND, ZPG, 3},
+    [0X26] = {ROL, ZPG, 5},  [0X28] = {PLP, IMP, 4},  [0X29] = {AND, IMM, 2},
+    [0X2A] = {ROL, ACC, 2},  [0X2C] = {BIT, ABS, 4},  [0X2D] = {AND, ABS, 4},
+    [0X2E] = {ROL, ABS, 6},  [0X30] = {BMI, IMM, 2},  [0X31] = {AND, IDY, 5},
+    [0X35] = {AND, ZPX, 4},  [0X36] = {ROL, ZPX, 6},  [0X38] = {SEC, IMP, 2},
+    [0X39] = {AND, ABY, 4},  [0X3D] = {AND, ABX, 4},  [0X3E] = {ROL, ABX, 7},
+    [0X40] = {RTI, IMP, 6},  [0X41] = {EOR, IDX, 6},  [0X45] = {EOR, ZPG, 3},
+    [0X46] = {LSR, ZPG, 5},  [0X48] = {PHA, IMP, 3},  [0X49] = {EOR, IMM, 2},
+    [0X4A] = {LSR, ACC, 2},  [0X4C] = {JMP, JAB, 3},  [0X4D] = {EOR, ABS, 4},
+    [0X4E] = {LSR, ABS, 6},  [0X50] = {BVC, IMM, 2},  [0X51] = {EOR, IDY, 5},
+    [0X55] = {EOR, ZPX, 4},  [0X56] = {LSR, ZPX, 6},  [0X58] = {CLI, IMP, 2},
+    [0X59] = {EOR, ABY, 4},  [0X5D] = {EOR, ABX, 4},  [0X5E] = {LSR, ABX, 7},
+    [0X60] = {RTS, IMP, 6},  [0X61] = {ADC, IDX, 6},  [0X65] = {ADC, ZPG, 3},
+    [0X66] = {ROR, ZPG, 5},  [0X68] = {PLA, IMP, 4},  [0X69] = {ADC, IMM, 2},
+    [0X6A] = {ROR, ACC, 2},  [0X6C] = {JMP, JID, 5},  [0X6D] = {ADC, ABS, 4},
+    [0X6E] = {ROR, ABS, 6},  [0X70] = {BVS, IMM, 2},  [0X71] = {ADC, IDY, 5},
+    [0X75] = {ADC, ZPX, 4},  [0X76] = {ROR, ZPX, 6},  [0X78] = {SEI, IMP, 2},
+    [0X79] = {ADC, ABY, 4},  [0X7D] = {ADC, ABX, 4},  [0X7E] = {ROR, ABX, 7},
+    [0X81] = {STA, IDX, 6},  [0X84] = {STY, ZPG, 3},  [0X85] = {STA, ZPG, 3},
+    [0X86] = {STX, ZPG, 3},  [0X88] = {DEY, IMP, 2},  [0X8A] = {TXA, IMP, 2},
+    [0X8C] = {STY, ABS, 4},  [0X8D] = {STA, ABS, 4},  [0X8E] = {STX, ABS, 4},
+    [0X90] = {BCC, IMM, 2},  [0X91] = {STA, IDY, 6},  [0X94] = {STY, ZPX, 4},
+    [0X95] = {STA, ZPX, 4},  [0X96] = {STX, ZPY, 4},  [0X98] = {TYA, IMP, 2},
+    [0X99] = {STA, ABY, 5},  [0X9A] = {TXS, IMP, 2},  [0X9D] = {STA, ABX, 5},
+    [0XA0] = {LDY, IMM, 2},  [0XA1] = {LDA, IDX, 6},  [0XA2] = {LDX, IMM, 2},
+    [0XA4] = {LDY, ZPG, 3},  [0XA5] = {LDA, ZPG, 3},  [0XA6] = {LDX, ZPG, 3},
+    [0XA8] = {TAY, IMP, 2},  [0XA9] = {LDA, IMM, 2},  [0XAA] = {TAX, IMP, 2},
+    [0XAC] = {LDY, ABS, 4},  [0XAD] = {LDA, ABS, 4},  [0XAE] = {LDX, ABS, 4},
+    [0XB0] = {BCS, IMM, 2},  [0XB1] = {LDA, IDY, 5},  [0XB4] = {LDY, ZPX, 4},
+    [0XB5] = {LDA, ZPX, 4},  [0XB6] = {LDX, ZPY, 4},  [0XB8] = {CLV, IMP, 2},
+    [0XB9] = {LDA, ABY, 4},  [0XBA] = {TSX, IMP, 2},  [0XBC] = {LDY, ABX, 4},
+    [0XBD] = {LDA, ABX, 4},  [0XBE] = {LDX, ABY, 4},  [0XC0] = {CPY, IMM, 2},
+    [0XC1] = {CMP, IDX, 6},  [0XC4] = {CPY, ZPG, 3},  [0XC5] = {CMP, ZPG, 3},
+    [0XC6] = {DEC, ZPG, 5},  [0XC8] = {INY, IMP, 2},  [0XC9] = {CMP, IMM, 2},
+    [0XCA] = {DEX, IMP, 2},  [0XCC] = {CPY, ABS, 4},  [0XCD] = {CMP, ABS, 4},
+    [0XCE] = {DEC, ABS, 6},  [0XD0] = {BNE, IMM, 2},  [0XD1] = {CMP, IDY, 5},
+    [0XD5] = {CMP, ZPX, 4},  [0XD6] = {DEC, ZPX, 6},  [0XD8] = {CLD, IMP, 2},
+    [0XD9] = {CMP, ABY, 4},  [0XDD] = {CMP, ABX, 4},  [0XDE] = {DEC, ABX, 7},
+    [0XE0] = {CPX, IMM, 2},  [0XE1] = {SBC, IDX, 6},  [0XE4] = {CPX, ZPG, 3},
+    [0XE5] = {SBC, ZPG, 3},  [0XE6] = {INC, ZPG, 5},  [0XE8] = {INX, IMP, 2},
+    [0XE9] = {SBC, IMM, 2},  [0XEA] = {NOP, IMP, 2},  [0XEC] = {CPX, ABS, 4},
+    [0XED] = {SBC, ABS, 4},  [0XEE] = {INC, ABS, 6},  [0XF0] = {BEQ, IMM, 2},
+    [0XF1] = {SBC, IDY, 5},  [0XF5] = {SBC, ZPX, 4},  [0XF6] = {INC, ZPX, 6},
+    [0XF8] = {SED, IMP, 2},  [0XF9] = {SBC, ABY, 4},  [0XFD] = {SBC, ABX, 4},
     [0XFE] = {INC, ABX, 7},
+#ifndef CPU_NMOS
+    [0X04] = {TSB, ZPG, 5},  [0X07] = {RMB0, ZPG, 5}, [0X0C] = {TSB, ABS, 6},
+    [0X0F] = {BBR0, IMP, 5}, [0X12] = {ORA, IZP, 5},  [0X14] = {TRB, ZPG, 5},
+    [0X17] = {RMB1, ZPG, 5}, [0X1A] = {INC, ACC, 2},  [0X1C] = {TRB, ABS, 6},
+    [0X1F] = {BBR1, IMP, 5}, [0X27] = {RMB2, ZPG, 5}, [0X2F] = {BBR2, IMP, 5},
+    [0X32] = {AND, IZP, 5},  [0X34] = {BIT, ZPX, 4},  [0X37] = {RMB3, ZPG, 5},
+    [0X3A] = {DEC, ACC, 2},  [0X3C] = {BIT, ABX, 4},  [0X3F] = {BBR3, IMP, 5},
+    [0X47] = {RMB4, ZPG, 5}, [0X4F] = {BBR4, IMP, 5}, [0X52] = {EOR, IZP, 5},
+    [0X57] = {RMB5, ZPG, 5}, [0X5A] = {PHY, IMP, 3},  [0X5F] = {BBR5, IMP, 5},
+    [0X64] = {STZ, ZPG, 3},  [0X67] = {RMB6, ZPG, 5}, [0X6F] = {BBR6, IMP, 5},
+    [0X72] = {ADC, IZP, 5},  [0X74] = {STZ, ZPX, 4},  [0X77] = {RMB7, ZPG, 5},
+    [0X7A] = {PLY, IMP, 4},  [0X7C] = {JMP, JIX, 6},  [0X7F] = {BBR7, IMP, 5},
+    [0X80] = {BRA, IMM, 3},  [0X87] = {SMB0, ZPG, 5}, [0X89] = {BITI, IMM, 2},
+    [0X8F] = {BBS0, IMP, 5}, [0X92] = {STA, IZP, 5},  [0X97] = {SMB1, ZPG, 5},
+    [0X9C] = {STZ, ABS, 4},  [0X9E] = {STZ, ABX, 5},  [0X9F] = {BBS1, IMP, 5},
+    [0XA7] = {SMB2, ZPG, 5}, [0XAF] = {BBS2, IMP, 5}, [0XB2] = {LDA, IZP, 5},
+    [0XB7] = {SMB3, ZPG, 5}, [0XBF] = {BBS3, IMP, 5}, [0XC7] = {SMB4, ZPG, 5},
+    [0XCB] = {WAI, IMP, 3},  [0XCF] = {BBS4, IMP, 5}, [0XD2] = {CMP, IZP, 5},
+    [0XD7] = {SMB5, ZPG, 5}, [0XDA] = {PHX, IMP, 3},  [0XDB] = {STP, IMP, 3},
+    [0XDF] = {BBS5, IMP, 5}, [0XE7] = {SMB6, ZPG, 5}, [0XEF] = {BBS6, IMP, 5},
+    [0XF2] = {SBC, IZP, 5},  [0XF7] = {SMB7, ZPG, 5}, [0XFA] = {PLX, IMP, 4},
+    [0XFF] = {BBS7, IMP, 5},
+#endif // CPU_NMOS
 };
 
 void cpuReset(Cpu *cpu, Emu *bus) {
@@ -609,6 +772,8 @@ void cpuReset(Cpu *cpu, Emu *bus) {
 
   cpu->nmi = FALSE;
   cpu->irq = FALSE;
+  cpu->wai = FALSE;
+  cpu->stp = FALSE;
 }
 
 static void nmi(Cpu *cpu, Emu *emu) {
@@ -616,6 +781,9 @@ static void nmi(Cpu *cpu, Emu *emu) {
   busWrite(emu, 0x0100 + cpu->sp--, (U8)(cpu->pc & 0xFF));
   busWrite(emu, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_UNUSED);
   flag(cpu, CPU_FLAG_INTERRUPT, TRUE);
+#ifndef CPU_NMOS
+  flag(cpu, CPU_FLAG_DECIMAL, FALSE);
+#endif
   U8 lo = busRead(emu, 0xFFFA);
   U8 hi = busRead(emu, 0xFFFB);
   cpu->pc = (((U16)hi) << 8) | lo;
@@ -626,18 +794,31 @@ static void irq(Cpu *cpu, Emu *emu) {
   busWrite(emu, 0x0100 + cpu->sp--, (U8)(cpu->pc & 0xFF));
   busWrite(emu, 0x0100 + cpu->sp--, cpu->p | CPU_FLAG_UNUSED);
   flag(cpu, CPU_FLAG_INTERRUPT, TRUE);
+#ifndef CPU_NMOS
+  flag(cpu, CPU_FLAG_DECIMAL, FALSE);
+#endif
   U8 lo = busRead(emu, 0xFFFE);
   U8 hi = busRead(emu, 0xFFFF);
   cpu->pc = (((U16)hi) << 8) | lo;
 }
 
 UInt cpuTick(Cpu *cpu, Emu *emu) {
+  if (cpu->stp) {
+    return 1;
+  }
+  if (cpu->wai) {
+    if (cpu->nmi || cpu->irq) {
+      cpu->wai = FALSE;
+    } else {
+      return 1;
+    }
+  }
   if (cpu->nmi) {
     cpu->nmi = FALSE;
     nmi(cpu, emu);
     return 7;
   }
-  if (cpu->irq && (cpu->p & CPU_FLAG_INTERRUPT)) {
+  if (cpu->irq && !(cpu->p & CPU_FLAG_INTERRUPT)) {
     cpu->irq = FALSE;
     irq(cpu, emu);
     return 7;
