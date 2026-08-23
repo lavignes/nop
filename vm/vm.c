@@ -42,7 +42,7 @@ static void help(char const *name) {
           "  -r, --random            Initialize memory with random data\n");
 }
 
-static void emuReset();
+static void emuReset(Bool random);
 static void emuTick();
 
 int main(int argc, char const *const *argv) {
@@ -102,9 +102,6 @@ int main(int argc, char const *const *argv) {
 
   if (random) {
     srand((unsigned int)time(NULL));
-    for (UInt i = 0; i < sizeof(emu.ram); ++i) {
-      emu.ram[i] = (U8)rand();
-    }
   }
 
   UInt read = fread(emu.rom, 1, sizeof(emu.rom), rom);
@@ -132,7 +129,7 @@ int main(int argc, char const *const *argv) {
     goto cleanupSDL;
   }
   SDL_Window *win = NULL;
-  if (!SDL_CreateWindowAndRenderer("nop", SCREEN_WIDTH * 2, SCREEN_HEIGHT * 2,
+  if (!SDL_CreateWindowAndRenderer("nop", SCREEN_WIDTH * 3, SCREEN_HEIGHT * 3,
                                    SDL_WINDOW_HIGH_PIXEL_DENSITY |
                                        SDL_WINDOW_RESIZABLE,
                                    &win, &render)) {
@@ -151,7 +148,7 @@ int main(int argc, char const *const *argv) {
     goto cleanupTexture;
   }
 
-  emuReset();
+  emuReset(random);
 
   SDL_Event event;
   while (TRUE) {
@@ -193,9 +190,12 @@ static void vblank() {
   SDL_RenderPresent(render);
 }
 
-static void emuReset() {
+static void emuReset(Bool random) {
+  for (UInt i = 0; i < sizeof(emu.ram); ++i) {
+    emu.ram[i] = (U8)rand();
+  }
   cpuReset(&emu.cpu, &emu);
-  vdpReset(&emu.vdp, &emu);
+  vdpReset(&emu.vdp, &emu, random);
 }
 
 static void emuTick() {

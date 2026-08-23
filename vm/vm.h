@@ -50,8 +50,10 @@ typedef struct {
 } Cpu;
 
 typedef struct {
-  U16 addrLatch;
-  U8 dataLatch;
+  U8 cmd[2];
+  Bool cmdIdx;
+  U16 addr;
+  U8 buf;
   U16 line;
   U16 col;
   U32 pix[SCREEN_HEIGHT][SCREEN_WIDTH];
@@ -123,6 +125,26 @@ typedef struct {
   U8 rom[ROM_SIZE];
 } Emu;
 
+U8 emuRead(Emu const *emu, U16 addr);
+
+void cpuReset(Cpu *cpu, Emu *emu);
+UInt cpuTick(Cpu *cpu, Emu *emu);
+
+void vdpReset(Vdp *vdp, Emu *emu, Bool random);
+Bool vdpTick(Vdp *vdp, Emu *emu);
+U8 vdpRead(Vdp *vdp, U16 addr);
+void vdpWrite(Vdp *vdp, U16 addr, U8 val);
+
+Symbol const *symValFind(Dbg const *dbg, Int val);
+Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
+void symLoad(Dbg *dbg, char const *filename);
+
+void dbgTick(Dbg *dbg, Emu *emu);
+U16 disAsm(Emu const *emu, U16 addr);
+
+void termRawModeOn();
+void termRawModeOff();
+
 #ifdef BUS_MOCK
 U8 busRead(Emu *emu, U16 addr);
 void busWrite(Emu *emu, U16 addr, U8 val);
@@ -132,7 +154,7 @@ static inline U8 busRead(Emu *emu, U16 addr) {
   case RAM_START_ADDR ... RAM_END_ADDR:
     return emu->ram[addr - RAM_START_ADDR];
   case IO_START_ADDR ... IO_END_ADDR:
-    return 0;
+    return vdpRead(&emu->vdp, addr - IO_START_ADDR);
   case ROM_START_ADDR ... ROM_END_ADDR:
     return emu->rom[addr - ROM_START_ADDR];
   default:
@@ -146,6 +168,7 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
     emu->ram[addr - RAM_START_ADDR] = val;
     break;
   case IO_START_ADDR ... IO_END_ADDR:
+    vdpWrite(&emu->vdp, addr, val);
     break;
   case ROM_START_ADDR ... ROM_END_ADDR:
     break;
@@ -154,23 +177,5 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
   }
 }
 #endif // BUS_MOCK
-
-U8 emuRead(Emu const *emu, U16 addr);
-
-void cpuReset(Cpu *cpu, Emu *emu);
-UInt cpuTick(Cpu *cpu, Emu *emu);
-
-void vdpReset(Vdp *vdp, Emu *emu);
-Bool vdpTick(Vdp *vdp, Emu *emu);
-
-Symbol const *symValFind(Dbg const *dbg, Int val);
-Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
-void symLoad(Dbg *dbg, char const *filename);
-
-void dbgTick(Dbg *dbg, Emu *emu);
-U16 disAsm(Emu const *emu, U16 addr);
-
-void termRawModeOn();
-void termRawModeOff();
 
 #endif // VM_H
