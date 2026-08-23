@@ -1,4 +1,4 @@
-// A little 6502 emulator
+// A little 65(C)02 emulator
 
 #include "vm.h"
 
@@ -114,7 +114,7 @@ static void write(Cpu *cpu, Emu *emu, U8 val) {
 
 static void ADC(Cpu *cpu, Emu *emu) {
   U8 val = read(cpu, emu);
-  U8 carry = cpu->p & CPU_FLAG_CARRY ? 1 : 0;
+  U8 carry = (cpu->p & CPU_FLAG_CARRY) ? 1 : 0;
   if (cpu->p & CPU_FLAG_DECIMAL) {
     U8 al = cpu->a & 0x0F;
     U8 ah = cpu->a >> 4;
@@ -124,7 +124,7 @@ static void ADC(Cpu *cpu, Emu *emu) {
     if (lo > 9) {
       lo += 6;
     }
-    U8 cy = lo > 0x0F ? 1 : 0;
+    U8 cy = (lo > 0x0F) ? 1 : 0;
     U8 hi = ah + vh + cy;
     if (hi > 9) {
       hi += 6;
@@ -444,7 +444,7 @@ static void RTS(Cpu *cpu, Emu *emu) {
 
 static void SBC(Cpu *cpu, Emu *emu) {
   U8 val = read(cpu, emu);
-  U8 carry = cpu->p & CPU_FLAG_CARRY ? 0 : 1;
+  U8 carry = (cpu->p & CPU_FLAG_CARRY) ? 0 : 1;
   if (cpu->p & CPU_FLAG_DECIMAL) {
     U8 al = cpu->a & 0x0F;
     U8 ah = cpu->a >> 4;
@@ -454,7 +454,7 @@ static void SBC(Cpu *cpu, Emu *emu) {
     if (lo < 0) {
       lo = lo + 10;
     }
-    U8 cy = lo < 0 ? 1 : 0;
+    U8 cy = (lo < 0) ? 1 : 0;
     I8 hi = ah - vh - cy;
     if (hi < 0) {
       hi = hi + 10;

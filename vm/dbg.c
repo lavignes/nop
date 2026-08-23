@@ -626,7 +626,7 @@ static DbgResult dbgExa(Emu *emu) {
       if (i == 8) {
         fprintf(stderr, " ");
       }
-      fprintf(stderr, (start + i) > end ? "   " : " %02X",
+      fprintf(stderr, ((start + i) > end) ? "   " : " %02X",
               emuRead(emu, (U16)(start + i)));
     }
     fprintf(stderr, "  |");
@@ -833,7 +833,7 @@ static DbgResult dbgHelp(Emu *emu) {
     for (DbgCmd const *cmd = DBG_TBL; cmd->names; ++cmd) {
       int width = 2;
       for (char const **name = cmd->names; *name; ++name) {
-        width += (name == cmd->names ? 0 : 2) + (int)strlen(*name);
+        width += ((name == cmd->names) ? 0 : 2) + (int)strlen(*name);
       }
       if (width > maxWidth) {
         maxWidth = width;
@@ -843,8 +843,8 @@ static DbgResult dbgHelp(Emu *emu) {
       int width = 2;
       fprintf(stderr, "  ");
       for (char const **name = cmd->names; *name; ++name) {
-        fprintf(stderr, "%s%s", name == cmd->names ? "" : ", ", *name);
-        width += (name == cmd->names ? 0 : 2) + (int)strlen(*name);
+        fprintf(stderr, "%s%s", (name == cmd->names) ? "" : ", ", *name);
+        width += ((name == cmd->names) ? 0 : 2) + (int)strlen(*name);
       }
       fprintf(stderr, "%*s  %s\n", maxWidth - width, "", cmd->help.breif);
     }
