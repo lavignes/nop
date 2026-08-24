@@ -819,7 +819,6 @@ UInt cpuTick(Cpu *cpu, Emu *emu) {
     return 7;
   }
   if (cpu->irq && !(cpu->p & CPU_FLAG_INTERRUPT)) {
-    cpu->irq = FALSE;
     irq(cpu, emu);
     return 7;
   }

@@ -48,6 +48,7 @@ static void help(char const *name) {
           "  -l, --labellist <file>  Load symbol labellist from file\n");
   fprintf(stderr,
           "  -r, --random            Initialize memory with random data\n");
+  fprintf(stderr, "  -i, --image <file>      Attach a disk image\n");
 }
 
 static void emuReset(Bool random);
@@ -56,6 +57,7 @@ static void emuTick();
 int main(int argc, char const *const *argv) {
   FILE *rom;
   char const *labellist = NULL;
+  char const *diskPath = NULL;
   Bool random = FALSE;
 
   atexit(termRawModeOff);
@@ -89,6 +91,16 @@ int main(int argc, char const *const *argv) {
     if ((strcmp(argv[argi], "-r") == 0) ||
         (strcmp(argv[argi], "--random") == 0)) {
       random = TRUE;
+      continue;
+    }
+    if ((strcmp(argv[argi], "-i") == 0) ||
+        (strcmp(argv[argi], "--image") == 0)) {
+      ++argi;
+      if (argi == argc) {
+        fprintf(stderr, "No disk image specified\n");
+        return EXIT_FAILURE;
+      }
+      diskPath = argv[argi];
       continue;
     }
     rom = fopen(argv[argi], "rb");
@@ -156,6 +168,10 @@ int main(int argc, char const *const *argv) {
   if (!tex) {
     fprintf(stderr, "SDL_CreateTexture failed: %s\n", SDL_GetError());
     goto cleanupTexture;
+  }
+
+  if (diskPath && !sdOpen(&emu.sd, diskPath)) {
+    fprintf(stderr, "Could not open disk image: %s\n", diskPath);
   }
 
   emuReset(random);
@@ -244,6 +260,7 @@ static void emuReset(Bool random) {
   vdpReset(&emu.vdp, &emu, random);
   viaReset(&emu.via0);
   ps2Reset(&emu.ps2);
+  sdReset(&emu.sd);
 }
 
 static void emuTick() {
@@ -266,6 +283,7 @@ static void emuTick() {
     viaSetPortA(&emu.via0, ps2Next(&emu.ps2));
     viaCA1(&emu.via0);
   }
+  sdTick(&emu.sd, &emu.via0);
   emu.cpu.irq = viaIrq(&emu.via0);
   if (emu.nmi) {
     emu.nmi = FALSE;

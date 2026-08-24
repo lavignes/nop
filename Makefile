@@ -8,7 +8,7 @@ vm:
 	$(MAKE) -C vm
 
 sys.bin sys.lst sys.lbl: sys.s
-	$(XA) -C -XMASM -XCA65 -P sys.lst -l sys.lbl -o sys.bin sys.s
+	$(XA) -XMASM -XCA65 -P sys.lst -l sys.lbl -o sys.bin sys.s
 
 clean:
 	$(MAKE) -C vm clean

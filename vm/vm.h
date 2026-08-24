@@ -2,6 +2,7 @@
 #define VM_H
 
 #include <histedit.h>
+#include <stdio.h>
 
 #include "abi.h"
 
@@ -124,6 +125,27 @@ typedef struct {
   U8 tail;
 } Ps2;
 
+typedef struct {
+  FILE *file;
+  Bool lastSck;
+  Bool miso;
+  U8 bitCnt;
+  U8 inBits;
+  U8 outByte;
+  U8 state;
+  U8 afterSend;
+  U8 cmd[6];
+  U8 cmdCnt;
+  Bool appCmd;
+  Bool idle;
+  U8 resp[520];
+  UInt respLen;
+  UInt respPos;
+  U8 data[512];
+  UInt dataCnt;
+  U32 writeAddr;
+} Sd;
+
 typedef struct Breakpoint Breakpoint;
 struct Breakpoint {
   Breakpoint *next;
@@ -184,6 +206,7 @@ typedef struct {
   Vdp vdp;
   Via via0;
   Ps2 ps2;
+  Sd sd;
   U8 ram[RAM_SIZE];
   U8 rom[ROM_SIZE];
 } Emu;
@@ -218,6 +241,10 @@ void ps2Reset(Ps2 *ps2);
 void ps2Key(Ps2 *ps2, UInt scancode, Bool down);
 Bool ps2Pending(Ps2 const *ps2);
 U8 ps2Next(Ps2 *ps2);
+
+Bool sdOpen(Sd *sd, char const *path);
+void sdReset(Sd *sd);
+void sdTick(Sd *sd, Via *via);
 
 Symbol const *symValFind(Dbg const *dbg, Int val);
 Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
