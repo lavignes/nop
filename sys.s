@@ -2,10 +2,17 @@
 
 * = $E000
 
+#define VDP_CMD_REG(R) ($80 | ((R) & $07))
+KEY_LAST = $10
+
 Reset:
     cld
-    cli
+    sei
+    lda #$00
+    sta KEY_LAST
     jsr VdpInitMin
+    jsr ViaInit
+    cli
 @Halt:
     jmp @Halt
 
@@ -24,12 +31,21 @@ Nmi:
     cpx #(SPRITE_COUNT * 4)
     bne @Move
     jsr VdpWriteSprites
+    lda KEY_LAST
+    and #$0F
+    sta VDP_PORT1
+    lda #VDP_CMD_REG(7)
+    sta VDP_PORT1
     pla
     tax
     pla
     rti
 
 Irq:
+    pha
+    lda VIA_ORA
+    sta KEY_LAST
+    pla
     rti
 
 VDP_TRANSPARENT  = $0
@@ -50,11 +66,18 @@ VDP_GRAY         = $E
 VDP_WHITE        = $F
 
 #define VDP_COLOR(F, B) (((F) << 4) | (B))
-#define VDP_CMD_REG(R) ($80 | ((R) & $07))
 VDP_CMD_WRITE = $40
 
 VDP_PORT0 = $C000
 VDP_PORT1 = $C001
+
+VIA0     = $C100
+VIA_ORA  = VIA0 + $1
+VIA_DDRA = VIA0 + $3
+VIA_ACR  = VIA0 + $B
+VIA_PCR  = VIA0 + $C
+VIA_IFR  = VIA0 + $D
+VIA_IER  = VIA0 + $E
 
 SPRITE_SHADOW = $0200
 SPRITE_COUNT  = 32
@@ -84,9 +107,9 @@ VdpSprites:
 VdpSpritesEnd:
 
 VdpInitMin:
-    lda $00           ; random RAM byte (randomized at startup with -r)
-    and #$1B          ; keep mode (M1/M3) + sprite size/mag bits
-    ora #$E0          ; force display on + interrupts + 16K
+    lda $00
+    and #$1B
+    ora #$E0
     sta VDP_PORT1
     lda #VDP_CMD_REG(1)
     sta VDP_PORT1
@@ -160,6 +183,19 @@ VdpWriteSprites:
     inx
     cpx #(SPRITE_COUNT * 4)
     bne @Loop
+    rts
+
+ViaInit:
+    lda #$00
+    sta VIA_DDRA
+    lda #$01
+    sta VIA_ACR
+    lda #$00
+    sta VIA_PCR
+    lda #$7F
+    sta VIA_IFR
+    lda #$82
+    sta VIA_IER
     rts
 
 .dsb $FFFA - *, $00

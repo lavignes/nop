@@ -25,6 +25,14 @@ enum {
   IO_START_ADDR = 0xC000,
   IO_END_ADDR = IO_START_ADDR + IO_SIZE - 1,
 
+  IO_DEV_SIZE = 0x100,
+
+  VDP_START_ADDR = 0xC000,
+  VDP_END_ADDR = VDP_START_ADDR + IO_DEV_SIZE - 1,
+
+  VIA0_START_ADDR = 0xC100,
+  VIA0_END_ADDR = VIA0_START_ADDR + IO_DEV_SIZE - 1,
+
   ROM_SIZE = 0x2000,
   ROM_START_ADDR = 0xE000,
   ROM_END_ADDR = ROM_START_ADDR + ROM_SIZE - 1,
@@ -73,6 +81,48 @@ typedef struct {
   U8 reg[8];
   U8 vram[VRAM_SIZE];
 } Vdp;
+
+typedef struct {
+  U8 ora;
+  U8 orb;
+  U8 ddra;
+  U8 ddrb;
+  U8 ira;
+  U8 irb;
+  U8 paIn;
+  U8 pbIn;
+  U16 t1c;
+  U8 t1ll;
+  U8 t1lh;
+  U16 t2c;
+  U8 t2ll;
+  U8 sr;
+  U8 acr;
+  U8 pcr;
+  U8 ifr;
+  U8 ier;
+  Bool t1Active;
+  Bool t2Active;
+
+  Bool ca2Out;
+  Bool cb2Out;
+  Bool ca2In;
+  Bool cb2In;
+  Bool cb1In;
+  Bool cb1Out;
+  U8 ca2Pulse;
+  U8 cb2Pulse;
+
+  U8 srCount;
+  Bool srRun;
+  U16 srDiv;
+} Via;
+
+typedef struct {
+  U8 buf[16];
+  U8 head;
+  U8 tail;
+} Ps2;
 
 typedef struct Breakpoint Breakpoint;
 struct Breakpoint {
@@ -132,6 +182,8 @@ typedef struct {
   Dbg dbg;
   Cpu cpu;
   Vdp vdp;
+  Via via0;
+  Ps2 ps2;
   U8 ram[RAM_SIZE];
   U8 rom[ROM_SIZE];
 } Emu;
@@ -145,6 +197,27 @@ void vdpReset(Vdp *vdp, Emu *emu, Bool random);
 Bool vdpTick(Vdp *vdp, Emu *emu);
 U8 vdpRead(Vdp *vdp, U16 addr);
 void vdpWrite(Vdp *vdp, U16 addr, U8 val);
+
+void viaReset(Via *via);
+U8 viaRead(Via *via, U16 reg);
+void viaWrite(Via *via, U16 reg, U8 val);
+void viaTick(Via *via, UInt cycles);
+Bool viaIrq(Via const *via);
+Bool viaCA1Pending(Via const *via);
+void viaSetPortA(Via *via, U8 val);
+void viaCA1(Via *via);
+
+void viaSetCA2(Via *via, Bool level);
+void viaSetCB1(Via *via, Bool level);
+void viaSetCB2(Via *via, Bool level);
+Bool viaCA2(Via const *via);
+Bool viaCB1(Via const *via);
+Bool viaCB2(Via const *via);
+
+void ps2Reset(Ps2 *ps2);
+void ps2Key(Ps2 *ps2, UInt scancode, Bool down);
+Bool ps2Pending(Ps2 const *ps2);
+U8 ps2Next(Ps2 *ps2);
 
 Symbol const *symValFind(Dbg const *dbg, Int val);
 Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
@@ -164,8 +237,10 @@ static inline U8 busRead(Emu *emu, U16 addr) {
   switch (addr) {
   case RAM_START_ADDR ... RAM_END_ADDR:
     return emu->ram[addr - RAM_START_ADDR];
-  case IO_START_ADDR ... IO_END_ADDR:
-    return vdpRead(&emu->vdp, addr - IO_START_ADDR);
+  case VDP_START_ADDR ... VDP_END_ADDR:
+    return vdpRead(&emu->vdp, addr - VDP_START_ADDR);
+  case VIA0_START_ADDR ... VIA0_END_ADDR:
+    return viaRead(&emu->via0, addr - VIA0_START_ADDR);
   case ROM_START_ADDR ... ROM_END_ADDR:
     return emu->rom[addr - ROM_START_ADDR];
   default:
@@ -178,8 +253,11 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
   case RAM_START_ADDR ... RAM_END_ADDR:
     emu->ram[addr - RAM_START_ADDR] = val;
     break;
-  case IO_START_ADDR ... IO_END_ADDR:
-    vdpWrite(&emu->vdp, addr - IO_START_ADDR, val);
+  case VDP_START_ADDR ... VDP_END_ADDR:
+    vdpWrite(&emu->vdp, addr - VDP_START_ADDR, val);
+    break;
+  case VIA0_START_ADDR ... VIA0_END_ADDR:
+    viaWrite(&emu->via0, addr - VIA0_START_ADDR, val);
     break;
   case ROM_START_ADDR ... ROM_END_ADDR:
     break;

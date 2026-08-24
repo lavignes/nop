@@ -188,8 +188,15 @@ static void vblank() {
       quit = TRUE;
       break;
     case SDL_EVENT_KEY_DOWN:
-      if (event.key.key == SDLK_R) {
+      if (event.key.key == SDLK_F5) {
         emuReset(TRUE);
+      } else {
+        ps2Key(&emu.ps2, event.key.scancode, TRUE);
+      }
+      break;
+    case SDL_EVENT_KEY_UP:
+      if (event.key.key != SDLK_F5) {
+        ps2Key(&emu.ps2, event.key.scancode, FALSE);
       }
       break;
     }
@@ -235,6 +242,8 @@ static void emuReset(Bool random) {
   }
   cpuReset(&emu.cpu, &emu);
   vdpReset(&emu.vdp, &emu, random);
+  viaReset(&emu.via0);
+  ps2Reset(&emu.ps2);
 }
 
 static void emuTick() {
@@ -252,6 +261,12 @@ static void emuTick() {
       vblank();
     }
   }
+  viaTick(&emu.via0, cycles);
+  if (ps2Pending(&emu.ps2) && !viaCA1Pending(&emu.via0)) {
+    viaSetPortA(&emu.via0, ps2Next(&emu.ps2));
+    viaCA1(&emu.via0);
+  }
+  emu.cpu.irq = viaIrq(&emu.via0);
   if (emu.nmi) {
     emu.nmi = FALSE;
     emu.cpu.nmi = TRUE;
