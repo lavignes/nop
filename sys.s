@@ -235,6 +235,8 @@ DumpMem:
     jsr PrintHex8
     lda PTR
     jsr PrintHex8
+    lda #':'
+    jsr PutChar
     lda #' '
     jsr PutChar
     ldx #$00

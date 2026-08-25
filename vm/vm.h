@@ -242,7 +242,6 @@ void ps2Key(Ps2 *ps2, UInt scancode, Bool down);
 Bool ps2Pending(Ps2 const *ps2);
 U8 ps2Next(Ps2 *ps2);
 
-Bool sdOpen(Sd *sd, char const *path);
 void sdReset(Sd *sd);
 void sdTick(Sd *sd, Via *via);
 

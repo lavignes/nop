@@ -170,16 +170,21 @@ int main(int argc, char const *const *argv) {
     goto cleanupTexture;
   }
 
-  if (diskPath && !sdOpen(&emu.sd, diskPath)) {
-    fprintf(stderr, "Could not open disk image: %s\n", diskPath);
+  if (diskPath) {
+    emu.sd.file = fopen(diskPath, "r+b");
+    if (!emu.sd.file) {
+      fprintf(stderr, "Could not open disk image: %s\n", diskPath);
+      goto cleanup;
+    }
   }
 
   emuReset(random);
-
   while (!quit) {
     emuTick();
   }
   exitCode = EXIT_SUCCESS;
+
+cleanup:
 cleanupTexture:
   if (tex) {
     SDL_DestroyTexture(tex);

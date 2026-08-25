@@ -62,11 +62,6 @@ enum {
   SD_IDLE_BYTE = 0xFF,
 };
 
-Bool sdOpen(Sd *sd, char const *path) {
-  sd->file = fopen(path, "r+b");
-  return sd->file != NULL;
-}
-
 void sdReset(Sd *sd) {
   FILE *file = sd->file;
   memset(sd, 0, sizeof(*sd));
@@ -98,18 +93,17 @@ static void sdRespR3(Sd *sd, U8 r1, U32 ocr) {
 }
 
 static void sdReadBlock(Sd *sd, U32 addr) {
-  FILE *f = sd->file;
   sd->resp[0] = SD_R1_OK;
   sd->respPos = 0;
   sd->afterSend = ST_CMD;
   sd->state = ST_SEND;
-  if (fseek(f, (long)addr, SEEK_SET) != 0) {
+  if (fseek(sd->file, (long)addr, SEEK_SET) != 0) {
     sd->resp[1] = SD_DATA_ERR_OUT_OF_RANGE;
     sd->respLen = 2;
     return;
   }
-  UInt n = fread(&sd->resp[2], 1, SD_BLOCK_LEN, f);
-  if ((n < SD_BLOCK_LEN) && ferror(f)) {
+  UInt n = fread(&sd->resp[2], 1, SD_BLOCK_LEN, sd->file);
+  if ((n < SD_BLOCK_LEN) && ferror(sd->file)) {
     sd->resp[1] = SD_DATA_ERR_READ_FAILED;
     sd->respLen = 2;
     return;
@@ -124,14 +118,13 @@ static void sdReadBlock(Sd *sd, U32 addr) {
 }
 
 static Bool sdWriteBlock(Sd *sd) {
-  FILE *f = sd->file;
-  if (fseek(f, (long)sd->writeAddr, SEEK_SET) != 0) {
+  if (fseek(sd->file, (long)sd->writeAddr, SEEK_SET) != 0) {
     return FALSE;
   }
-  if (fwrite(sd->data, 1, SD_BLOCK_LEN, f) != SD_BLOCK_LEN) {
+  if (fwrite(sd->data, 1, SD_BLOCK_LEN, sd->file) != SD_BLOCK_LEN) {
     return FALSE;
   }
-  return fflush(f) == 0;
+  return fflush(sd->file) == 0;
 }
 
 static void sdDecode(Sd *sd) {
