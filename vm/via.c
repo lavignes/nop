@@ -73,8 +73,6 @@ void viaReset(Via *via) {
   via->cb1Out = TRUE;
 }
 
-Bool viaIrq(Via const *via) { return (via->ifr & via->ier & 0x7F) != 0; }
-
 Bool viaCA1Pending(Via const *via) { return (via->ifr & VIA_IRQ_CA1) != 0; }
 
 static U8 readPortA(Via const *via) {
@@ -149,6 +147,8 @@ static void srShift(Via *via) {
   }
 }
 
+static Bool hasIrq(Via const *via) { return (via->ifr & via->ier & 0x7F) != 0; }
+
 U8 viaRead(Via *via, U16 reg) {
   switch (reg & 0x0F) {
   case VIA_ORB:
@@ -194,7 +194,7 @@ U8 viaRead(Via *via, U16 reg) {
   case VIA_PCR:
     return via->pcr;
   case VIA_IFR:
-    return via->ifr | (viaIrq(via) ? VIA_IRQ_ANY : 0);
+    return via->ifr | (hasIrq(via) ? VIA_IRQ_ANY : 0);
   case VIA_IER:
     return via->ier | 0x80;
   case VIA_ORA_NH:
@@ -288,7 +288,7 @@ void viaWrite(Via *via, U16 reg, U8 val) {
   }
 }
 
-void viaTick(Via *via, UInt cycles) {
+Bool viaTick(Via *via, UInt cycles) {
   for (UInt i = 0; i < cycles; ++i) {
     if (via->t1Active) {
       if (via->t1c == 0) {
@@ -332,6 +332,7 @@ void viaTick(Via *via, UInt cycles) {
       via->cb2Out = TRUE;
     }
   }
+  return hasIrq(via);
 }
 
 void viaSetPortA(Via *via, U8 val) { via->paIn = val; }

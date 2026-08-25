@@ -283,13 +283,13 @@ static void emuTick() {
       vblank();
     }
   }
-  viaTick(&emu.via0, cycles);
+  emu.cpu.irq = viaTick(&emu.via0, cycles);
   if (ps2Pending(&emu.ps2) && !viaCA1Pending(&emu.via0)) {
     viaSetPortA(&emu.via0, ps2Next(&emu.ps2));
     viaCA1(&emu.via0);
   }
   sdTick(&emu.sd, &emu.via0);
-  emu.cpu.irq = viaIrq(&emu.via0);
+  // nmi is edge-triggered, so we must reset it
   if (emu.nmi) {
     emu.nmi = FALSE;
     emu.cpu.nmi = TRUE;
