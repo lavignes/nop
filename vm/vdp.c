@@ -1,7 +1,6 @@
 // A little TMS9918A emulator
 
 #include <assert.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
