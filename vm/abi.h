@@ -35,6 +35,8 @@ typedef int32_t I32;
 #define I32_MAX INT32_MAX
 #define I32_MIN INT32_MIN
 
+#define U32K(K) UINT32_C(K)
+#define I32K(K) INT32_C(K)
 #define U32_FMT PRIu32
 #define I32_FMT PRIi32
 #define U32_FMTX PRIx32
@@ -45,6 +47,8 @@ typedef int64_t I64;
 #define I64_MAX INT64_MAX
 #define I64_MIN INT64_MIN
 
+#define U64K(K) UINT64_C(K)
+#define I64K(K) INT64_C(K)
 #define U64_FMT PRIu64
 #define I64_FMT PRIi64
 #define U64_FMTX PRIx64
@@ -61,6 +65,14 @@ typedef intptr_t Int;
 #define UINT_MAX UINTPTR_MAX
 #define INT_MAX INTPTR_MAX
 #define INT_MIN INTPTR_MIN
+
+#if UINTPTR_MAX == UINT64_C(0xFFFFFFFFFFFFFFFF)
+#define UIntK(K) UINT64_C(K)
+#define UIntK(K) UINT64_C(K)
+#elif UINTPTR_MAX == UINT32_C(0xFFFFFFFF)
+#define UIntK(K) UINT32_C(K)
+#define UIntK(K) UINT32_C(K)
+#endif
 
 #define UINT_FMT PRIuPTR
 #define INT_FMT PRIiPTR

@@ -67,13 +67,12 @@ void viaReset(Via *via) {
   memset(via, 0, sizeof(*via));
   via->ca2Out = TRUE;
   via->cb2Out = TRUE;
+  via->ca1In = TRUE;
   via->ca2In = TRUE;
   via->cb2In = TRUE;
   via->cb1In = TRUE;
   via->cb1Out = TRUE;
 }
-
-Bool viaCA1Pending(Via const *via) { return (via->ifr & VIA_IRQ_CA1) != 0; }
 
 static U8 readPortA(Via const *via) {
   U8 in = (via->acr & VIA_ACR_PA_LATCH) ? via->ira : via->paIn;
@@ -335,49 +334,39 @@ Bool viaTick(Via *via, UInt cycles) {
   return hasIrq(via);
 }
 
-void viaSetPortA(Via *via, U8 val) { via->paIn = val; }
-
-void viaCA1(Via *via) {
-  if (via->acr & VIA_ACR_PA_LATCH) {
-    via->ira = via->paIn;
-  }
-  via->ifr |= VIA_IRQ_CA1;
-  if (((via->pcr >> 1) & 0x07) == PC2_HANDSHAKE) {
-    via->ca2Out = TRUE;
+void viaSetPort(Via *via, ViaPort port, U8 val) {
+  if (port == VIA_PORT_A) {
+    via->paIn = val;
+  } else {
+    via->pbIn = val;
   }
 }
 
-void viaSetCA2(Via *via, Bool level) {
-  U8 mode = ((via->pcr >> 1) & 0x07);
-  if (mode > PC2_IN_POS_INDEP) {
-    return;
+U8 viaGetPort(Via const *via, ViaPort port) {
+  if (port == VIA_PORT_A) {
+    return (via->ora & via->ddra) | (via->paIn & ~via->ddra);
   }
-  Bool rising = ((mode == PC2_IN_POS) || (mode == PC2_IN_POS_INDEP));
-  Bool active = rising ? (!via->ca2In && level) : (via->ca2In && !level);
-  via->ca2In = level;
-  if (active) {
-    via->ifr |= VIA_IRQ_CA2;
-  }
+  return (via->orb & via->ddrb) | (via->pbIn & ~via->ddrb);
 }
 
-void viaSetCB2(Via *via, Bool level) {
-  via->cb2In = level;
-  if (((via->acr >> 2) & 0x07) != SR_DISABLED) {
+void viaSetC1(Via *via, ViaPort port, Bool level) {
+  if (port == VIA_PORT_A) {
+    Bool rising = (via->pcr & 0x01) != 0;
+    Bool active = rising ? (!via->ca1In && level) : (via->ca1In && !level);
+    via->ca1In = level;
+    if (!active) {
+      return;
+    }
+    if (via->acr & VIA_ACR_PA_LATCH) {
+      via->ira = via->paIn;
+    }
+    via->ifr |= VIA_IRQ_CA1;
+    if (((via->pcr >> 1) & 0x07) == PC2_HANDSHAKE) {
+      via->ca2Out = TRUE;
+    }
     return;
   }
-  U8 mode = ((via->pcr >> 5) & 0x07);
-  if (mode > PC2_IN_POS_INDEP) {
-    return;
-  }
-  Bool rising = ((mode == PC2_IN_POS) || (mode == PC2_IN_POS_INDEP));
-  Bool active = rising ? (!via->cb2In && level) : (via->cb2In && !level);
-  if (active) {
-    via->ifr |= VIA_IRQ_CB2;
-  }
-}
-
-void viaSetCB1(Via *via, Bool level) {
-  Bool rising = ((via->pcr & 0x10) != 0);
+  Bool rising = (via->pcr & 0x10) != 0;
   Bool active = rising ? (!via->cb1In && level) : (via->cb1In && !level);
   U8 mode = (via->acr >> 2) & 0x07;
   via->cb1In = level;
@@ -394,6 +383,51 @@ void viaSetCB1(Via *via, Bool level) {
   via->ifr |= VIA_IRQ_CB1;
 }
 
-Bool viaCA2(Via const *via) { return via->ca2Out; }
-Bool viaCB1(Via const *via) { return via->cb1Out; }
-Bool viaCB2(Via const *via) { return via->cb2Out; }
+Bool viaGetC1(Via const *via, ViaPort port) {
+  return (port == VIA_PORT_A) ? via->ca1In : via->cb1Out;
+}
+
+Bool viaC1Irq(Via const *via, ViaPort port) {
+  U8 flag = (port == VIA_PORT_A) ? VIA_IRQ_CA1 : VIA_IRQ_CB1;
+  return (via->ifr & flag) != 0;
+}
+
+void viaSetC2(Via *via, ViaPort port, Bool level) {
+  if (port == VIA_PORT_A) {
+    U8 mode = (via->pcr >> 1) & 0x07;
+    if (mode > PC2_IN_POS_INDEP) {
+      return;
+    }
+    Bool rising = ((mode == PC2_IN_POS) || (mode == PC2_IN_POS_INDEP));
+    Bool active = rising ? (!via->ca2In && level) : (via->ca2In && !level);
+    via->ca2In = level;
+    if (active) {
+      via->ifr |= VIA_IRQ_CA2;
+    }
+    return;
+  }
+  if (((via->acr >> 2) & 0x07) != SR_DISABLED) {
+    via->cb2In = level;
+    return;
+  }
+  U8 mode = (via->pcr >> 5) & 0x07;
+  if (mode > PC2_IN_POS_INDEP) {
+    via->cb2In = level;
+    return;
+  }
+  Bool rising = ((mode == PC2_IN_POS) || (mode == PC2_IN_POS_INDEP));
+  Bool active = rising ? (!via->cb2In && level) : (via->cb2In && !level);
+  via->cb2In = level;
+  if (active) {
+    via->ifr |= VIA_IRQ_CB2;
+  }
+}
+
+Bool viaGetC2(Via const *via, ViaPort port) {
+  return (port == VIA_PORT_A) ? via->ca2Out : via->cb2Out;
+}
+
+Bool viaC2Irq(Via const *via, ViaPort port) {
+  U8 flag = (port == VIA_PORT_A) ? VIA_IRQ_CA2 : VIA_IRQ_CB2;
+  return (via->ifr & flag) != 0;
+}

@@ -34,6 +34,9 @@ enum {
   VIA0_START_ADDR = 0xC100,
   VIA0_END_ADDR = VIA0_START_ADDR + IO_DEV_SIZE - 1,
 
+  PSG0_START_ADDR = 0xC300,
+  PSG0_END_ADDR = PSG0_START_ADDR + IO_DEV_SIZE - 1,
+
   ROM_SIZE = 0x2000,
   ROM_START_ADDR = 0xE000,
   ROM_END_ADDR = ROM_START_ADDR + ROM_SIZE - 1,
@@ -49,6 +52,8 @@ enum {
 enum {
   CPU_HZ = 1000000,
   VDP_HZ = 10738635 / 2,
+  PSG_HZ = 10738635 / 3,
+  SAMPLE_RATE = 44100,
 };
 
 typedef struct {
@@ -107,6 +112,7 @@ typedef struct {
 
   Bool ca2Out;
   Bool cb2Out;
+  Bool ca1In;
   Bool ca2In;
   Bool cb2In;
   Bool cb1In;
@@ -124,6 +130,20 @@ typedef struct {
   U8 head;
   U8 tail;
 } Ps2;
+
+typedef struct {
+  U16 tonePeriod[3];
+  U16 toneCounter[3];
+  U8 toneOut[3];
+  U8 vol[4];
+  U8 noiseCtrl;
+  U16 noiseCounter;
+  U16 noiseShift;
+  U8 noiseFlip;
+  U8 latchCh;
+  Bool latchVol;
+  U32 clkRem;
+} Psg;
 
 typedef struct {
   FILE *file;
@@ -205,6 +225,7 @@ typedef struct {
   Cpu cpu;
   Vdp vdp;
   Via via0;
+  Psg psg;
   Ps2 ps2;
   Sd sd;
   U8 ram[RAM_SIZE];
@@ -221,20 +242,30 @@ Bool vdpTick(Vdp *vdp, Emu *emu);
 U8 vdpRead(Vdp *vdp, U16 addr);
 void vdpWrite(Vdp *vdp, U16 addr, U8 val);
 
+typedef enum {
+  VIA_PORT_A,
+  VIA_PORT_B,
+} ViaPort;
+
 void viaReset(Via *via);
 U8 viaRead(Via *via, U16 reg);
 void viaWrite(Via *via, U16 reg, U8 val);
 Bool viaTick(Via *via, UInt cycles);
-Bool viaCA1Pending(Via const *via);
-void viaSetPortA(Via *via, U8 val);
-void viaCA1(Via *via);
 
-void viaSetCA2(Via *via, Bool level);
-void viaSetCB1(Via *via, Bool level);
-void viaSetCB2(Via *via, Bool level);
-Bool viaCA2(Via const *via);
-Bool viaCB1(Via const *via);
-Bool viaCB2(Via const *via);
+void viaSetPort(Via *via, ViaPort port, U8 val);
+U8 viaGetPort(Via const *via, ViaPort port);
+
+void viaSetC1(Via *via, ViaPort port, Bool level);
+Bool viaGetC1(Via const *via, ViaPort port);
+Bool viaC1Irq(Via const *via, ViaPort port);
+
+void viaSetC2(Via *via, ViaPort port, Bool level);
+Bool viaGetC2(Via const *via, ViaPort port);
+Bool viaC2Irq(Via const *via, ViaPort port);
+
+void psgReset(Psg *psg);
+void psgWrite(Psg *psg, U8 val);
+I16 psgSample(Psg *psg);
 
 void ps2Reset(Ps2 *ps2);
 void ps2Key(Ps2 *ps2, UInt scancode, Bool down);
@@ -242,7 +273,7 @@ Bool ps2Pending(Ps2 const *ps2);
 U8 ps2Next(Ps2 *ps2);
 
 void sdReset(Sd *sd);
-void sdTick(Sd *sd, Via *via);
+void sdTick(Sd *sd, Via *via, ViaPort port);
 
 Symbol const *symValFind(Dbg const *dbg, Int val);
 Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);
@@ -266,6 +297,8 @@ static inline U8 busRead(Emu *emu, U16 addr) {
     return vdpRead(&emu->vdp, addr - VDP_START_ADDR);
   case VIA0_START_ADDR ... VIA0_END_ADDR:
     return viaRead(&emu->via0, addr - VIA0_START_ADDR);
+  case PSG0_START_ADDR ... PSG0_END_ADDR:
+    return 0;
   case ROM_START_ADDR ... ROM_END_ADDR:
     return emu->rom[addr - ROM_START_ADDR];
   default:
@@ -283,6 +316,9 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
     break;
   case VIA0_START_ADDR ... VIA0_END_ADDR:
     viaWrite(&emu->via0, addr - VIA0_START_ADDR, val);
+    break;
+  case PSG0_START_ADDR ... PSG0_END_ADDR:
+    psgWrite(&emu->psg, val);
     break;
   case ROM_START_ADDR ... ROM_END_ADDR:
     break;

@@ -1,0 +1,26 @@
+; vim: ft=a65
+
+PSG_PORT = $C300
+
+PSG_CMD  = $80
+
+PSG_CH0 = $00
+PSG_CH1 = $20
+PSG_CH2 = $40
+PSG_CH3 = $60
+
+PSG_TONE = $00
+PSG_VOL  = $10
+
+PSG_VOL_MAX = $00
+PSG_VOL_OFF = $0F
+
+; period = 3579545 / (32 * freq)
+NOTE_C4 = 428
+NOTE_D4 = 381
+NOTE_E4 = 339
+NOTE_F4 = 320
+NOTE_G4 = 285
+NOTE_A4 = 254
+NOTE_B4 = 226
+NOTE_C5 = 214

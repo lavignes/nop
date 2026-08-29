@@ -6,7 +6,6 @@
 #include <time.h>
 
 // POSIX
-#include <signal.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -16,28 +15,30 @@
 
 static Emu emu = {0};
 
-volatile sig_atomic_t sigintFlag = 0;
 static struct termios termiosOrig;
 static Bool termRawMode = FALSE;
 
 static SDL_Window *win = NULL;
 static SDL_Renderer *render = NULL;
 static SDL_Texture *tex = NULL;
+static SDL_AudioStream *audio = NULL;
+
+enum : UInt { AUDIO_BUF_LEN = 4096 };
+static I16 audioBuf[AUDIO_BUF_LEN];
+static UInt audioLen = 0;
 
 static Bool quit = FALSE;
 static U64 cycleCount = 0;
 static U64 vdpAccum = 0;
+static U64 sampleAccum = 0;
 static U64 nextFrameNs = 0;
 
-static U64 const FRAME_NS = 1000000000ULL * 342 * 262 / VDP_HZ;
-
-static void sigintHandler(int sig) {
-  (void)sig;
-  if (emu.dbg.debug) {
-    exit(EXIT_SUCCESS);
-  }
-  sigintFlag = 1;
-}
+enum : U64 {
+  FRAME_COLS_NTSC = 342,
+  FRAME_LINES_NTSC = 262,
+  FRAME_TIME_NTSC =
+      U64K(1000000000) * FRAME_COLS_NTSC * FRAME_LINES_NTSC / VDP_HZ
+};
 
 static void help(char const *name) {
   fprintf(stderr, "Usage: %s [options] <romfile>\n\n", name);
@@ -53,6 +54,7 @@ static void help(char const *name) {
 
 static void emuReset(Bool random);
 static void emuTick();
+static void audioFlush();
 
 int main(int argc, char const *const *argv) {
   FILE *rom;
@@ -61,7 +63,6 @@ int main(int argc, char const *const *argv) {
   Bool random = FALSE;
 
   atexit(termRawModeOff);
-  signal(SIGINT, sigintHandler);
 
   if (argc < 2) {
     help(argv[0]);
@@ -142,9 +143,8 @@ int main(int argc, char const *const *argv) {
     termRawModeOn();
   }
 
-  SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
   int exitCode = EXIT_FAILURE;
-  if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+  if (!SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO)) {
     fprintf(stderr, "SDL_InitSubSystem failed: %s\n", SDL_GetError());
     goto cleanupSDL;
   }
@@ -170,6 +170,15 @@ int main(int argc, char const *const *argv) {
     goto cleanupTexture;
   }
 
+  SDL_AudioSpec spec = {SDL_AUDIO_S16, 1, SAMPLE_RATE};
+  audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec,
+                                    NULL, NULL);
+  if (!audio) {
+    fprintf(stderr, "SDL_OpenAudioDeviceStream failed: %s\n", SDL_GetError());
+    goto cleanupAudio;
+  }
+  SDL_ResumeAudioStreamDevice(audio);
+
   if (diskPath) {
     emu.sd.file = fopen(diskPath, "r+b");
     if (!emu.sd.file) {
@@ -185,6 +194,10 @@ int main(int argc, char const *const *argv) {
   exitCode = EXIT_SUCCESS;
 
 cleanup:
+cleanupAudio:
+  if (audio) {
+    SDL_DestroyAudioStream(audio);
+  }
 cleanupTexture:
   if (tex) {
     SDL_DestroyTexture(tex);
@@ -209,19 +222,30 @@ static void vblank() {
       quit = TRUE;
       break;
     case SDL_EVENT_KEY_DOWN:
-      if (event.key.key == SDLK_F5) {
+      switch (event.key.key) {
+      case SDLK_F3:
+        emu.dbg.debug = TRUE;
+        break;
+      case SDLK_F5:
         emuReset(TRUE);
-      } else {
+        break;
+      default:
         ps2Key(&emu.ps2, event.key.scancode, TRUE);
       }
       break;
     case SDL_EVENT_KEY_UP:
-      if (event.key.key != SDLK_F5) {
+      switch (event.key.key) {
+      case SDLK_F3:
+      case SDLK_F5:
+        break;
+      default:
         ps2Key(&emu.ps2, event.key.scancode, FALSE);
       }
       break;
     }
   }
+
+  audioFlush();
 
   void *pixels;
   int pitch;
@@ -236,7 +260,7 @@ static void vblank() {
   static UInt fps = 0;
   ++fps;
   U64 now = SDL_GetTicksNS();
-  if ((now - last) >= 1000000000ULL) {
+  if ((now - last) >= U64K(1000000000)) {
     char title[64];
     snprintf(title, sizeof(title), "nop - %" UINT_FMT " fps - %.2f MHz", fps,
              ((F64)cycleCount) / 1000000.0);
@@ -248,9 +272,9 @@ static void vblank() {
 
   if (now < nextFrameNs) {
     SDL_DelayNS(nextFrameNs - now);
-    nextFrameNs += FRAME_NS;
+    nextFrameNs += FRAME_TIME_NTSC;
   } else {
-    nextFrameNs = now + FRAME_NS;
+    nextFrameNs = now + FRAME_TIME_NTSC;
   }
 }
 
@@ -264,18 +288,30 @@ static void emuReset(Bool random) {
   cpuReset(&emu.cpu, &emu);
   vdpReset(&emu.vdp, &emu, random);
   viaReset(&emu.via0);
+  psgReset(&emu.psg);
   ps2Reset(&emu.ps2);
   sdReset(&emu.sd);
 }
 
-static void emuTick() {
-  if (sigintFlag) {
-    sigintFlag = 0;
-    emu.dbg.debug = TRUE;
+static void audioFlush() {
+  if (audio && audioLen) {
+    SDL_PutAudioStreamData(audio, audioBuf, (int)(audioLen * sizeof(I16)));
+    audioLen = 0;
   }
+}
+
+static void emuTick() {
   dbgTick(&emu.dbg, &emu);
   UInt cycles = cpuTick(&emu.cpu, &emu);
   cycleCount += cycles;
+  sampleAccum += ((U64)cycles) * SAMPLE_RATE;
+  while (sampleAccum >= CPU_HZ) {
+    sampleAccum -= CPU_HZ;
+    audioBuf[audioLen++] = psgSample(&emu.psg);
+    if (audioLen == AUDIO_BUF_LEN) {
+      audioFlush();
+    }
+  }
   vdpAccum += ((U64)cycles) * VDP_HZ;
   while (vdpAccum >= CPU_HZ) {
     vdpAccum -= CPU_HZ;
@@ -284,11 +320,13 @@ static void emuTick() {
     }
   }
   emu.cpu.irq = viaTick(&emu.via0, cycles);
-  if (ps2Pending(&emu.ps2) && !viaCA1Pending(&emu.via0)) {
-    viaSetPortA(&emu.via0, ps2Next(&emu.ps2));
-    viaCA1(&emu.via0);
+  if (ps2Pending(&emu.ps2) && !viaC1Irq(&emu.via0, VIA_PORT_A)) {
+    viaSetPort(&emu.via0, VIA_PORT_A, ps2Next(&emu.ps2));
+    // Strobe a falling edge on CA1 to latch the byte and raise the interrupt.
+    viaSetC1(&emu.via0, VIA_PORT_A, TRUE);
+    viaSetC1(&emu.via0, VIA_PORT_A, FALSE);
   }
-  sdTick(&emu.sd, &emu.via0);
+  sdTick(&emu.sd, &emu.via0, VIA_PORT_B);
   // nmi is edge-triggered, so we must reset it
   if (emu.nmi) {
     emu.nmi = FALSE;

@@ -223,10 +223,11 @@ static U8 sdByte(Sd *sd, U8 in) {
   }
 }
 
-void sdTick(Sd *sd, Via *via) {
-  Bool cs = (via->orb & SD_CS) != 0;
-  Bool sck = (via->orb & SD_SCK) != 0;
-  Bool mosi = (via->orb & SD_MOSI) != 0;
+void sdTick(Sd *sd, Via *via, ViaPort port) {
+  U8 p = viaGetPort(via, port);
+  Bool cs = (p & SD_CS) != 0;
+  Bool sck = (p & SD_SCK) != 0;
+  Bool mosi = (p & SD_MOSI) != 0;
   if (!sd->file || cs) {
     sd->bitCnt = 0;
     sd->miso = TRUE;
@@ -241,5 +242,5 @@ void sdTick(Sd *sd, Via *via) {
     }
   }
   sd->lastSck = sck;
-  via->pbIn = (U8)((via->pbIn & ~SD_MISO) | (sd->miso ? SD_MISO : 0));
+  viaSetPort(via, port, sd->miso ? SD_MISO : 0);
 }
