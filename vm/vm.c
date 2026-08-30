@@ -280,14 +280,20 @@ static void vblank() {
 
 static void emuReset(Bool random) {
   emu.nmi = FALSE;
+  emu.bnk = 0;
   if (random) {
-    for (UInt i = 0; i < sizeof(emu.ram); ++i) {
-      emu.ram[i] = (U8)rand();
+    for (UInt i = 0; i < sizeof(emu.ramlo); ++i) {
+      emu.ramlo[i] = (U8)rand();
+    }
+    for (UInt j = 0; j < 4; ++j) {
+      for (UInt i = 0; i < sizeof(emu.ramhi[j]); ++i) {
+        emu.ramhi[j][i] = (U8)rand();
+      }
     }
   }
   cpuReset(&emu.cpu, &emu);
   vdpReset(&emu.vdp, &emu, random);
-  viaReset(&emu.via0);
+  viaReset(&emu.via);
   psgReset(&emu.psg);
   ps2Reset(&emu.ps2);
   sdReset(&emu.sd);
@@ -319,14 +325,11 @@ static void emuTick() {
       vblank();
     }
   }
-  emu.cpu.irq = viaTick(&emu.via0, cycles);
-  if (ps2Pending(&emu.ps2) && !viaC1Irq(&emu.via0, VIA_PORT_A)) {
-    viaSetPort(&emu.via0, VIA_PORT_A, ps2Next(&emu.ps2));
-    // Strobe a falling edge on CA1 to latch the byte and raise the interrupt.
-    viaSetC1(&emu.via0, VIA_PORT_A, TRUE);
-    viaSetC1(&emu.via0, VIA_PORT_A, FALSE);
+  emu.cpu.irq = viaTick(&emu.via, cycles);
+  for (UInt i = 0; i < cycles; ++i) {
+    ps2Tick(&emu.ps2, &emu.via, VIA_PORT_B);
+    sdTick(&emu.sd, &emu.via, VIA_PORT_A);
   }
-  sdTick(&emu.sd, &emu.via0, VIA_PORT_B);
   // nmi is edge-triggered, so we must reset it
   if (emu.nmi) {
     emu.nmi = FALSE;
@@ -336,8 +339,10 @@ static void emuTick() {
 
 U8 emuRead(Emu const *emu, U16 addr) {
   switch (addr) {
-  case RAM_START_ADDR ... RAM_END_ADDR:
-    return emu->ram[addr - RAM_START_ADDR];
+  case RAMLO_START_ADDR ... RAMLO_END_ADDR:
+    return emu->ramlo[addr - RAMLO_START_ADDR];
+  case RAMHI_START_ADDR ... RAMHI_END_ADDR:
+    return emu->ramhi[emu->bnk & 0x3][addr - RAMHI_START_ADDR];
   case ROM_START_ADDR ... ROM_END_ADDR:
     return emu->rom[addr - ROM_START_ADDR];
   default:

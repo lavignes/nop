@@ -113,7 +113,13 @@ static void cb2Access(Via *via) {
 
 static void srStart(Via *via) {
   U8 mode = (via->acr >> 2) & 0x07;
-  if ((mode == SR_DISABLED) || (mode == SR_IN_EXT) || (mode == SR_OUT_EXT)) {
+  if (mode == SR_DISABLED) {
+    return;
+  }
+  if ((mode == SR_IN_EXT) || (mode == SR_OUT_EXT)) {
+    // For external clock mode, reset for next byte
+    via->srCount = 0;
+    via->srRun = TRUE;
     return;
   }
   via->srCount = 0;
@@ -257,6 +263,11 @@ void viaWrite(Via *via, U16 reg, U8 val) {
     break;
   case VIA_ACR:
     via->acr = val;
+    U8 mode = (val >> 2) & 0x07;
+    if ((mode == SR_IN_EXT) || (mode == SR_OUT_EXT)) {
+      via->srCount = 0;
+      via->srRun = TRUE;
+    }
     break;
   case VIA_PCR:
     via->pcr = val;

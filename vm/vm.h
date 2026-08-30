@@ -18,11 +18,15 @@ enum {
 };
 
 enum {
-  RAM_SIZE = 0xC000,
-  RAM_START_ADDR = 0x0000,
-  RAM_END_ADDR = RAM_START_ADDR + RAM_SIZE - 1,
+  RAMLO_SIZE = 0x8000,
+  RAMLO_START_ADDR = 0x0000,
+  RAMLO_END_ADDR = RAMLO_START_ADDR + RAMLO_SIZE - 1,
 
-  IO_SIZE = 0x2000,
+  RAMHI_SIZE = 0x4000,
+  RAMHI_START_ADDR = 0x8000,
+  RAMHI_END_ADDR = RAMHI_START_ADDR + RAMHI_SIZE - 1,
+
+  IO_SIZE = 0x1000,
   IO_START_ADDR = 0xC000,
   IO_END_ADDR = IO_START_ADDR + IO_SIZE - 1,
 
@@ -31,11 +35,14 @@ enum {
   VDP_START_ADDR = 0xC000,
   VDP_END_ADDR = VDP_START_ADDR + IO_DEV_SIZE - 1,
 
-  VIA0_START_ADDR = 0xC100,
-  VIA0_END_ADDR = VIA0_START_ADDR + IO_DEV_SIZE - 1,
+  VIA_START_ADDR = 0xC100,
+  VIA_END_ADDR = VIA_START_ADDR + IO_DEV_SIZE - 1,
 
-  PSG0_START_ADDR = 0xC300,
-  PSG0_END_ADDR = PSG0_START_ADDR + IO_DEV_SIZE - 1,
+  PSG_START_ADDR = 0xC200,
+  PSG_END_ADDR = PSG_START_ADDR + IO_DEV_SIZE - 1,
+
+  BNK_START_ADDR = 0xC500,
+  BNK_END_ADDR = BNK_START_ADDR + IO_DEV_SIZE - 1,
 
   ROM_SIZE = 0x2000,
   ROM_START_ADDR = 0xE000,
@@ -129,6 +136,10 @@ typedef struct {
   U8 buf[16];
   U8 head;
   U8 tail;
+  U8 byte;
+  U8 bitIdx;
+  U32 clkDiv;
+  Bool clkHi;
 } Ps2;
 
 typedef struct {
@@ -224,12 +235,14 @@ typedef struct {
   Dbg dbg;
   Cpu cpu;
   Vdp vdp;
-  Via via0;
+  Via via;
   Psg psg;
   Ps2 ps2;
   Sd sd;
-  U8 ram[RAM_SIZE];
+  U8 ramlo[RAMLO_SIZE];
+  U8 ramhi[4][RAMHI_SIZE];
   U8 rom[ROM_SIZE];
+  U8 bnk;
 } Emu;
 
 U8 emuRead(Emu const *emu, U16 addr);
@@ -270,7 +283,7 @@ I16 psgSample(Psg *psg);
 void ps2Reset(Ps2 *ps2);
 void ps2Key(Ps2 *ps2, UInt scancode, Bool down);
 Bool ps2Pending(Ps2 const *ps2);
-U8 ps2Next(Ps2 *ps2);
+void ps2Tick(Ps2 *ps2, Via *via, ViaPort port);
 
 void sdReset(Sd *sd);
 void sdTick(Sd *sd, Via *via, ViaPort port);
@@ -291,13 +304,15 @@ void busWrite(Emu *emu, U16 addr, U8 val);
 #else
 static inline U8 busRead(Emu *emu, U16 addr) {
   switch (addr) {
-  case RAM_START_ADDR ... RAM_END_ADDR:
-    return emu->ram[addr - RAM_START_ADDR];
+  case RAMLO_START_ADDR ... RAMLO_END_ADDR:
+    return emu->ramlo[addr - RAMLO_START_ADDR];
+  case RAMHI_START_ADDR ... RAMHI_END_ADDR:
+    return emu->ramhi[emu->bnk & 0x3][addr - RAMHI_START_ADDR];
   case VDP_START_ADDR ... VDP_END_ADDR:
     return vdpRead(&emu->vdp, addr - VDP_START_ADDR);
-  case VIA0_START_ADDR ... VIA0_END_ADDR:
-    return viaRead(&emu->via0, addr - VIA0_START_ADDR);
-  case PSG0_START_ADDR ... PSG0_END_ADDR:
+  case VIA_START_ADDR ... VIA_END_ADDR:
+    return viaRead(&emu->via, addr - VIA_START_ADDR);
+  case PSG_START_ADDR ... PSG_END_ADDR:
     return 0;
   case ROM_START_ADDR ... ROM_END_ADDR:
     return emu->rom[addr - ROM_START_ADDR];
@@ -308,16 +323,19 @@ static inline U8 busRead(Emu *emu, U16 addr) {
 
 static inline void busWrite(Emu *emu, U16 addr, U8 val) {
   switch (addr) {
-  case RAM_START_ADDR ... RAM_END_ADDR:
-    emu->ram[addr - RAM_START_ADDR] = val;
+  case RAMLO_START_ADDR ... RAMLO_END_ADDR:
+    emu->ramlo[addr - RAMLO_START_ADDR] = val;
+    break;
+  case RAMHI_START_ADDR ... RAMHI_END_ADDR:
+    emu->ramhi[emu->bnk & 0x3][addr - RAMHI_START_ADDR] = val;
     break;
   case VDP_START_ADDR ... VDP_END_ADDR:
     vdpWrite(&emu->vdp, addr - VDP_START_ADDR, val);
     break;
-  case VIA0_START_ADDR ... VIA0_END_ADDR:
-    viaWrite(&emu->via0, addr - VIA0_START_ADDR, val);
+  case VIA_START_ADDR ... VIA_END_ADDR:
+    viaWrite(&emu->via, addr - VIA_START_ADDR, val);
     break;
-  case PSG0_START_ADDR ... PSG0_END_ADDR:
+  case PSG_START_ADDR ... PSG_END_ADDR:
     psgWrite(&emu->psg, val);
     break;
   case ROM_START_ADDR ... ROM_END_ADDR:

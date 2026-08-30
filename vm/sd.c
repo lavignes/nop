@@ -13,10 +13,10 @@ enum {
 };
 
 enum {
-  SD_CS = 1 << 0,   // PB0
-  SD_SCK = 1 << 1,  // PB1
-  SD_MOSI = 1 << 2, // PB2
-  SD_MISO = 1 << 7, // PB7
+  SD_CS = 1 << 0,   // P0
+  SD_SCK = 1 << 1,  // P1
+  SD_MOSI = 1 << 2, // P2
+  SD_MISO = 1 << 7, // P7
 };
 
 enum {

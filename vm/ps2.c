@@ -131,14 +131,49 @@ static void ps2Push(Ps2 *ps2, U8 b) {
 void ps2Reset(Ps2 *ps2) {
   ps2->head = 0;
   ps2->tail = 0;
+  ps2->bitIdx = 8;
+  ps2->clkDiv = 0;
+  ps2->clkHi = TRUE;
 }
 
 Bool ps2Pending(Ps2 const *ps2) { return ps2->head != ps2->tail; }
 
-U8 ps2Next(Ps2 *ps2) {
-  U8 b = ps2->buf[ps2->head];
-  ps2->head = (ps2->head + 1) % sizeof(ps2->buf);
-  return b;
+static Bool ps2GetDataBit(Ps2 const *ps2) {
+  if (ps2->bitIdx >= 8) {
+    return TRUE;
+  }
+  return (ps2->byte >> (7 - ps2->bitIdx)) & 1;
+}
+
+void ps2Tick(Ps2 *ps2, Via *via, ViaPort port) {
+  if (ps2->bitIdx >= 8) {
+    if (ps2->head == ps2->tail) {
+      return;
+    }
+    ps2->byte = ps2->buf[ps2->head];
+    ps2->head = (ps2->head + 1) % sizeof(ps2->buf);
+    ps2->bitIdx = 0;
+    ps2->clkDiv = 0;
+    ps2->clkHi = TRUE;
+    Bool dataBit = ps2GetDataBit(ps2);
+    viaSetC2(via, port, dataBit);
+    viaSetC1(via, port, TRUE);
+    return;
+  }
+
+  if (++ps2->clkDiv >= 100) {
+    ps2->clkDiv = 0;
+    ps2->clkHi = !ps2->clkHi;
+    viaSetC1(via, port, ps2->clkHi);
+
+    if (!ps2->clkHi) {
+      ++ps2->bitIdx;
+      if (ps2->bitIdx < 8) {
+        Bool dataBit = ps2GetDataBit(ps2);
+        viaSetC2(via, port, dataBit);
+      }
+    }
+  }
 }
 
 void ps2Key(Ps2 *ps2, UInt scancode, Bool down) {

@@ -1,0 +1,25 @@
+
+
+ Pin # | Name     | Pin Type
+-----------------------------
+   1   | PHI2     | Input
+   2   | A15      | Input
+   3   | A14      | Input
+   4   | A13      | Input
+   5   | A12      | Input
+   6   | A11      | Input
+   7   | A10      | Input
+   8   | NC       | Input
+   9   | NC       | Input
+  10   | GND      | GND
+  11   | NC       | Input
+  12   | /ROM     | Output
+  13   | /RAM     | Output
+  14   | /D0      | Output
+  15   | /D1      | Output
+  16   | /D2      | Output
+  17   | /D3      | Output
+  18   | /D4      | Output
+  19   | /D5      | Output
+  20   | VCC      | VCC
+

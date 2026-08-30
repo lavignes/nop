@@ -1,6 +1,6 @@
 ; vim: ft=a65
 
-PSG_PORT = $C300
+PSG_PORT = $C200
 
 PSG_CMD  = $80
 

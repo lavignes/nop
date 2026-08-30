@@ -1,0 +1,8 @@
+/fp-*
+/sym-lib-table
+
+/nop-backups
+/#auto_saved_files#
+/temp-*
+/~*
+*.bak
