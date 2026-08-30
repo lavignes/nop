@@ -136,10 +136,10 @@ typedef struct {
   U8 buf[16];
   U8 head;
   U8 tail;
-  U8 byte;
-  U8 bitIdx;
-  U32 clkDiv;
-  Bool clkHi;
+  U8 lastTail;
+  U8 pulseCycle;
+  Bool pulsed;
+  U16 clkDiv;
 } Ps2;
 
 typedef struct {

@@ -987,18 +987,18 @@ VdpRegs:
 ViaInit:
     lda #(SD_CS | SD_SCK | SD_MOSI) ; port A: SPI outputs, PA7 (MISO) input
     sta VIA_DDRA
-    lda #$00 ; port B: CB1/CB2 keyboard input
+    lda #$00 ; port B: all inputs for keyboard
     sta VIA_DDRB
     lda #SD_CS ; deselect card
     sta VIA_ORA
     sta SD_OUT
-    lda #%00001100 ; ACR: CB1 input, shift register in external clock mode
+    lda #%00000000 ; ACR: shift register disabled, no latch
     sta VIA_ACR
-    lda #$00 ; CB1 negative edge
+    lda #$00 ; CB1 negative edge (active low pulse)
     sta VIA_PCR
     lda #$7F
     sta VIA_IFR
-    lda #$84 ; enable SR interrupt (bit 2)
+    lda #$90 ; enable CB1 interrupt (bit 7=1 to SET, bit 4=CB1)
     sta VIA_IER
     rts
 
@@ -1069,14 +1069,16 @@ Font:
     .byt $20, $50, $88, $00, $00, $00, $00, $00   ; $5E '^'
     .byt $00, $00, $00, $00, $00, $00, $00, $F8   ; $5F '_'
 
-; -------- IRQ: keyboard scancode ready on VIA port A (CA1) --------
+; -------- IRQ: keyboard scancode ready on VIA port B (CB1) --------
 Irq:
     pha
     txa
     pha
     tya
     pha
-    lda VIA_SR ; scancode; reading clears the SR flag
+    lda VIA0 ; read parallel scancode from PORT_B
+    sta KSC
+    lda KSC
     cmp #$F0 ; break prefix
     beq @setrel
     cmp #$E0 ; extended prefix
