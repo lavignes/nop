@@ -4,5 +4,6 @@
 /nop-backups
 /#auto_saved_files#
 /temp-*
+/.history
 /~*
 *.bak

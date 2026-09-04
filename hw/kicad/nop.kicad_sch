@@ -4000,7 +4000,7 @@
 			(on_board yes)
 			(in_pos_files yes)
 			(duplicate_pin_numbers_are_jumpers no)
-			(property "Reference" "J5"
+			(property "Reference" "J2"
 				(at 0.635 5.08 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -4132,7 +4132,7 @@
 						(type none)
 					)
 				)
-				(pin power_in line
+				(pin power_out line
 					(at 5.08 0 180)
 					(length 3.81)
 					(name "Pin_1"
@@ -4150,7 +4150,7 @@
 						)
 					)
 				)
-				(pin power_in line
+				(pin power_out line
 					(at 5.08 -2.54 180)
 					(length 3.81)
 					(name "Pin_2"
