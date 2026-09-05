@@ -280,12 +280,11 @@ static void vblank() {
 
 static void emuReset(Bool random) {
   emu.nmi = FALSE;
-  emu.bnk = 0;
   if (random) {
     for (UInt i = 0; i < sizeof(emu.ramlo); ++i) {
       emu.ramlo[i] = (U8)rand();
     }
-    for (UInt j = 0; j < 4; ++j) {
+    for (UInt j = 0; j < 2; ++j) {
       for (UInt i = 0; i < sizeof(emu.ramhi[j]); ++i) {
         emu.ramhi[j][i] = (U8)rand();
       }
@@ -342,7 +341,8 @@ U8 emuRead(Emu const *emu, U16 addr) {
   case RAMLO_START_ADDR ... RAMLO_END_ADDR:
     return emu->ramlo[addr - RAMLO_START_ADDR];
   case RAMHI_START_ADDR ... RAMHI_END_ADDR:
-    return emu->ramhi[emu->bnk & 0x3][addr - RAMHI_START_ADDR];
+    return emu->ramhi[viaGetC2(&emu->via, VIA_PORT_A) ? 1 : 0]
+                     [addr - RAMHI_START_ADDR];
   case ROM_START_ADDR ... ROM_END_ADDR:
     return emu->rom[addr - ROM_START_ADDR];
   default:

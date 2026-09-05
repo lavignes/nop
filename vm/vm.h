@@ -22,9 +22,11 @@ enum {
   RAMLO_START_ADDR = 0x0000,
   RAMLO_END_ADDR = RAMLO_START_ADDR + RAMLO_SIZE - 1,
 
+  // chip 2 is a 32K SRAM banked as 2x 16K into 0x8000-0xBFFF; the bank bit
+  // is VIA CA2 (manual output) driving chip A14.
   RAMHI_SIZE = 0x4000,
   RAMHI_START_ADDR = 0x8000,
-  RAMHI_END_ADDR = RAMHI_START_ADDR + RAMHI_SIZE - 1,
+  RAMHI_END_ADDR = 0xBFFF,
 
   IO_SIZE = 0x1000,
   IO_START_ADDR = 0xC000,
@@ -40,9 +42,6 @@ enum {
 
   PSG_START_ADDR = 0xC200,
   PSG_END_ADDR = PSG_START_ADDR + IO_DEV_SIZE - 1,
-
-  BNK_START_ADDR = 0xC500,
-  BNK_END_ADDR = BNK_START_ADDR + IO_DEV_SIZE - 1,
 
   ROM_SIZE = 0x2000,
   ROM_START_ADDR = 0xE000,
@@ -240,9 +239,8 @@ typedef struct {
   Ps2 ps2;
   Sd sd;
   U8 ramlo[RAMLO_SIZE];
-  U8 ramhi[4][RAMHI_SIZE];
+  U8 ramhi[2][RAMHI_SIZE];
   U8 rom[ROM_SIZE];
-  U8 bnk;
 } Emu;
 
 U8 emuRead(Emu const *emu, U16 addr);
@@ -307,7 +305,8 @@ static inline U8 busRead(Emu *emu, U16 addr) {
   case RAMLO_START_ADDR ... RAMLO_END_ADDR:
     return emu->ramlo[addr - RAMLO_START_ADDR];
   case RAMHI_START_ADDR ... RAMHI_END_ADDR:
-    return emu->ramhi[emu->bnk & 0x3][addr - RAMHI_START_ADDR];
+    return emu->ramhi[viaGetC2(&emu->via, VIA_PORT_A) ? 1 : 0]
+                     [addr - RAMHI_START_ADDR];
   case VDP_START_ADDR ... VDP_END_ADDR:
     return vdpRead(&emu->vdp, addr - VDP_START_ADDR);
   case VIA_START_ADDR ... VIA_END_ADDR:
@@ -327,7 +326,8 @@ static inline void busWrite(Emu *emu, U16 addr, U8 val) {
     emu->ramlo[addr - RAMLO_START_ADDR] = val;
     break;
   case RAMHI_START_ADDR ... RAMHI_END_ADDR:
-    emu->ramhi[emu->bnk & 0x3][addr - RAMHI_START_ADDR] = val;
+    emu->ramhi[viaGetC2(&emu->via, VIA_PORT_A) ? 1 : 0]
+              [addr - RAMHI_START_ADDR] = val;
     break;
   case VDP_START_ADDR ... VDP_END_ADDR:
     vdpWrite(&emu->vdp, addr - VDP_START_ADDR, val);
