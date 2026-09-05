@@ -22,8 +22,6 @@ enum {
   RAMLO_START_ADDR = 0x0000,
   RAMLO_END_ADDR = RAMLO_START_ADDR + RAMLO_SIZE - 1,
 
-  // chip 2 is a 32K SRAM banked as 2x 16K into 0x8000-0xBFFF; the bank bit
-  // is VIA CA2 (manual output) driving chip A14.
   RAMHI_SIZE = 0x4000,
   RAMHI_START_ADDR = 0x8000,
   RAMHI_END_ADDR = 0xBFFF,
@@ -42,6 +40,9 @@ enum {
 
   PSG_START_ADDR = 0xC200,
   PSG_END_ADDR = PSG_START_ADDR + IO_DEV_SIZE - 1,
+
+  UART_START_ADDR = 0xC300,
+  UART_END_ADDR = UART_START_ADDR + IO_DEV_SIZE - 1,
 
   ROM_SIZE = 0x2000,
   ROM_START_ADDR = 0xE000,
@@ -176,6 +177,9 @@ typedef struct {
   U32 writeAddr;
 } Sd;
 
+typedef struct {
+} Uart;
+
 typedef struct Breakpoint Breakpoint;
 struct Breakpoint {
   Breakpoint *next;
@@ -238,6 +242,7 @@ typedef struct {
   Psg psg;
   Ps2 ps2;
   Sd sd;
+  Uart uart;
   U8 ramlo[RAMLO_SIZE];
   U8 ramhi[2][RAMHI_SIZE];
   U8 rom[ROM_SIZE];
@@ -285,6 +290,11 @@ void ps2Tick(Ps2 *ps2, Via *via, ViaPort port);
 
 void sdReset(Sd *sd);
 void sdTick(Sd *sd, Via *via, ViaPort port);
+
+void uartReset(Uart *uart);
+Bool uartTick(Uart *uart, UInt cycles);
+void uartWrite(Uart *uart, U8 val);
+U8 uartRead(Uart *uart);
 
 Symbol const *symValFind(Dbg const *dbg, Int val);
 Symbol const *symFind(Dbg const *dbg, char const *name, UInt namelen);

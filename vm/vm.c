@@ -41,15 +41,16 @@ enum : U64 {
 };
 
 static void help(char const *name) {
-  fprintf(stderr, "Usage: %s [options] <romfile>\n\n", name);
+  fprintf(stderr, "Usage: %s [options] <rom-file>\n\n", name);
   fprintf(stderr, "Options:\n\n");
   fprintf(stderr, "  -h, --help              Show this help message\n");
   fprintf(stderr, "  -d, --debug             Start in debug mode\n");
   fprintf(stderr,
-          "  -l, --labellist <file>  Load symbol labellist from file\n");
+          "  -l, --label-list <path>  Load symbol label-list from file\n");
   fprintf(stderr,
           "  -r, --random            Initialize memory with random data\n");
-  fprintf(stderr, "  -i, --image <file>      Attach a disk image\n");
+  fprintf(stderr, "  -i, --image <path>      Attach a disk image\n");
+  fprintf(stderr, "  -s, --serial <path>     Attach a serial device or file\n");
 }
 
 static void emuReset(Bool random);
@@ -58,7 +59,7 @@ static void audioFlush();
 
 int main(int argc, char const *const *argv) {
   FILE *rom;
-  char const *labellist = NULL;
+  char const *labelList = NULL;
   char const *diskPath = NULL;
   Bool random = FALSE;
 
@@ -86,7 +87,7 @@ int main(int argc, char const *const *argv) {
         fprintf(stderr, "No labellist file specified\n");
         return EXIT_FAILURE;
       }
-      labellist = argv[argi];
+      labelList = argv[argi];
       continue;
     }
     if ((strcmp(argv[argi], "-r") == 0) ||
@@ -135,8 +136,8 @@ int main(int argc, char const *const *argv) {
   }
   fclose(rom);
 
-  if (labellist) {
-    symLoad(&emu.dbg, labellist);
+  if (labelList) {
+    symLoad(&emu.dbg, labelList);
   }
 
   if (!emu.dbg.debug) {
@@ -296,6 +297,7 @@ static void emuReset(Bool random) {
   psgReset(&emu.psg);
   ps2Reset(&emu.ps2);
   sdReset(&emu.sd);
+  uartReset(&emu.uart);
 }
 
 static void audioFlush() {
@@ -324,7 +326,7 @@ static void emuTick() {
       vblank();
     }
   }
-  emu.cpu.irq = viaTick(&emu.via, cycles);
+  emu.cpu.irq = viaTick(&emu.via, cycles) | uartTick(&emu.uart, cycles);
   for (UInt i = 0; i < cycles; ++i) {
     ps2Tick(&emu.ps2, &emu.via, VIA_PORT_B);
     sdTick(&emu.sd, &emu.via, VIA_PORT_A);

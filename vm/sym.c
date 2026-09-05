@@ -40,7 +40,7 @@ Symbol const *symValFind(Dbg const *dbg, Int val) {
 void symLoad(Dbg *dbg, char const *filename) {
   FILE *file = fopen(filename, "r");
   if (!file) {
-    fprintf(stderr, "Could not open labellist file: %s\n", filename);
+    fprintf(stderr, "Could not open label-list file: %s\n", filename);
     return;
   }
   char line[256];
@@ -50,7 +50,8 @@ void symLoad(Dbg *dbg, char const *filename) {
     Int block;
     if (sscanf(line, "%63[^,], 0x%" INT_FMTX ", %" INT_FMT, name, &val,
                &block) != 3) {
-      fprintf(stderr, "Invalid labellist line %" UINT_FMT ": %s", lineno, line);
+      fprintf(stderr, "Invalid label-list line %" UINT_FMT ": %s", lineno,
+              line);
       continue;
     }
     if (!isalpha(name[0]) && (name[0] != '_')) {
