@@ -16414,7 +16414,7 @@
 	)
 	(wire
 		(pts
-			(xy 459.74 297.18) (xy 473.71 297.18)
+			(xy 461.01 297.18) (xy 473.71 297.18)
 		)
 		(stroke
 			(width 0)
@@ -16614,7 +16614,7 @@
 	)
 	(wire
 		(pts
-			(xy 459.74 287.02) (xy 459.74 297.18)
+			(xy 461.01 287.02) (xy 461.01 297.18)
 		)
 		(stroke
 			(width 0)
@@ -23364,6 +23364,16 @@
 	)
 	(wire
 		(pts
+			(xy 461.01 287.02) (xy 459.74 287.02)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d30604ee-1ea6-4a8b-8df2-ee3c5349d63f")
+	)
+	(wire
+		(pts
 			(xy 698.5 314.96) (xy 584.2 314.96)
 		)
 		(stroke
@@ -28003,7 +28013,7 @@
 			)
 		)
 	)
-	(global_label "~{dev1}"
+	(global_label "~{dev3}"
 		(shape input)
 		(at 421.64 71.12 180)
 		(fields_autoplaced yes)
@@ -33025,7 +33035,7 @@
 				)
 			)
 		)
-		(property "Value" "POWER"
+		(property "Value" "+5V"
 			(at 22.225 175.26 0)
 			(show_name no)
 			(do_not_autoplace no)
