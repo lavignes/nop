@@ -131,5 +131,5 @@ I16 psgSample(Psg *psg) {
     mix += psg->toneOut[i] ? VOL[psg->vol[i]] : -VOL[psg->vol[i]];
   }
   mix += (psg->noiseShift & 1) ? VOL[psg->vol[3]] : -VOL[psg->vol[3]];
-  return (I16)mix;
+  return mix;
 }

@@ -23,14 +23,14 @@ static SDL_Renderer *render = NULL;
 static SDL_Texture *tex = NULL;
 static SDL_AudioStream *audio = NULL;
 
-enum : UInt { AUDIO_BUF_LEN = 4096 };
+enum { AUDIO_BUF_LEN = 4096 };
 static I16 audioBuf[AUDIO_BUF_LEN];
 static UInt audioLen = 0;
 
 static Bool quit = FALSE;
-static U64 cycleCount = 0;
-static U64 vdpAccum = 0;
-static U64 sampleAccum = 0;
+static UInt cycleCount = 0;
+static UInt vdpAccum = 0;
+static UInt sampleAccum = 0;
 static U64 nextFrameNs = 0;
 
 enum : U64 {
@@ -123,7 +123,7 @@ int main(int argc, char const *const *argv) {
   }
 
   if (random) {
-    srand((unsigned int)time(NULL));
+    srand(time(NULL));
   }
 
   UInt read = fread(emu.rom, 1, sizeof(emu.rom), rom);
@@ -257,25 +257,25 @@ static void vblank() {
   SDL_RenderTexture(render, tex, NULL, NULL);
   SDL_RenderPresent(render);
 
-  static U64 last = 0;
+  static U64 lastNs = 0;
   static UInt fps = 0;
   ++fps;
-  U64 now = SDL_GetTicksNS();
-  if ((now - last) >= U64K(1000000000)) {
+  U64 nowNs = SDL_GetTicksNS();
+  if ((nowNs - lastNs) >= U64K(1000000000)) {
     char title[64];
     snprintf(title, sizeof(title), "nop - %" UINT_FMT " fps - %.2f MHz", fps,
              ((F64)cycleCount) / 1000000.0);
     SDL_SetWindowTitle(win, title);
     fps = 0;
     cycleCount = 0;
-    last = now;
+    lastNs = nowNs;
   }
 
-  if (now < nextFrameNs) {
-    SDL_DelayNS(nextFrameNs - now);
+  if (nowNs < nextFrameNs) {
+    SDL_DelayNS(nextFrameNs - nowNs);
     nextFrameNs += FRAME_TIME_NTSC;
   } else {
-    nextFrameNs = now + FRAME_TIME_NTSC;
+    nextFrameNs = nowNs + FRAME_TIME_NTSC;
   }
 }
 
@@ -283,11 +283,11 @@ static void emuReset(Bool random) {
   emu.nmi = FALSE;
   if (random) {
     for (UInt i = 0; i < sizeof(emu.ramlo); ++i) {
-      emu.ramlo[i] = (U8)rand();
+      emu.ramlo[i] = rand();
     }
     for (UInt j = 0; j < 2; ++j) {
       for (UInt i = 0; i < sizeof(emu.ramhi[j]); ++i) {
-        emu.ramhi[j][i] = (U8)rand();
+        emu.ramhi[j][i] = rand();
       }
     }
   }
@@ -311,7 +311,7 @@ static void emuTick() {
   dbgTick(&emu.dbg, &emu);
   UInt cycles = cpuTick(&emu.cpu, &emu);
   cycleCount += cycles;
-  sampleAccum += ((U64)cycles) * SAMPLE_RATE;
+  sampleAccum += cycles * SAMPLE_RATE;
   while (sampleAccum >= CPU_HZ) {
     sampleAccum -= CPU_HZ;
     audioBuf[audioLen++] = psgSample(&emu.psg);
@@ -319,7 +319,7 @@ static void emuTick() {
       audioFlush();
     }
   }
-  vdpAccum += ((U64)cycles) * VDP_HZ;
+  vdpAccum += cycles * VDP_HZ;
   while (vdpAccum >= CPU_HZ) {
     vdpAccum -= CPU_HZ;
     if (vdpTick(&emu.vdp, &emu)) {
