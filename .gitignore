@@ -2,8 +2,9 @@
 *.o
 *.d
 
-/sys.bin
-/sys.lbl
-/sys.lst
-
+/asm/asm
 /vm/vm
+
+/*.bin
+/*.lbl
+/*.lst

@@ -30,6 +30,12 @@ static U16 disImpl(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
+static U16 disA(Emu const *emu, U8 op, U16 addr, char const *mne) {
+  fprintf(stderr, " %02X      ", op);
+  fprintf(stderr, "  " BLUE("%s") " A            ", mne);
+  return addr;
+}
+
 static U16 disImm(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 val = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, val);
@@ -43,7 +49,8 @@ static U16 disZp(Emu const *emu, U8 op, U16 addr, char const *mne) {
   if (strlen(mne) == 3) {
     fprintf(stderr, "  " BLUE("%s") " $%02X           ", mne, zp);
   } else {
-    fprintf(stderr, "  " BLUE("%.3s") " %c,$%02X         ", mne, mne[2], zp);
+    fprintf(stderr, "  " BLUE("%.3s") " " MAGENTA("%c") ",$%02X         ", mne,
+            mne[2], zp);
   }
   disSym(&emu->dbg, (U16)zp);
   return addr;
@@ -156,8 +163,8 @@ static U16 disZpRel(Emu const *emu, U8 op, U16 addr, char const *mne) {
   if (strlen(mne) == 3) {
     fprintf(stderr, "  " BLUE("%s") " $%02X,$%04X   ", mne, zp, target);
   } else {
-    fprintf(stderr, "  " BLUE("%.3s") " %c,$%02X,$%04X ", mne, mne[2], zp,
-            target);
+    fprintf(stderr, "  " BLUE("%.3s") " " MAGENTA("%c") ",$%02X,$%04X ", mne,
+            mne[2], zp, target);
   }
   disSym(&emu->dbg, target);
   return addr;
@@ -249,11 +256,11 @@ static DisEntry const DIS_TBL[256] = {
     [0x04] = {"TSB", disZp},     [0x07] = {"RMB0", disZp},
     [0x0C] = {"TSB", disAb},     [0x0F] = {"BBR0", disZpRel},
     [0x12] = {"ORA", disIzp},    [0x14] = {"TRB", disZp},
-    [0x17] = {"RMB1", disZp},    [0x1A] = {"INC", disImpl},
+    [0x17] = {"RMB1", disZp},    [0x1A] = {"INC", disA},
     [0x1C] = {"TRB", disAb},     [0x1F] = {"BBR1", disZpRel},
     [0x27] = {"RMB2", disZp},    [0x2F] = {"BBR2", disZpRel},
     [0x32] = {"AND", disIzp},    [0x34] = {"BIT", disZpX},
-    [0x37] = {"RMB3", disZp},    [0x3A] = {"DEC", disImpl},
+    [0x37] = {"RMB3", disZp},    [0x3A] = {"DEC", disA},
     [0x3C] = {"BIT", disAbX},    [0x3F] = {"BBR3", disZpRel},
     [0x47] = {"RMB4", disZp},    [0x4F] = {"BBR4", disZpRel},
     [0x52] = {"EOR", disIzp},    [0x57] = {"RMB5", disZp},

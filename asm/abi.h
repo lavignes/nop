@@ -1,6 +1,7 @@
 #ifndef ABI_H
 #define ABI_H
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
