@@ -13,6 +13,19 @@
 
 #include "vm.h"
 
+static void help(char const *name) {
+  fprintf(stderr,
+          "Usage: %s [options] <rom-file>\n\n"
+          "Options:\n\n"
+          "  -d, --debug              Start in debug mode\n"
+          "  -l, --label-list <path>  Load symbol label-list from file\n"
+          "  -r, --random             Initialize memory with random data\n"
+          "  -i, --image <path>       Attach a disk image\n"
+          "  -s, --serial <path>      Attach a serial device or file\n"
+          "  -h, --help               Show this help message\n",
+          name);
+}
+
 static Emu emu = {0};
 
 static struct termios termiosOrig;
@@ -40,21 +53,9 @@ enum : U64 {
       U64K(1000000000) * FRAME_COLS_NTSC * FRAME_LINES_NTSC / VDP_HZ
 };
 
-static void help(char const *name) {
-  fprintf(stderr, "Usage: %s [options] <rom-file>\n\n", name);
-  fprintf(stderr, "Options:\n\n");
-  fprintf(stderr, "  -h, --help              Show this help message\n");
-  fprintf(stderr, "  -d, --debug             Start in debug mode\n");
-  fprintf(stderr,
-          "  -l, --label-list <path>  Load symbol label-list from file\n");
-  fprintf(stderr,
-          "  -r, --random            Initialize memory with random data\n");
-  fprintf(stderr, "  -i, --image <path>      Attach a disk image\n");
-  fprintf(stderr, "  -s, --serial <path>     Attach a serial device or file\n");
-}
-
 static void emuReset(Bool random);
 static void emuTick();
+
 static void audioFlush();
 
 int main(int argc, char const *const *argv) {

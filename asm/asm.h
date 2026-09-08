@@ -22,21 +22,66 @@
 #endif
 #endif
 
-FORMAT(1) NORETURN void fatal(char const *fmt, ...);
-NORETURN void fatalV(char const *fmt, va_list args);
+FORMAT(1) NORETURN void panic(char const *fmt, ...);
+NORETURN void panicV(char const *fmt, va_list args);
 
 #ifdef __builtin_unreachable
 #define UNREACHABLE() __builtin_unreachable()
 #else
 #define UNREACHABLE()                                                          \
-  (fatal("%s:%d is not meant to be reachable\n", __FILE__, __LINE__))
+  (panic("%s:%d is not meant to be reachable\n", __FILE__, __LINE__))
 #endif
 
 #define TODO(msg)                                                              \
-  (fatal("%s:%d: not implemented: %s\n", __FILE__, __LINE__, (msg)))
+  (panic("%s:%d: not implemented: %s\n", __FILE__, __LINE__, (msg)))
 
-void strPush(char **dst, UInt *cap, char c);
 void strCat(char **dst, UInt *cap, char const *src);
+
+typedef struct {
+  char *id;
+  UInt line;
+  UInt col;
+} Loc;
+
+typedef struct {
+  char const *scope;
+  char const *id;
+} Label;
+
+typedef struct {
+  U8 tok;
+  Bool unary;
+} Op;
+
+enum {
+  EXPR_CONST,
+  EXPR_ADDR,
+  EXPR_OP,
+  EXPR_LABEL,
+};
+
+typedef struct {
+  U8 kind;
+  union {
+    I32 num;
+    U16 addr;
+    Op op;
+    Label lbl;
+  };
+} Expr;
+
+void exprCat(Expr **exprs, UInt *len, UInt *cap, Expr expr);
+Expr *exprEat(UInt *len, UInt *cap);
+Expr *exprEatLoc(UInt *len, UInt *cap, Loc *loc);
+I32 exprEatSolvedLoc(Loc *loc);
+
+Bool exprSolve(Expr const *exprs, UInt len, I32 *num);
+U8 exprEatSolvedU8();
+U16 exprEatSolvedU16();
+
+Bool exprCanReprU8(I32 num);
+Bool exprCanReprI8(I32 num);
+Bool exprCanReprU16(I32 num);
 
 enum : U8 {
   TOK_EOF = 26,
@@ -54,6 +99,9 @@ enum : U8 {
   TOK_ELSE,
   TOK_END,
   TOK_MACRO,
+
+  TOK_DEFINED,
+  TOK_STRLEN,
 
   TOK_ASL, // <<
   TOK_ASR, // >>
@@ -74,11 +122,7 @@ enum : U8 {
   TOK_SHIFT,
 };
 
-typedef struct {
-  char *id;
-  UInt line;
-  UInt col;
-} Loc;
+char const *tokName(U8 tok);
 
 typedef struct {
   U8 tok;
@@ -110,13 +154,20 @@ typedef struct {
 } MacroTok;
 
 typedef struct {
+  char *name;
+  Loc loc;
+  MacroTok *toks;
+  UInt toksLen;
+} Macro;
+
+typedef struct {
   MacroTok *buf;
   UInt bufLen;
   UInt bufCap;
-} MacroArg;
+} Arg;
 
-void argsEnqueue(MacroArg **args, UInt *len, UInt *cap, MacroArg arg);
-void argsDequeue(MacroArg **args, UInt *len);
+void argsEnqueue(Arg **args, UInt *len, UInt *cap, Arg arg);
+void argsDequeue(Arg **args, UInt *len);
 
 enum {
   LEX_FILE,
@@ -143,11 +194,9 @@ typedef struct {
       char *name;
       MacroTok *toks;
       UInt toksLen;
-      UInt toksCap;
       UInt toksIdx;
-      MacroArg *args;
+      Arg *args;
       UInt argsLen;
-      UInt argsCap;
       UInt argsIdx;
     } macro;
 
@@ -160,10 +209,14 @@ typedef struct {
   };
 } Lex;
 
-void lexFileInit(Lex *lex, char *name, FILE *hnd);
-void lexMacroInit(Lex *lex, char *name, MacroTok *toks, UInt toksLen,
-                  MacroArg *args, UInt argsLen);
+void lexFileInit(Lex *lex, char const *name, FILE *hnd);
+void lexMacroInit(Lex *lex, char const *name, MacroTok *toks, UInt toksLen,
+                  Arg *args, UInt argsLen);
 void lexIfElseInit(Lex *lex, LocTok *toks, UInt toksLen);
+
+FORMAT(2) NORETURN void lexFatal(Lex const *lex, char const *fmt, ...);
+FORMAT(3)
+NORETURN void lexFatalLoc(Lex const *lex, Loc loc, char const *fmt, ...);
 
 U8 lexPeek(Lex *lex);
 void lexEat(Lex *lex);
@@ -172,5 +225,15 @@ void lexRewind(Lex *lex);
 char const *lexTxt(Lex const *lex);
 I32 lexNum(Lex const *lex);
 Loc lexLoc(Lex const *lex);
+Label lexLabel(Lex const *lex);
+
+FORMAT(1) NORETURN void fatal(char const *fmt, ...);
+FORMAT(2) NORETURN void fatalLoc(Loc loc, char const *fmt, ...);
+
+U8 peek();
+void eat();
+void expect(U8 tok);
+
+U16 getPC();
 
 #endif // ASM_H

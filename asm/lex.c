@@ -6,12 +6,65 @@
 #include "asm.h"
 
 static struct {
+  U8 tok;
+  char const *name;
+} const TOK_NAMES[] = {
+    {TOK_EOF, "end of file"},
+
+    {TOK_ID, "identifier"},
+    {TOK_NUM, "number"},
+    {TOK_STR, "string"},
+
+    {TOK_DB, "@DB"},
+    {TOK_DW, "@DW"},
+    {TOK_DS, "@DS"},
+    {TOK_INCLUDE, "@INCLUDE"},
+    {TOK_INCBIN, "@INCBIN"},
+    {TOK_IF, "@IF"},
+    {TOK_ELSE, "@ELSE"},
+    {TOK_END, "@END"},
+    {TOK_MACRO, "@MACRO"},
+
+    {TOK_DEFINED, "@DEFINED"},
+    {TOK_STRLEN, "@STRLEN"},
+
+    {TOK_ASL, "`<<`"},
+    {TOK_ASR, "`>>`"},
+    {TOK_LSR, "`~>`"},
+    {TOK_LTE, "`<=`"},
+    {TOK_GTE, "`>=`"},
+    {TOK_EQ, "`==`"},
+    {TOK_NEQ, "`!='"},
+    {TOK_AND, "`&&`"},
+    {TOK_OR, "`||`"},
+
+    {TOK_A, "`A` register"},
+    {TOK_X, "`X` register"},
+    {TOK_Y, "`Y` register"},
+
+    {TOK_ARG, "macro argument"},
+    {TOK_ARGC, "macro argument count"},
+    {TOK_SHIFT, "macro argument shift"},
+};
+
+char const *tokName(U8 tok) {
+  for (UInt i = 0; i < (sizeof(TOK_NAMES) / sizeof(TOK_NAMES[0])); ++i) {
+    if (TOK_NAMES[i].tok == tok) {
+      return TOK_NAMES[i].name;
+    }
+  }
+  return "token";
+}
+
+static struct {
   char const *name;
   U8 tok;
 } const DIRECTIVES[] = {
     {"DB", TOK_DB},           {"DW", TOK_DW},         {"DS", TOK_DS},
     {"INCLUDE", TOK_INCLUDE}, {"INCBIN", TOK_INCBIN}, {"IF", TOK_IF},
     {"ELSE", TOK_ELSE},       {"END", TOK_END},       {"MACRO", TOK_MACRO},
+
+    {"DEFINED", TOK_DEFINED}, {"STRLEN", TOK_STRLEN},
 
     {"ARGC", TOK_ARGC},       {"SHIFT", TOK_SHIFT},
 };
@@ -25,29 +78,29 @@ static struct {
     {"!=", TOK_NEQ}, {"&&", TOK_AND}, {"||", TOK_OR},
 };
 
-void argsEnqueue(MacroArg **args, UInt *len, UInt *cap, MacroArg arg) {
+void argsEnqueue(Arg **args, UInt *len, UInt *cap, Arg arg) {
   if (!*args) {
     *len = 0;
     *cap = 8;
-    *args = malloc(sizeof(MacroArg) * *cap);
+    *args = malloc(sizeof(Arg) * *cap);
   }
   if (*len == *cap) {
     *cap *= 2;
-    *args = realloc(*args, sizeof(MacroArg) * *cap);
+    *args = realloc(*args, sizeof(Arg) * *cap);
   }
   (*args)[*len] = arg;
   ++*len;
 }
 
-void argsDequeue(MacroArg **args, UInt *len) {
+void argsDequeue(Arg **args, UInt *len) {
   if (!*len) {
     return;
   }
   --*len;
-  memmove(*args, *args + 1, *len * sizeof(MacroArg));
+  memmove(*args, *args + 1, *len * sizeof(Arg));
 }
 
-static NORETURN void lexFatalLocV(Lex *lex, Loc loc, char const *fmt,
+static NORETURN void lexFatalLocV(Lex const *lex, Loc loc, char const *fmt,
                                   va_list args) {
   switch (lex->kind) {
   case LEX_FILE:
@@ -65,17 +118,17 @@ static NORETURN void lexFatalLocV(Lex *lex, Loc loc, char const *fmt,
   default:
     UNREACHABLE();
   }
-  fatalV(fmt, args);
+  panicV(fmt, args);
 }
 
-static NORETURN void lexFatalLoc(Lex *lex, Loc loc, char const *fmt, ...) {
+NORETURN void lexFatalLoc(Lex const *lex, Loc loc, char const *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   lexFatalLocV(lex, loc, fmt, args);
   va_end(args);
 }
 
-static NORETURN void lexFatalV(Lex *lex, char const *fmt, va_list args) {
+static NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args) {
   switch (lex->kind) {
   case LEX_FILE:
     lexFatalLocV(lex, lex->loc, fmt, args);
@@ -88,7 +141,7 @@ static NORETURN void lexFatalV(Lex *lex, char const *fmt, va_list args) {
   }
 }
 
-static NORETURN void lexFatal(Lex *lex, char const *fmt, ...) {
+NORETURN void lexFatal(Lex const *lex, char const *fmt, ...) {
   va_list args;
   va_start(args, fmt);
   lexFatalV(lex, fmt, args);
@@ -100,34 +153,19 @@ static NORETURN void fatalChar(Lex *lex, char const *fmt, ...) {
           lex->file.charLine, lex->file.charCol);
   va_list args;
   va_start(args, fmt);
-  fatalV(fmt, args);
-}
-
-void strPush(char **dst, UInt *cap, char c) {
-  if (*cap == 0) {
-    *cap = 16;
-    *dst = malloc(*cap);
-    (*dst)[0] = 0;
-  }
-  UInt len = strlen(*dst);
-  if (len + 1 == *cap) {
-    *cap *= 2;
-    *dst = realloc(*dst, *cap);
-  }
-  (*dst)[len] = c;
-  (*dst)[len + 1] = 0;
+  panicV(fmt, args);
 }
 
 void strCat(char **dst, UInt *cap, char const *src) {
-  if (*cap == 0) {
+  if (!*dst) {
     *cap = 16;
     *dst = malloc(*cap);
     (*dst)[0] = 0;
   }
   UInt len = strlen(*dst);
   UInt srcLen = strlen(src);
-  if (len + srcLen + 1 >= *cap) {
-    while (len + srcLen + 1 >= *cap) {
+  if ((len + srcLen + 1) >= *cap) {
+    while ((len + srcLen + 1) >= *cap) {
       *cap *= 2;
     }
     *dst = realloc(*dst, *cap);
@@ -136,10 +174,10 @@ void strCat(char **dst, UInt *cap, char const *src) {
 }
 
 static void pushChar(Lex *lex, U8 c) {
-  strPush(&lex->file.txt, &lex->file.txtCap, c);
+  strCat(&lex->file.txt, &lex->file.txtCap, (char[]){c, 0});
 }
 
-static U8 peek(Lex *lex) {
+static U8 peekChar(Lex *lex) {
   if (lex->file.charStash) {
     return lex->file.charStash;
   }
@@ -157,7 +195,7 @@ static U8 peek(Lex *lex) {
   fatalChar(lex, "Failed to read file: %s\n", strerror(err));
 }
 
-static void eat(Lex *lex) {
+static void eatChar(Lex *lex) {
   lex->file.charStash = 0;
   ++lex->file.charCol;
   if (lex->file.charStash == '\n') {
@@ -171,53 +209,53 @@ static U8 peekFile(Lex *lex) {
     return lex->file.stash;
   }
   while (TRUE) {
-    U8 c = peek(lex);
+    U8 c = peekChar(lex);
     if ((c == TOK_EOF) || !isspace(c) || (c == '\n')) {
       break;
     }
-    eat(lex);
+    eatChar(lex);
   }
-  if (peek(lex) == ';') {
+  if (peekChar(lex) == ';') {
     while (TRUE) {
-      U8 c = peek(lex);
+      U8 c = peekChar(lex);
       if ((c == TOK_EOF) || (c == '\n')) {
         break;
       }
-      eat(lex);
+      eatChar(lex);
     }
   }
   lex->loc.line = lex->file.charLine;
   lex->loc.col = lex->file.charCol;
-  if (peek(lex) == TOK_EOF) {
-    eat(lex);
+  if (peekChar(lex) == TOK_EOF) {
+    eatChar(lex);
     lex->file.stash = TOK_EOF;
     return TOK_EOF;
   }
-  if (peek(lex) == '\\') {
-    if (peek(lex) == '\n') {
-      eat(lex);
-      return peek(lex); // yuck
+  if (peekChar(lex) == '\\') {
+    if (peekChar(lex) == '\n') {
+      eatChar(lex);
+      return peekChar(lex); // yuck
     }
     lex->file.stash = '\\';
     return '\\';
   }
-  if (peek(lex) == '@') {
-    eat(lex);
+  if (peekChar(lex) == '@') {
+    eatChar(lex);
     // macro arg?
-    U8 c = peek(lex);
+    U8 c = peekChar(lex);
     if (isdigit(c)) {
-      for (; isdigit(c); c = peek(lex)) {
+      for (; isdigit(c); c = peekChar(lex)) {
         pushChar(lex, toupper(c));
-        eat(lex);
+        eatChar(lex);
       }
       lex->file.num = atoi(lex->file.txt);
       lex->file.stash = TOK_ARG;
       return TOK_ARG;
     }
     // directive
-    for (c = peek(lex); isalnum(c); c = peek(lex)) {
+    for (c = peekChar(lex); isalnum(c); c = peekChar(lex)) {
       pushChar(lex, toupper(c));
-      eat(lex);
+      eatChar(lex);
     }
     for (UInt i = 0; i < (sizeof(DIRECTIVES) / sizeof(DIRECTIVES[0])); ++i) {
       if (strcmp(lex->file.txt, DIRECTIVES[i].name) == 0) {
@@ -227,19 +265,19 @@ static U8 peekFile(Lex *lex) {
     }
     lexFatal(lex, "Unknown directive: @%s\n", lex->file.txt);
   }
-  if (peek(lex) == '"') {
-    eat(lex);
+  if (peekChar(lex) == '"') {
+    eatChar(lex);
     while (TRUE) {
-      U8 c = peek(lex);
+      U8 c = peekChar(lex);
       switch (c) {
       case TOK_EOF:
         fatalChar(lex, "Unexpected EOF in string literal\n");
       case '"':
-        eat(lex);
+        eatChar(lex);
         goto stringDone;
       case '\\':
-        eat(lex);
-        c = peek(lex);
+        eatChar(lex);
+        c = peekChar(lex);
         switch (c) {
         case TOK_EOF:
           fatalChar(lex, "Unexpected EOF in string literal\n");
@@ -264,11 +302,11 @@ static U8 peekFile(Lex *lex) {
         default:
           fatalChar(lex, "Unknown escape sequence: \\%c\n", c);
         }
-        eat(lex);
+        eatChar(lex);
         continue;
       default:
         pushChar(lex, c);
-        eat(lex);
+        eatChar(lex);
         continue;
       }
     }
@@ -276,15 +314,15 @@ static U8 peekFile(Lex *lex) {
     lex->file.stash = TOK_STR;
     return TOK_STR;
   }
-  if (peek(lex) == '\'') {
-    eat(lex);
-    U8 c = peek(lex);
+  if (peekChar(lex) == '\'') {
+    eatChar(lex);
+    U8 c = peekChar(lex);
     switch (c) {
     case TOK_EOF:
       fatalChar(lex, "Unexpected EOF in character literal\n");
     case '\\':
-      eat(lex);
-      c = peek(lex);
+      eatChar(lex);
+      c = peekChar(lex);
       switch (c) {
       case TOK_EOF:
         fatalChar(lex, "Unexpected EOF in character literal\n");
@@ -313,44 +351,44 @@ static U8 peekFile(Lex *lex) {
       lex->file.num = c;
       break;
     }
-    eat(lex);
-    if (peek(lex) != '\'') {
+    eatChar(lex);
+    if (peekChar(lex) != '\'') {
       fatalChar(lex, "Expected closing quote for character literal\n");
     }
-    eat(lex);
+    eatChar(lex);
     lex->file.stash = TOK_NUM;
     return TOK_NUM;
   }
-  U8 c = peek(lex);
+  U8 c = peekChar(lex);
   if (isdigit(c) || (c == '%') || (c == '$')) {
     I32 radix = 10;
     if (c == '%') {
       radix = 2;
-      eat(lex);
+      eatChar(lex);
       // edge case, this is a modulus
-      c = peek(lex);
+      c = peekChar(lex);
       if ((c != '0') && (c != '1')) {
         lex->file.stash = '%';
         return '%';
       }
     } else if (c == '$') {
       radix = 16;
-      eat(lex);
-      c = peek(lex);
+      eatChar(lex);
+      c = peekChar(lex);
     }
     while (TRUE) {
       // underscores in numbers
       if (c == '_') {
-        eat(lex);
-        c = peek(lex);
+        eatChar(lex);
+        c = peekChar(lex);
         continue;
       }
       if (!isalnum(c)) {
         break;
       }
       pushChar(lex, c);
-      eat(lex);
-      c = peek(lex);
+      eatChar(lex);
+      c = peekChar(lex);
     }
     lex->file.num = strtol(lex->file.txt, NULL, radix);
     lex->file.stash = TOK_NUM;
@@ -364,18 +402,18 @@ static U8 peekFile(Lex *lex) {
       break;
     }
     pushChar(lex, c);
-    eat(lex);
-    c = peek(lex);
+    eatChar(lex);
+    c = peekChar(lex);
   }
   UInt len = strlen(lex->file.txt);
   // digraph?
   if (len == 0) {
-    eat(lex);
-    U8 nc = peek(lex);
+    eatChar(lex);
+    U8 nc = peekChar(lex);
     for (UInt i = 0; i < (sizeof(DIGRAPHS) / sizeof(DIGRAPHS[0])); ++i) {
       char const *dg = DIGRAPHS[i].name;
       if ((dg[0] == c) && (dg[1] == nc)) {
-        eat(lex);
+        eatChar(lex);
         lex->file.stash = DIGRAPHS[i].tok;
         return DIGRAPHS[i].tok;
       }
@@ -425,7 +463,7 @@ static U8 peekMacro(Lex *lex) {
     return TOK_STR;
   case MACRO_ARG: {
     if (lex->macro.argsIdx >= lex->macro.args[tok->num].bufLen) {
-      lexFatalLoc(lex, tok->loc, "Argument %" UINT_FMT " is undefined\n",
+      lexFatalLoc(lex, tok->loc, "Argument %" U32_FMT " is undefined\n",
                   tok->num);
       return TOK_EOF;
     }
@@ -465,10 +503,10 @@ static U8 peekIfElse(Lex *lex) {
   return lex->ifElse.toks[lex->ifElse.toksIdx].tok;
 }
 
-void lexFileInit(Lex *lex, char *name, FILE *hnd);
+void lexFileInit(Lex *lex, char const *name, FILE *hnd);
 
-void lexMacroInit(Lex *lex, char *name, MacroTok *toks, UInt toksLen,
-                  MacroArg *args, UInt argsLen);
+void lexMacroInit(Lex *lex, char const *name, MacroTok *toks, UInt toksLen,
+                  Arg *args, UInt argsLen);
 
 void lexIfElseInit(Lex *lex, LocTok *toks, UInt toksLen);
 
@@ -499,7 +537,7 @@ void lexEat(Lex *lex) {
       argsDequeue(&lex->macro.args, &lex->macro.argsLen);
       break;
     case MACRO_ARG: {
-      MacroArg *arg = lex->macro.args + tok->num;
+      Arg *arg = lex->macro.args + tok->num;
       ++lex->macro.argsIdx;
       if (lex->macro.argsIdx < arg->bufLen) {
         return;
@@ -529,7 +567,7 @@ void lexRewind(Lex *lex) {
       int err = errno;
       fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", lex->loc.id,
               lex->file.charLine, lex->file.charCol);
-      fatal("Failed to rewind file: %s\n", strerror(err));
+      panic("Failed to rewind file: %s\n", strerror(err));
     }
     break;
   default:
@@ -617,5 +655,19 @@ Loc lexLoc(Lex const *lex) {
   default:
     UNREACHABLE();
     return (Loc){0};
+  }
+}
+
+Label lexLabel(Lex const *lex) {
+  char const *txt = lexTxt(lex);
+  UInt len = strlen(txt);
+  char const *offset = memchr(txt, '.', len);
+  if (!offset) {
+    return (Label){.scope = NULL, .id = txt};
+  }
+  UInt scopeLen = offset - txt;
+  UInt nameLen = len - scopeLen - 1;
+  if (!nameLen) {
+    lexFatal((Lex *)lex, "Label name cannot be empty\n");
   }
 }
