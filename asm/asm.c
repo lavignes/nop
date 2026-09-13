@@ -29,6 +29,10 @@ static Bool defining = FALSE;
 static char const *scope = NULL;
 static U16 pc = 0;
 
+static Sym *syms = NULL;
+static UInt symsLen = 0;
+static UInt symsCap = 0;
+
 static Macro *macros = NULL;
 static UInt macrosLen = 0;
 static UInt macrosCap = 0;
@@ -133,7 +137,17 @@ void expect(U8 tok) {
   }
 }
 
+Lex *getLex() { return ls; }
+
+char const *getScope() { return scope; }
+
 U16 getPC() { return pc; }
+
+Sym *addSym(Label lbl, Sym sym) {
+  return symCat(&syms, &symsLen, &symsCap, sym);
+}
+
+Sym *findSym(Label lbl) { return symFind(syms, symsLen, lbl); }
 
 static void expectEOL() {
   U8 seen = peek();
@@ -160,6 +174,8 @@ static void pass() {
       expectEOL();
       eat();
       continue;
+    case TOK_ID: {
+    }
     }
   }
 }

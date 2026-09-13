@@ -38,7 +38,7 @@ NORETURN void panicV(char const *fmt, va_list args);
 void strCat(char **dst, UInt *cap, char const *src);
 
 typedef struct {
-  char *id;
+  char const *name;
   UInt line;
   UInt col;
 } Loc;
@@ -48,6 +48,8 @@ typedef struct {
   char const *id;
 } Label;
 
+Bool labelEq(Label lhs, Label rhs);
+
 typedef struct {
   U8 tok;
   Bool unary;
@@ -55,9 +57,8 @@ typedef struct {
 
 enum {
   EXPR_CONST,
-  EXPR_ADDR,
-  EXPR_OP,
   EXPR_LABEL,
+  EXPR_OP,
 };
 
 typedef struct {
@@ -82,6 +83,16 @@ U16 exprEatSolvedU16();
 Bool exprCanReprU8(I32 num);
 Bool exprCanReprI8(I32 num);
 Bool exprCanReprU16(I32 num);
+
+typedef struct {
+  Label lbl;
+  Expr *exprs;
+  UInt exprsLen;
+  Loc loc;
+} Sym;
+
+Sym *symCat(Sym **syms, UInt *len, UInt *cap, Sym sym);
+Sym *symFind(Sym *syms, UInt len, Label lbl);
 
 enum : U8 {
   TOK_EOF = 26,
@@ -234,6 +245,11 @@ U8 peek();
 void eat();
 void expect(U8 tok);
 
+Lex *getLex();
+char const *getScope();
 U16 getPC();
+
+Sym *addSym(Label lbl, Sym sym);
+Sym *findSym(Label lbl);
 
 #endif // ASM_H

@@ -2,10 +2,10 @@
 
 CFLAGS = -g -Wimplicit -Wstrict-aliasing
 
-all: vm
+all: asm
 
-vm: asm.c lex.c abi.h asm.h
-	$(CC) $(CFLAGS) -o asm asm.c lex.c
+asm: asm.c lex.c expr.c abi.h asm.h opcodes.h
+	$(CC) $(CFLAGS) -o asm asm.c lex.c expr.c
 
 clean:
 	rm -f asm

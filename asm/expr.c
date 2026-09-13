@@ -1,6 +1,11 @@
 #include <stdlib.h>
+#include <string.h>
 
 #include "asm.h"
+
+Bool labelEq(Label lhs, Label rhs) {
+  return (strcmp(lhs.scope, rhs.scope) == 0) && (strcmp(lhs.id, rhs.id) == 0);
+}
 
 void exprCat(Expr **exprs, UInt *len, UInt *cap, Expr expr) {
   if (!*exprs) {
@@ -91,9 +96,13 @@ static void pushApply(Expr **exprs, UInt *len, UInt *cap, Op op) {
   pushOp(op);
 }
 
-static void pushApplyBinary(U32 tok) { pushApply((Op){tok, false}); }
+static void pushApplyBinary(Expr **exprs, UInt *len, UInt *cap, U32 tok) {
+  pushApply(exprs, len, cap, (Op){tok, false});
+}
 
-static void pushApplyUnary(U32 tok) { pushApply((Op){tok, true}); }
+static void pushApplyUnary(Expr **exprs, UInt *len, UInt *cap, U32 tok) {
+  pushApply(exprs, len, cap, (Op){tok, true});
+}
 
 Expr *exprEat(UInt *len, UInt *cap) {
   opStackLen = 0;
@@ -108,7 +117,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
         seenVal = TRUE;
         continue;
       }
-      pushApplyBinary('*');
+      pushApplyBinary(&exprs, len, cap, '*');
       seenVal = FALSE;
       continue;
     case '+':
@@ -117,9 +126,9 @@ Expr *exprEat(UInt *len, UInt *cap) {
     case '>':
       // sometimes unary
       if (seenVal) {
-        pushApplyBinary(peek());
+        pushApplyBinary(&exprs, len, cap, peek());
       } else {
-        pushApplyUnary(peek());
+        pushApplyUnary(&exprs, len, cap, peek());
       }
       eat();
       seenVal = FALSE;
@@ -127,7 +136,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
     case '!':
     case '~':
       // always unary
-      pushApplyUnary(peek());
+      pushApplyUnary(&exprs, len, cap, peek());
       eat();
       seenVal = FALSE;
       continue;
@@ -148,7 +157,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
       if (!seenVal) {
         fatal("Expected a value\n");
       }
-      pushApplyBinary(peek());
+      pushApplyBinary(&exprs, len, cap, peek());
       eat();
       seenVal = FALSE;
       continue;
@@ -156,7 +165,8 @@ Expr *exprEat(UInt *len, UInt *cap) {
       if (!seenVal) {
         fatal("Expected an operator\n");
       }
-      exprCat(&exprs, len, cap, (Expr){.kind = EXPR_CONST, .num = lexNum(ls)});
+      exprCat(&exprs, len, cap,
+              (Expr){.kind = EXPR_CONST, .num = lexNum(getLex())});
       eat();
       seenVal = TRUE;
       continue;
@@ -165,7 +175,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
         fatal("Expected an operator\n");
       }
       ++parenDepth;
-      pushApply((Op){'(', TRUE});
+      pushApply(&exprs, len, cap, (Op){'(', TRUE});
       eat();
       seenVal = FALSE;
       continue;
@@ -191,23 +201,263 @@ Expr *exprEat(UInt *len, UInt *cap) {
       if (!seenVal) {
         fatal("Expected an operator\n");
       }
-      exprCat(&exprs, len, cap, (Expr){.kind = EXPR_LABEL, .lbl = lexTxt(ls)});
+      exprCat(&exprs, len, cap,
+              (Expr){.kind = EXPR_LABEL, .lbl = lexLabel(getLex())});
       eat();
       seenVal = TRUE;
       continue;
+    case TOK_DEFINED: {
+      if (seenVal) {
+        fatal("Expected an operator\n");
+      }
+      eat();
+      expect(TOK_ID);
+      Label lbl = lexLabel(getLex());
+      exprCat(&exprs, len, cap,
+              (Expr){.kind = EXPR_CONST, .num = findSym(lbl) != NULL});
+      seenVal = TRUE;
+      continue;
+    }
+    case TOK_STRLEN:
+      if (seenVal) {
+        fatal("Expected an operator\n");
+      }
+      eat();
+      expect(TOK_STR);
+      exprCat(&exprs, len, cap,
+              (Expr){.kind = EXPR_CONST, .num = strlen(lexTxt(getLex()))});
+      seenVal = TRUE;
+      continue;
+    default:
+      if (!seenVal) {
+        fatal("Expected a value\n");
+      }
+      if (parenDepth) {
+        fatal("Mismatched parentheses\n");
+      }
+      goto complete;
     }
   }
+complete:
+  while (opStackLen) {
+    Op top = popOp();
+    exprCat(&exprs, len, cap, (Expr){.kind = EXPR_OP, .op = top});
+  }
+  return exprs;
 }
 
-Expr *exprEatLoc(UInt *len, UInt *cap, Loc *loc);
-I32 exprEatSolvedLoc(Loc *loc);
+Expr *exprEatLoc(UInt *len, UInt *cap, Loc *loc) {
+  peek();
+  *loc = lexLoc(getLex());
+  return exprEat(len, cap);
+}
 
-Bool exprSolve(Expr const *exprs, UInt len, I32 *num);
-U8 exprEatSolvedU8();
-U16 exprEatSolvedU16();
+I32 exprEatSolvedLoc(Loc *loc) {
+  UInt len;
+  UInt cap;
+  Expr *exprs = exprEatLoc(&len, &cap, loc);
+  I32 num;
+  if (!exprSolve(exprs, len, &num)) {
+    fatalLoc(*loc, "Expression must be constant\n");
+  }
+  return num;
+}
+
+static void numPush(I32 **stack, UInt *len, UInt *cap, I32 num) {
+  if (!*stack) {
+    *len = 0;
+    *cap = 16;
+    *stack = malloc(sizeof(I32) * *cap);
+  }
+  if (*len == *cap) {
+    *cap *= 2;
+    *stack = realloc(*stack, sizeof(I32) * *cap);
+  }
+  (*stack)[*len] = num;
+  ++*len;
+}
+
+static I32 numPop(I32 **stack, UInt *len) {
+  if (!*len) {
+    panic("Number stack underflow\n");
+  }
+  --*len;
+  return (*stack)[*len];
+}
+
+Bool exprSolve(Expr const *exprs, UInt len, I32 *num) {
+  I32 *stack = NULL;
+  UInt stackLen = 0;
+  UInt stackCap = 0;
+  for (UInt i = 0; i < len; ++i) {
+    Expr const *expr = exprs + i;
+    switch (expr->kind) {
+    case EXPR_CONST:
+      numPush(&stack, &stackLen, &stackCap, expr->num);
+      break;
+    case EXPR_LABEL: {
+      Sym *sym = findSym(expr->lbl);
+      if (!sym) {
+        goto fail;
+      }
+      I32 num;
+      // yuck
+      if (!exprSolve(sym->exprs, sym->exprsLen, &num)) {
+        goto fail;
+      }
+      numPush(&stack, &stackLen, &stackCap, num);
+      break;
+    }
+    case EXPR_OP: {
+      I32 rhs = numPop(&stack, &stackLen);
+      if (expr->op.unary) {
+        switch (expr->op.tok) {
+        case '+':
+          numPush(&stack, &stackLen, &stackCap, rhs);
+          break;
+        case '-':
+          numPush(&stack, &stackLen, &stackCap, -rhs);
+          break;
+        case '~':
+          numPush(&stack, &stackLen, &stackCap, ~rhs);
+          break;
+        case '!':
+          numPush(&stack, &stackLen, &stackCap, !rhs);
+          break;
+        case '<':
+          numPush(&stack, &stackLen, &stackCap, rhs & 0xFF);
+          break;
+        case '>':
+          numPush(&stack, &stackLen, &stackCap, (rhs >> 8) & 0xFF);
+          break;
+        default:
+          UNREACHABLE();
+        }
+      } else {
+        I32 lhs = numPop(&stack, &stackLen);
+        switch (expr->op.tok) {
+        case '+':
+          numPush(&stack, &stackLen, &stackCap, lhs + rhs);
+          break;
+        case '-':
+          numPush(&stack, &stackLen, &stackCap, lhs - rhs);
+          break;
+        case '*':
+          numPush(&stack, &stackLen, &stackCap, lhs * rhs);
+          break;
+        case '/':
+          numPush(&stack, &stackLen, &stackCap, lhs / rhs);
+          break;
+        case '%':
+          numPush(&stack, &stackLen, &stackCap, lhs % rhs);
+          break;
+        case TOK_ASL:
+          numPush(&stack, &stackLen, &stackCap, lhs << rhs);
+          break;
+        case TOK_ASR:
+          numPush(&stack, &stackLen, &stackCap, lhs >> rhs);
+          break;
+        case TOK_LSR:
+          numPush(&stack, &stackLen, &stackCap, ((U32)lhs) >> ((U32)rhs));
+          break;
+        case '<':
+          numPush(&stack, &stackLen, &stackCap, lhs < rhs);
+          break;
+        case TOK_LTE:
+          numPush(&stack, &stackLen, &stackCap, lhs <= rhs);
+          break;
+        case '>':
+          numPush(&stack, &stackLen, &stackCap, lhs > rhs);
+          break;
+        case TOK_GTE:
+          numPush(&stack, &stackLen, &stackCap, lhs >= rhs);
+          break;
+        case TOK_EQ:
+          numPush(&stack, &stackLen, &stackCap, lhs == rhs);
+          break;
+        case TOK_NEQ:
+          numPush(&stack, &stackLen, &stackCap, lhs != rhs);
+          break;
+        case '&':
+          numPush(&stack, &stackLen, &stackCap, lhs & rhs);
+          break;
+        case '|':
+          numPush(&stack, &stackLen, &stackCap, lhs | rhs);
+          break;
+        case '^':
+          numPush(&stack, &stackLen, &stackCap, lhs ^ rhs);
+          break;
+        case TOK_AND:
+          numPush(&stack, &stackLen, &stackCap, lhs && rhs);
+          break;
+        case TOK_OR:
+          numPush(&stack, &stackLen, &stackCap, lhs || rhs);
+          break;
+        default:
+          UNREACHABLE();
+        }
+      }
+      break;
+    }
+    default:
+      UNREACHABLE();
+    }
+  }
+  *num = numPop(&stack, &stackLen);
+  if (stackLen != 0) {
+    panic("Number stack not empty after evaluation\n");
+  }
+  free(stack);
+  return TRUE;
+fail:
+  free(stack);
+  return FALSE;
+}
+
+U8 exprEatSolvedU8() {
+  Loc loc;
+  I32 num = exprEatSolvedLoc(&loc);
+  if (!exprCanReprU8(num)) {
+    fatalLoc(loc, "Expression must fit in a byte: $%08X\n", num);
+  }
+  return (U8)num;
+}
+
+U16 exprEatSolvedU16() {
+  Loc loc;
+  I32 num = exprEatSolvedLoc(&loc);
+  if (!exprCanReprU16(num)) {
+    fatalLoc(loc, "Expression must fit in a word: $%08X\n", num);
+  }
+  return (U16)num;
+}
 
 Bool exprCanReprU8(I32 num) { return (num >= 0) && (num <= U8_MAX); }
 
 Bool exprCanReprI8(I32 num) { return (num >= I8_MIN) && (num <= I8_MAX); }
 
 Bool exprCanReprU16(I32 num) { return (num >= 0) && (num <= U16_MAX); }
+
+Sym *symCat(Sym **syms, UInt *len, UInt *cap, Sym sym) {
+  if (!*syms) {
+    *len = 0;
+    *cap = 16;
+    *syms = malloc(sizeof(Sym) * *cap);
+  }
+  if (*len == *cap) {
+    *cap *= 2;
+    *syms = realloc(*syms, sizeof(Sym) * *cap);
+  }
+  (*syms)[*len] = sym;
+  ++*len;
+  return &(*syms)[*len - 1];
+}
+
+Sym *symFind(Sym *syms, UInt len, Label lbl) {
+  for (UInt i = 0; i < len; ++i) {
+    if (labelEq(syms[i].lbl, lbl)) {
+      return &syms[i];
+    }
+  }
+  return NULL;
+}

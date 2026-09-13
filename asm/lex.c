@@ -105,14 +105,14 @@ static NORETURN void lexFatalLocV(Lex const *lex, Loc loc, char const *fmt,
   switch (lex->kind) {
   case LEX_FILE:
   case LEX_IF_ELSE:
-    fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", loc.id, loc.line,
+    fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", loc.name, loc.line,
             loc.col);
     break;
   case LEX_MACRO:
     fprintf(stderr,
             "%s:%" UINT_FMT ":%" UINT_FMT ": in macro %s\n\t%" UINT_FMT
             ":%" UINT_FMT ": ",
-            lex->macro.name, lex->loc.line, lex->loc.col, loc.id, loc.line,
+            lex->macro.name, lex->loc.line, lex->loc.col, loc.name, loc.line,
             loc.col);
     break;
   default:
@@ -149,7 +149,7 @@ NORETURN void lexFatal(Lex const *lex, char const *fmt, ...) {
 }
 
 static NORETURN void fatalChar(Lex *lex, char const *fmt, ...) {
-  fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", lex->loc.id,
+  fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", lex->loc.name,
           lex->file.charLine, lex->file.charCol);
   va_list args;
   va_start(args, fmt);
@@ -463,8 +463,7 @@ static U8 peekMacro(Lex *lex) {
     return TOK_STR;
   case MACRO_ARG: {
     if (lex->macro.argsIdx >= lex->macro.args[tok->num].bufLen) {
-      lexFatalLoc(lex, tok->loc, "Argument %" U32_FMT " is undefined\n",
-                  tok->num);
+      lexFatalLoc(lex, tok->loc, "Argument %d is undefined\n", tok->num);
       return TOK_EOF;
     }
     tok = lex->macro.args[tok->num].buf + lex->macro.argsIdx;
@@ -503,7 +502,20 @@ static U8 peekIfElse(Lex *lex) {
   return lex->ifElse.toks[lex->ifElse.toksIdx].tok;
 }
 
-void lexFileInit(Lex *lex, char const *name, FILE *hnd);
+void lexFileInit(Lex *lex, char const *name, FILE *hnd) {
+  lex->kind = LEX_FILE;
+  lex->loc.name = name;
+  lex->loc.line = 1;
+  lex->loc.col = 1;
+  lex->file.hnd = hnd;
+  lex->file.stash = 0;
+  lex->file.charStash = 0;
+  lex->file.charLine = 1;
+  lex->file.charCol = 1;
+  lex->file.txt = NULL;
+  lex->file.txtCap = 0;
+  lex->file.num = 0;
+}
 
 void lexMacroInit(Lex *lex, char const *name, MacroTok *toks, UInt toksLen,
                   Arg *args, UInt argsLen);
@@ -565,7 +577,7 @@ void lexRewind(Lex *lex) {
   case LEX_FILE:
     if (fseek(lex->file.hnd, lex->file.stash, SEEK_SET) != 0) {
       int err = errno;
-      fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", lex->loc.id,
+      fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", lex->loc.name,
               lex->file.charLine, lex->file.charCol);
       panic("Failed to rewind file: %s\n", strerror(err));
     }
@@ -659,15 +671,20 @@ Loc lexLoc(Lex const *lex) {
 }
 
 Label lexLabel(Lex const *lex) {
-  char const *txt = lexTxt(lex);
+  char *txt = strdup(lexTxt(lex));
   UInt len = strlen(txt);
-  char const *offset = memchr(txt, '.', len);
+  char *offset = memchr(txt, '.', len);
   if (!offset) {
-    return (Label){.scope = NULL, .id = txt};
+    return (Label){.scope = "", .id = txt};
   }
   UInt scopeLen = offset - txt;
   UInt nameLen = len - scopeLen - 1;
   if (!nameLen) {
-    lexFatal((Lex *)lex, "Label name cannot be empty\n");
+    lexFatal(lex, "Label name cannot be empty\n");
   }
+  if (scopeLen > 0) {
+    *offset = 0;
+    return (Label){.scope = txt, .id = offset + 1};
+  }
+  return (Label){.scope = getScope(), .id = offset + 1};
 }
