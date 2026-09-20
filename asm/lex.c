@@ -24,6 +24,9 @@ static struct {
     {TOK_ELSE, "@ELSE"},
     {TOK_END, "@END"},
     {TOK_MACRO, "@MACRO"},
+    {TOK_REPEAT, "@REPEAT"},
+    {TOK_STRFMT, "@STRFMT"},
+    {TOK_IDFMT, "@IDFMT"},
 
     {TOK_DEFINED, "@DEFINED"},
     {TOK_STRLEN, "@STRLEN"},
@@ -38,7 +41,6 @@ static struct {
     {TOK_AND, "`&&`"},
     {TOK_OR, "`||`"},
 
-    {TOK_A, "`A` register"},
     {TOK_X, "`X` register"},
     {TOK_Y, "`Y` register"},
 
@@ -53,7 +55,9 @@ char const *tokName(U8 tok) {
       return TOK_NAMES[i].name;
     }
   }
-  return "token";
+  char buf[16];
+  snprintf(buf, sizeof(buf), "`%c`", isprint(tok) ? tok : '?');
+  return intern(buf);
 }
 
 static struct {
@@ -63,6 +67,7 @@ static struct {
     {"DB", TOK_DB},           {"DW", TOK_DW},         {"DS", TOK_DS},
     {"INCLUDE", TOK_INCLUDE}, {"INCBIN", TOK_INCBIN}, {"IF", TOK_IF},
     {"ELSE", TOK_ELSE},       {"END", TOK_END},       {"MACRO", TOK_MACRO},
+    {"REPEAT", TOK_REPEAT},   {"STRFMT", TOK_STRFMT}, {"IDFMT", TOK_IDFMT},
 
     {"DEFINED", TOK_DEFINED}, {"STRLEN", TOK_STRLEN},
 
@@ -171,6 +176,7 @@ void strCat(char **dst, UInt *cap, char const *src) {
     *dst = realloc(*dst, *cap);
   }
   memcpy(*dst + len, src, srcLen + 1);
+  dst[len + srcLen] = 0;
 }
 
 static void pushChar(Lex *lex, U8 c) {
@@ -423,12 +429,9 @@ static U8 peekFile(Lex *lex) {
   if (len == 1) {
     U8 upper = toupper(lex->file.txt[0]);
     switch (upper) {
-    case 'A':
-      lex->file.stash = TOK_Y;
-      return TOK_Y;
     case 'X':
-      lex->file.stash = TOK_Y;
-      return TOK_Y;
+      lex->file.stash = TOK_X;
+      return TOK_X;
     case 'Y':
       lex->file.stash = TOK_Y;
       return TOK_Y;
@@ -517,10 +520,11 @@ void lexFileInit(Lex *lex, char const *name, FILE *hnd) {
   lex->file.num = 0;
 }
 
-void lexMacroInit(Lex *lex, char const *name, MacroTok *toks, UInt toksLen,
-                  Arg *args, UInt argsLen);
-
-void lexIfElseInit(Lex *lex, LocTok *toks, UInt toksLen);
+void lexMacroInit(Lex *lex, Loc loc, char const *name, MacroTok *toks,
+                  UInt toksLen, Arg *args, UInt argsLen);
+void lexRepeatInit(Lex *lex, Loc loc, RepeatTok *toks, UInt toksLen, UInt cnt);
+void lexFmtInit(Lex *lex, Loc loc, U8 tok, char const *fmt);
+void lexIfElseInit(Lex *lex, Loc loc, LocTok *toks, UInt toksLen);
 
 U8 lexPeek(Lex *lex) {
   switch (lex->kind) {
@@ -670,12 +674,12 @@ Loc lexLoc(Lex const *lex) {
   }
 }
 
-Label lexLabel(Lex const *lex) {
-  char *txt = strdup(lexTxt(lex));
+char const *lexLabel(Lex const *lex) {
+  char const *txt = lexTxt(lex);
   UInt len = strlen(txt);
-  char *offset = memchr(txt, '.', len);
+  char const *offset = memchr(txt, '.', len);
   if (!offset) {
-    return (Label){.scope = "", .id = txt};
+    return intern(txt);
   }
   UInt scopeLen = offset - txt;
   UInt nameLen = len - scopeLen - 1;
@@ -683,8 +687,15 @@ Label lexLabel(Lex const *lex) {
     lexFatal(lex, "Label name cannot be empty\n");
   }
   if (scopeLen > 0) {
-    *offset = 0;
-    return (Label){.scope = txt, .id = offset + 1};
+    return intern(txt);
   }
-  return (Label){.scope = getScope(), .id = offset + 1};
+  char const *scope = getScope();
+  scopeLen = strlen(scope);
+  char *buf = malloc(scopeLen + len + 1);
+  memcpy(buf, scope, scopeLen);
+  memcpy(buf + scopeLen, txt, len);
+  buf[scopeLen + len] = 0;
+  char const *lbl = intern(buf);
+  free(buf);
+  return lbl;
 }

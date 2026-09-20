@@ -44,13 +44,6 @@ typedef struct {
 } Loc;
 
 typedef struct {
-  char const *scope;
-  char const *id;
-} Label;
-
-Bool labelEq(Label lhs, Label rhs);
-
-typedef struct {
   U8 tok;
   Bool unary;
 } Op;
@@ -67,7 +60,7 @@ typedef struct {
     I32 num;
     U16 addr;
     Op op;
-    Label lbl;
+    char const *lbl;
   };
 } Expr;
 
@@ -85,14 +78,14 @@ Bool exprCanReprI8(I32 num);
 Bool exprCanReprU16(I32 num);
 
 typedef struct {
-  Label lbl;
+  char const *lbl;
   Expr *exprs;
   UInt exprsLen;
   Loc loc;
 } Sym;
 
 Sym *symCat(Sym **syms, UInt *len, UInt *cap, Sym sym);
-Sym *symFind(Sym *syms, UInt len, Label lbl);
+Sym *symFind(Sym *syms, UInt len, char const *lbl);
 
 enum : U8 {
   TOK_EOF = 26,
@@ -110,6 +103,9 @@ enum : U8 {
   TOK_ELSE,
   TOK_END,
   TOK_MACRO,
+  TOK_REPEAT,
+  TOK_STRFMT,
+  TOK_IDFMT,
 
   TOK_DEFINED,
   TOK_STRLEN,
@@ -124,7 +120,6 @@ enum : U8 {
   TOK_AND, // &&
   TOK_OR,  // ||
 
-  TOK_A,
   TOK_X,
   TOK_Y,
 
@@ -143,6 +138,24 @@ typedef struct {
     I32 num;
   };
 } LocTok;
+
+enum {
+  REPEAT_TOK,
+  REPEAT_ID,
+  REPEAT_NUM,
+  REPEAT_STR,
+  REPEAT_IDX,
+};
+
+typedef struct {
+  U8 kind;
+  Loc loc;
+  union {
+    U8 tok;
+    char *txt;
+    I32 num;
+  };
+} RepeatTok;
 
 enum {
   MACRO_TOK,
@@ -183,6 +196,8 @@ void argsDequeue(Arg **args, UInt *len);
 enum {
   LEX_FILE,
   LEX_MACRO,
+  LEX_REPEAT,
+  LEX_FMT,
   LEX_IF_ELSE,
 };
 
@@ -212,6 +227,19 @@ typedef struct {
     } macro;
 
     struct {
+      RepeatTok *toks;
+      UInt toksLen;
+      UInt toksIdx;
+      UInt idx;
+      UInt cnt;
+    } repeat;
+
+    struct {
+      U8 tok;
+      char const *fmt;
+    } fmt;
+
+    struct {
       LocTok *toks;
       UInt toksLen;
       UInt toksCap;
@@ -221,9 +249,11 @@ typedef struct {
 } Lex;
 
 void lexFileInit(Lex *lex, char const *name, FILE *hnd);
-void lexMacroInit(Lex *lex, char const *name, MacroTok *toks, UInt toksLen,
-                  Arg *args, UInt argsLen);
-void lexIfElseInit(Lex *lex, LocTok *toks, UInt toksLen);
+void lexMacroInit(Lex *lex, Loc loc, char const *name, MacroTok *toks,
+                  UInt toksLen, Arg *args, UInt argsLen);
+void lexRepeatInit(Lex *lex, Loc loc, RepeatTok *toks, UInt toksLen, UInt cnt);
+void lexFmtInit(Lex *lex, Loc loc, U8 tok, char const *fmt);
+void lexIfElseInit(Lex *lex, Loc loc, LocTok *toks, UInt toksLen);
 
 FORMAT(2) NORETURN void lexFatal(Lex const *lex, char const *fmt, ...);
 FORMAT(3)
@@ -236,7 +266,7 @@ void lexRewind(Lex *lex);
 char const *lexTxt(Lex const *lex);
 I32 lexNum(Lex const *lex);
 Loc lexLoc(Lex const *lex);
-Label lexLabel(Lex const *lex);
+char const *lexLabel(Lex const *lex);
 
 FORMAT(1) NORETURN void fatal(char const *fmt, ...);
 FORMAT(2) NORETURN void fatalLoc(Loc loc, char const *fmt, ...);
@@ -245,11 +275,13 @@ U8 peek();
 void eat();
 void expect(U8 tok);
 
+char const *intern(char const *str);
+
 Lex *getLex();
 char const *getScope();
 U16 getPC();
 
-Sym *addSym(Label lbl, Sym sym);
-Sym *findSym(Label lbl);
+Sym *addSym(char const *lbl, Sym sym);
+Sym *findSym(char const *lbl);
 
 #endif // ASM_H

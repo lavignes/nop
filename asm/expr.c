@@ -3,10 +3,6 @@
 
 #include "asm.h"
 
-Bool labelEq(Label lhs, Label rhs) {
-  return (strcmp(lhs.scope, rhs.scope) == 0) && (strcmp(lhs.id, rhs.id) == 0);
-}
-
 void exprCat(Expr **exprs, UInt *len, UInt *cap, Expr expr) {
   if (!*exprs) {
     *len = 0;
@@ -212,7 +208,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
       }
       eat();
       expect(TOK_ID);
-      Label lbl = lexLabel(getLex());
+      char const *lbl = lexLabel(getLex());
       exprCat(&exprs, len, cap,
               (Expr){.kind = EXPR_CONST, .num = findSym(lbl) != NULL});
       seenVal = TRUE;
@@ -260,6 +256,7 @@ I32 exprEatSolvedLoc(Loc *loc) {
   if (!exprSolve(exprs, len, &num)) {
     fatalLoc(*loc, "Expression must be constant\n");
   }
+  free(exprs);
   return num;
 }
 
@@ -453,9 +450,9 @@ Sym *symCat(Sym **syms, UInt *len, UInt *cap, Sym sym) {
   return &(*syms)[*len - 1];
 }
 
-Sym *symFind(Sym *syms, UInt len, Label lbl) {
+Sym *symFind(Sym *syms, UInt len, char const *lbl) {
   for (UInt i = 0; i < len; ++i) {
-    if (labelEq(syms[i].lbl, lbl)) {
+    if (!strcmp(syms[i].lbl, lbl)) {
       return &syms[i];
     }
   }

@@ -24,15 +24,9 @@ static void disSym(Dbg const *dbg, U16 addr) {
   }
 }
 
-static U16 disImpl(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disImp(Emu const *emu, U8 op, U16 addr, char const *mne) {
   fprintf(stderr, " %02X      ", op);
   fprintf(stderr, "  " BLUE("%s") "              ", mne);
-  return addr;
-}
-
-static U16 disA(Emu const *emu, U8 op, U16 addr, char const *mne) {
-  fprintf(stderr, " %02X      ", op);
-  fprintf(stderr, "  " BLUE("%s") " A            ", mne);
   return addr;
 }
 
@@ -43,7 +37,7 @@ static U16 disImm(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disZp(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disZpg(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   if (strlen(mne) == 3) {
@@ -56,7 +50,7 @@ static U16 disZp(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disZpX(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disZpx(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " $%02X,X        ", mne, zp);
@@ -64,7 +58,7 @@ static U16 disZpX(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disZpY(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disZpy(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " $%02X,Y        ", mne, zp);
@@ -72,7 +66,7 @@ static U16 disZpY(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disAb(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disAbs(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 lo = emuRead(emu, addr++);
   U8 hi = emuRead(emu, addr++);
   U16 ab = (((U16)hi) << 8) | lo;
@@ -82,7 +76,7 @@ static U16 disAb(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disAbX(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disAbx(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 lo = emuRead(emu, addr++);
   U8 hi = emuRead(emu, addr++);
   U16 ab = (((U16)hi) << 8) | lo;
@@ -92,7 +86,7 @@ static U16 disAbX(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disAbY(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disAby(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 lo = emuRead(emu, addr++);
   U8 hi = emuRead(emu, addr++);
   U16 ab = (((U16)hi) << 8) | lo;
@@ -102,7 +96,7 @@ static U16 disAbY(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disId(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disInd(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 lo = emuRead(emu, addr++);
   U8 hi = emuRead(emu, addr++);
   U16 ptr = (((U16)hi) << 8) | lo;
@@ -112,7 +106,7 @@ static U16 disId(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disIdX(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disIzx(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " ($%02X,X)      ", mne, zp);
@@ -120,7 +114,7 @@ static U16 disIdX(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disIdY(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disIzy(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 zp = emuRead(emu, addr++);
   fprintf(stderr, " %02X %02X   ", op, zp);
   fprintf(stderr, "  " BLUE("%s") " ($%02X),Y      ", mne, zp);
@@ -145,7 +139,7 @@ static U16 disIzp(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disJix(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disIax(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 lo = emuRead(emu, addr++);
   U8 hi = emuRead(emu, addr++);
   U16 ab = (((U16)hi) << 8) | lo;
@@ -155,17 +149,22 @@ static U16 disJix(Emu const *emu, U8 op, U16 addr, char const *mne) {
   return addr;
 }
 
-static U16 disZpRel(Emu const *emu, U8 op, U16 addr, char const *mne) {
+static U16 disBzp(Emu const *emu, U8 op, U16 addr, char const *mne) {
+  U8 zp = emuRead(emu, addr++);
+  fprintf(stderr, " %02X %02X   ", op, zp);
+  fprintf(stderr, "  " BLUE("%.3s") " " MAGENTA("%c") ",$%02X         ", mne,
+          mne[3], zp);
+  disSym(&emu->dbg, (U16)zp);
+  return addr;
+}
+
+static U16 disBzr(Emu const *emu, U8 op, U16 addr, char const *mne) {
   U8 zp = emuRead(emu, addr++);
   I8 offset = (I8)emuRead(emu, addr++);
   U16 target = addr + offset;
   fprintf(stderr, " %02X %02X %02X", op, zp, (U8)offset);
-  if (strlen(mne) == 3) {
-    fprintf(stderr, "  " BLUE("%s") " $%02X,$%04X   ", mne, zp, target);
-  } else {
-    fprintf(stderr, "  " BLUE("%.3s") " " MAGENTA("%c") ",$%02X,$%04X ", mne,
-            mne[2], zp, target);
-  }
+  fprintf(stderr, "  " BLUE("%.3s") " " MAGENTA("%c") ",$%02X,$%04X ", mne,
+          mne[3], zp, target);
   disSym(&emu->dbg, target);
   return addr;
 }
@@ -176,114 +175,114 @@ typedef struct {
 } DisEntry;
 
 static DisEntry const DIS_TBL[256] = {
-    [0x00] = {"BRK", disImm},    [0x01] = {"ORA", disIdX},
-    [0x05] = {"ORA", disZp},     [0x06] = {"ASL", disZp},
-    [0x08] = {"PHP", disImpl},   [0x09] = {"ORA", disImm},
-    [0x0A] = {"ASL", disImpl},   [0x0D] = {"ORA", disAb},
-    [0x0E] = {"ASL", disAb},     [0x10] = {"BPL", disRel},
-    [0x11] = {"ORA", disIdY},    [0x15] = {"ORA", disZpX},
-    [0x16] = {"ASL", disZpX},    [0x18] = {"CLC", disImpl},
-    [0x19] = {"ORA", disAbY},    [0x1D] = {"ORA", disAbX},
-    [0x1E] = {"ASL", disAbX},    [0x20] = {"JSR", disAb},
-    [0x21] = {"AND", disIdX},    [0x24] = {"BIT", disZp},
-    [0x25] = {"AND", disZp},     [0x26] = {"ROL", disZp},
-    [0x28] = {"PLP", disImpl},   [0x29] = {"AND", disImm},
-    [0x2A] = {"ROL", disImpl},   [0x2C] = {"BIT", disAb},
-    [0x2D] = {"AND", disAb},     [0x2E] = {"ROL", disAb},
-    [0x30] = {"BMI", disRel},    [0x31] = {"AND", disIdY},
-    [0x35] = {"AND", disZpX},    [0x36] = {"ROL", disZpX},
-    [0x38] = {"SEC", disImpl},   [0x39] = {"AND", disAbY},
-    [0x3D] = {"AND", disAbX},    [0x3E] = {"ROL", disAbX},
-    [0x40] = {"RTI", disImpl},   [0x41] = {"EOR", disIdX},
-    [0x45] = {"EOR", disZp},     [0x46] = {"LSR", disZp},
-    [0x48] = {"PHA", disImpl},   [0x49] = {"EOR", disImm},
-    [0x4A] = {"LSR", disImpl},   [0x4C] = {"JMP", disAb},
-    [0x4D] = {"EOR", disAb},     [0x4E] = {"LSR", disAb},
-    [0x50] = {"BVC", disRel},    [0x51] = {"EOR", disIdY},
-    [0x55] = {"EOR", disZpX},    [0x56] = {"LSR", disZpX},
-    [0x58] = {"CLI", disImpl},   [0x59] = {"EOR", disAbY},
-    [0x5D] = {"EOR", disAbX},    [0x5E] = {"LSR", disAbX},
-    [0x60] = {"RTS", disImpl},   [0x61] = {"ADC", disIdX},
-    [0x65] = {"ADC", disZp},     [0x66] = {"ROR", disZp},
-    [0x68] = {"PLA", disImpl},   [0x69] = {"ADC", disImm},
-    [0x6A] = {"ROR", disImpl},   [0x6C] = {"JMP", disId},
-    [0x6D] = {"ADC", disAb},     [0x6E] = {"ROR", disAb},
-    [0x70] = {"BVS", disRel},    [0x71] = {"ADC", disIdY},
-    [0x75] = {"ADC", disZpX},    [0x76] = {"ROR", disZpX},
-    [0x78] = {"SEI", disImpl},   [0x79] = {"ADC", disAbY},
-    [0x7D] = {"ADC", disAbX},    [0x7E] = {"ROR", disAbX},
-    [0x81] = {"STA", disIdX},    [0x84] = {"STY", disZp},
-    [0x85] = {"STA", disZp},     [0x86] = {"STX", disZp},
-    [0x88] = {"DEY", disImpl},   [0x8A] = {"TXA", disImpl},
-    [0x8C] = {"STY", disAb},     [0x8D] = {"STA", disAb},
-    [0x8E] = {"STX", disAb},     [0x90] = {"BCC", disRel},
-    [0x91] = {"STA", disIdY},    [0x94] = {"STY", disZpX},
-    [0x95] = {"STA", disZpX},    [0x96] = {"STX", disZpY},
-    [0x98] = {"TYA", disImpl},   [0x99] = {"STA", disAbY},
-    [0x9A] = {"TXS", disImpl},   [0x9D] = {"STA", disAbX},
-    [0xA0] = {"LDY", disImm},    [0xA1] = {"LDA", disIdX},
-    [0xA2] = {"LDX", disImm},    [0xA4] = {"LDY", disZp},
-    [0xA5] = {"LDA", disZp},     [0xA6] = {"LDX", disZp},
-    [0xA8] = {"TAY", disImpl},   [0xA9] = {"LDA", disImm},
-    [0xAA] = {"TAX", disImpl},   [0xAC] = {"LDY", disAb},
-    [0xAD] = {"LDA", disAb},     [0xAE] = {"LDX", disAb},
-    [0xB0] = {"BCS", disRel},    [0xB1] = {"LDA", disIdY},
-    [0xB4] = {"LDY", disZpX},    [0xB5] = {"LDA", disZpX},
-    [0xB6] = {"LDX", disZpY},    [0xB8] = {"CLV", disImpl},
-    [0xB9] = {"LDA", disAbY},    [0xBA] = {"TSX", disImpl},
-    [0xBC] = {"LDY", disAbX},    [0xBD] = {"LDA", disAbX},
-    [0xBE] = {"LDX", disAbY},    [0xC0] = {"CPY", disImm},
-    [0xC1] = {"CMP", disIdX},    [0xC4] = {"CPY", disZp},
-    [0xC5] = {"CMP", disZp},     [0xC6] = {"DEC", disZp},
-    [0xC8] = {"INY", disImpl},   [0xC9] = {"CMP", disImm},
-    [0xCA] = {"DEX", disImpl},   [0xCC] = {"CPY", disAb},
-    [0xCD] = {"CMP", disAb},     [0xCE] = {"DEC", disAb},
-    [0xD0] = {"BNE", disRel},    [0xD1] = {"CMP", disIdY},
-    [0xD5] = {"CMP", disZpX},    [0xD6] = {"DEC", disZpX},
-    [0xD8] = {"CLD", disImpl},   [0xD9] = {"CMP", disAbY},
-    [0xDD] = {"CMP", disAbX},    [0xDE] = {"DEC", disAbX},
-    [0xE0] = {"CPX", disImm},    [0xE1] = {"SBC", disIdX},
-    [0xE4] = {"CPX", disZp},     [0xE5] = {"SBC", disZp},
-    [0xE6] = {"INC", disZp},     [0xE8] = {"INX", disImpl},
-    [0xE9] = {"SBC", disImm},    [0xEA] = {"NOP", disImpl},
-    [0xEC] = {"CPX", disAb},     [0xED] = {"SBC", disAb},
-    [0xEE] = {"INC", disAb},     [0xF0] = {"BEQ", disRel},
-    [0xF1] = {"SBC", disIdY},    [0xF5] = {"SBC", disZpX},
-    [0xF6] = {"INC", disZpX},    [0xF8] = {"SED", disImpl},
-    [0xF9] = {"SBC", disAbY},    [0xFD] = {"SBC", disAbX},
-    [0xFE] = {"INC", disAbX},
+    [0x00] = {"BRK", disImm},  [0x01] = {"ORA", disIzx},
+    [0x05] = {"ORA", disZpg},  [0x06] = {"ASL", disZpg},
+    [0x08] = {"PHP", disImp},  [0x09] = {"ORA", disImm},
+    [0x0A] = {"ASL", disImp},  [0x0D] = {"ORA", disAbs},
+    [0x0E] = {"ASL", disAbs},  [0x10] = {"BPL", disRel},
+    [0x11] = {"ORA", disIzy},  [0x15] = {"ORA", disZpx},
+    [0x16] = {"ASL", disZpx},  [0x18] = {"CLC", disImp},
+    [0x19] = {"ORA", disAby},  [0x1D] = {"ORA", disAbx},
+    [0x1E] = {"ASL", disAbx},  [0x20] = {"JSR", disAbs},
+    [0x21] = {"AND", disIzx},  [0x24] = {"BIT", disZpg},
+    [0x25] = {"AND", disZpg},  [0x26] = {"ROL", disZpg},
+    [0x28] = {"PLP", disImp},  [0x29] = {"AND", disImm},
+    [0x2A] = {"ROL", disImp},  [0x2C] = {"BIT", disAbs},
+    [0x2D] = {"AND", disAbs},  [0x2E] = {"ROL", disAbs},
+    [0x30] = {"BMI", disRel},  [0x31] = {"AND", disIzy},
+    [0x35] = {"AND", disZpx},  [0x36] = {"ROL", disZpx},
+    [0x38] = {"SEC", disImp},  [0x39] = {"AND", disAby},
+    [0x3D] = {"AND", disAbx},  [0x3E] = {"ROL", disAbx},
+    [0x40] = {"RTI", disImp},  [0x41] = {"EOR", disIzx},
+    [0x45] = {"EOR", disZpg},  [0x46] = {"LSR", disZpg},
+    [0x48] = {"PHA", disImp},  [0x49] = {"EOR", disImm},
+    [0x4A] = {"LSR", disImp},  [0x4C] = {"JMP", disAbs},
+    [0x4D] = {"EOR", disAbs},  [0x4E] = {"LSR", disAbs},
+    [0x50] = {"BVC", disRel},  [0x51] = {"EOR", disIzy},
+    [0x55] = {"EOR", disZpx},  [0x56] = {"LSR", disZpx},
+    [0x58] = {"CLI", disImp},  [0x59] = {"EOR", disAby},
+    [0x5D] = {"EOR", disAbx},  [0x5E] = {"LSR", disAbx},
+    [0x60] = {"RTS", disImp},  [0x61] = {"ADC", disIzx},
+    [0x65] = {"ADC", disZpg},  [0x66] = {"ROR", disZpg},
+    [0x68] = {"PLA", disImp},  [0x69] = {"ADC", disImm},
+    [0x6A] = {"ROR", disImp},  [0x6C] = {"JMP", disInd},
+    [0x6D] = {"ADC", disAbs},  [0x6E] = {"ROR", disAbs},
+    [0x70] = {"BVS", disRel},  [0x71] = {"ADC", disIzy},
+    [0x75] = {"ADC", disZpx},  [0x76] = {"ROR", disZpx},
+    [0x78] = {"SEI", disImp},  [0x79] = {"ADC", disAby},
+    [0x7D] = {"ADC", disAbx},  [0x7E] = {"ROR", disAbx},
+    [0x81] = {"STA", disIzx},  [0x84] = {"STY", disZpg},
+    [0x85] = {"STA", disZpg},  [0x86] = {"STX", disZpg},
+    [0x88] = {"DEY", disImp},  [0x8A] = {"TXA", disImp},
+    [0x8C] = {"STY", disAbs},  [0x8D] = {"STA", disAbs},
+    [0x8E] = {"STX", disAbs},  [0x90] = {"BCC", disRel},
+    [0x91] = {"STA", disIzy},  [0x94] = {"STY", disZpx},
+    [0x95] = {"STA", disZpx},  [0x96] = {"STX", disZpy},
+    [0x98] = {"TYA", disImp},  [0x99] = {"STA", disAby},
+    [0x9A] = {"TXS", disImp},  [0x9D] = {"STA", disAbx},
+    [0xA0] = {"LDY", disImm},  [0xA1] = {"LDA", disIzx},
+    [0xA2] = {"LDX", disImm},  [0xA4] = {"LDY", disZpg},
+    [0xA5] = {"LDA", disZpg},  [0xA6] = {"LDX", disZpg},
+    [0xA8] = {"TAY", disImp},  [0xA9] = {"LDA", disImm},
+    [0xAA] = {"TAX", disImp},  [0xAC] = {"LDY", disAbs},
+    [0xAD] = {"LDA", disAbs},  [0xAE] = {"LDX", disAbs},
+    [0xB0] = {"BCS", disRel},  [0xB1] = {"LDA", disIzy},
+    [0xB4] = {"LDY", disZpx},  [0xB5] = {"LDA", disZpx},
+    [0xB6] = {"LDX", disZpy},  [0xB8] = {"CLV", disImp},
+    [0xB9] = {"LDA", disAby},  [0xBA] = {"TSX", disImp},
+    [0xBC] = {"LDY", disAbx},  [0xBD] = {"LDA", disAbx},
+    [0xBE] = {"LDX", disAby},  [0xC0] = {"CPY", disImm},
+    [0xC1] = {"CMP", disIzx},  [0xC4] = {"CPY", disZpg},
+    [0xC5] = {"CMP", disZpg},  [0xC6] = {"DEC", disZpg},
+    [0xC8] = {"INY", disImp},  [0xC9] = {"CMP", disImm},
+    [0xCA] = {"DEX", disImp},  [0xCC] = {"CPY", disAbs},
+    [0xCD] = {"CMP", disAbs},  [0xCE] = {"DEC", disAbs},
+    [0xD0] = {"BNE", disRel},  [0xD1] = {"CMP", disIzy},
+    [0xD5] = {"CMP", disZpx},  [0xD6] = {"DEC", disZpx},
+    [0xD8] = {"CLD", disImp},  [0xD9] = {"CMP", disAby},
+    [0xDD] = {"CMP", disAbx},  [0xDE] = {"DEC", disAbx},
+    [0xE0] = {"CPX", disImm},  [0xE1] = {"SBC", disIzx},
+    [0xE4] = {"CPX", disZpg},  [0xE5] = {"SBC", disZpg},
+    [0xE6] = {"INC", disZpg},  [0xE8] = {"INX", disImp},
+    [0xE9] = {"SBC", disImm},  [0xEA] = {"NOP", disImp},
+    [0xEC] = {"CPX", disAbs},  [0xED] = {"SBC", disAbs},
+    [0xEE] = {"INC", disAbs},  [0xF0] = {"BEQ", disRel},
+    [0xF1] = {"SBC", disIzy},  [0xF5] = {"SBC", disZpx},
+    [0xF6] = {"INC", disZpx},  [0xF8] = {"SED", disImp},
+    [0xF9] = {"SBC", disAby},  [0xFD] = {"SBC", disAbx},
+    [0xFE] = {"INC", disAbx},
 #ifndef CPU_NMOS
-    [0x04] = {"TSB", disZp},     [0x07] = {"RMB0", disZp},
-    [0x0C] = {"TSB", disAb},     [0x0F] = {"BBR0", disZpRel},
-    [0x12] = {"ORA", disIzp},    [0x14] = {"TRB", disZp},
-    [0x17] = {"RMB1", disZp},    [0x1A] = {"INC", disA},
-    [0x1C] = {"TRB", disAb},     [0x1F] = {"BBR1", disZpRel},
-    [0x27] = {"RMB2", disZp},    [0x2F] = {"BBR2", disZpRel},
-    [0x32] = {"AND", disIzp},    [0x34] = {"BIT", disZpX},
-    [0x37] = {"RMB3", disZp},    [0x3A] = {"DEC", disA},
-    [0x3C] = {"BIT", disAbX},    [0x3F] = {"BBR3", disZpRel},
-    [0x47] = {"RMB4", disZp},    [0x4F] = {"BBR4", disZpRel},
-    [0x52] = {"EOR", disIzp},    [0x57] = {"RMB5", disZp},
-    [0x5A] = {"PHY", disImpl},   [0x5F] = {"BBR5", disZpRel},
-    [0x64] = {"STZ", disZp},     [0x67] = {"RMB6", disZp},
-    [0x6F] = {"BBR6", disZpRel}, [0x72] = {"ADC", disIzp},
-    [0x74] = {"STZ", disZpX},    [0x77] = {"RMB7", disZp},
-    [0x7A] = {"PLY", disImpl},   [0x7C] = {"JMP", disJix},
-    [0x7F] = {"BBR7", disZpRel}, [0x80] = {"BRA", disRel},
-    [0x87] = {"SMB0", disZp},    [0x89] = {"BIT", disImm},
-    [0x8F] = {"BBS0", disZpRel}, [0x92] = {"STA", disIzp},
-    [0x97] = {"SMB1", disZp},    [0x9C] = {"STZ", disAb},
-    [0x9E] = {"STZ", disAbX},    [0x9F] = {"BBS1", disZpRel},
-    [0xA7] = {"SMB2", disZp},    [0xAF] = {"BBS2", disZpRel},
-    [0xB2] = {"LDA", disIzp},    [0xB7] = {"SMB3", disZp},
-    [0xBF] = {"BBS3", disZpRel}, [0xC7] = {"SMB4", disZp},
-    [0xCB] = {"WAI", disImpl},   [0xCF] = {"BBS4", disZpRel},
-    [0xD2] = {"CMP", disIzp},    [0xD7] = {"SMB5", disZp},
-    [0xDA] = {"PHX", disImpl},   [0xDB] = {"STP", disImpl},
-    [0xDF] = {"BBS5", disZpRel}, [0xE7] = {"SMB6", disZp},
-    [0xEF] = {"BBS6", disZpRel}, [0xF2] = {"SBC", disIzp},
-    [0xF7] = {"SMB7", disZp},    [0xFA] = {"PLX", disImpl},
-    [0xFF] = {"BBS7", disZpRel},
+    [0x04] = {"TSB", disZpg},  [0x07] = {"RMB0", disBzp},
+    [0x0C] = {"TSB", disAbs},  [0x0F] = {"BBR0", disBzr},
+    [0x12] = {"ORA", disIzp},  [0x14] = {"TRB", disZpg},
+    [0x17] = {"RMB1", disBzp}, [0x1A] = {"INC", disImp},
+    [0x1C] = {"TRB", disAbs},  [0x1F] = {"BBR1", disBzr},
+    [0x27] = {"RMB2", disBzp}, [0x2F] = {"BBR2", disBzr},
+    [0x32] = {"AND", disIzp},  [0x34] = {"BIT", disZpx},
+    [0x37] = {"RMB3", disBzp}, [0x3A] = {"DEC", disImp},
+    [0x3C] = {"BIT", disAbx},  [0x3F] = {"BBR3", disBzr},
+    [0x47] = {"RMB4", disBzp}, [0x4F] = {"BBR4", disBzr},
+    [0x52] = {"EOR", disIzp},  [0x57] = {"RMB5", disBzp},
+    [0x5A] = {"PHY", disImp},  [0x5F] = {"BBR5", disBzr},
+    [0x64] = {"STZ", disZpg},  [0x67] = {"RMB6", disBzp},
+    [0x6F] = {"BBR6", disBzr}, [0x72] = {"ADC", disIzp},
+    [0x74] = {"STZ", disZpx},  [0x77] = {"RMB7", disBzp},
+    [0x7A] = {"PLY", disImp},  [0x7C] = {"JMP", disIax},
+    [0x7F] = {"BBR7", disBzr}, [0x80] = {"BRA", disRel},
+    [0x87] = {"SMB0", disBzp}, [0x89] = {"BIT", disImm},
+    [0x8F] = {"BBS0", disBzr}, [0x92] = {"STA", disIzp},
+    [0x97] = {"SMB1", disBzp}, [0x9C] = {"STZ", disAbs},
+    [0x9E] = {"STZ", disAbx},  [0x9F] = {"BBS1", disBzr},
+    [0xA7] = {"SMB2", disBzp}, [0xAF] = {"BBS2", disBzr},
+    [0xB2] = {"LDA", disIzp},  [0xB7] = {"SMB3", disBzp},
+    [0xBF] = {"BBS3", disBzr}, [0xC7] = {"SMB4", disBzp},
+    [0xCB] = {"WAI", disImp},  [0xCF] = {"BBS4", disBzr},
+    [0xD2] = {"CMP", disIzp},  [0xD7] = {"SMB5", disBzp},
+    [0xDA] = {"PHX", disImp},  [0xDB] = {"STP", disImp},
+    [0xDF] = {"BBS5", disBzr}, [0xE7] = {"SMB6", disBzp},
+    [0xEF] = {"BBS6", disBzr}, [0xF2] = {"SBC", disIzp},
+    [0xF7] = {"SMB7", disBzp}, [0xFA] = {"PLX", disImp},
+    [0xFF] = {"BBS7", disBzr},
 #endif // CPU_NMOS
 };
 
@@ -301,7 +300,7 @@ U16 disAsm(Emu const *emu, U16 addr) {
   if (entry->fn) {
     addr = entry->fn(emu, op, addr, entry->mne);
   } else {
-    addr = disImpl(emu, op, addr, "ILL");
+    addr = disImp(emu, op, addr, "ILL");
   }
   fprintf(stderr, "\n");
   return addr;
