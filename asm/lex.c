@@ -176,7 +176,7 @@ void strCat(char **dst, UInt *cap, char const *src) {
     *dst = realloc(*dst, *cap);
   }
   memcpy(*dst + len, src, srcLen + 1);
-  dst[len + srcLen] = 0;
+  (*dst)[len + srcLen] = 0;
 }
 
 static void pushChar(Lex *lex, U8 c) {
@@ -518,6 +518,7 @@ void lexFileInit(Lex *lex, char const *name, FILE *hnd) {
   lex->file.txt = NULL;
   lex->file.txtCap = 0;
   lex->file.num = 0;
+  strCat(&lex->file.txt, &lex->file.txtCap, "");
 }
 
 void lexMacroInit(Lex *lex, Loc loc, char const *name, MacroTok *toks,

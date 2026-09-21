@@ -24,7 +24,7 @@ static char const *symFilePath = NULL;
 
 #define STACK_SIZE 32
 static Lex STACK[STACK_SIZE];
-static Lex *ls;
+static Lex *ls = STACK - 1;
 
 const char **interned = NULL;
 static UInt internedCap = 0;
