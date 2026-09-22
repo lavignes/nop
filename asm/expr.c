@@ -110,10 +110,12 @@ Expr *exprEat(UInt *len, UInt *cap) {
     case '*':
       if (!seenVal) {
         exprCat(&exprs, len, cap, (Expr){.kind = EXPR_CONST, .num = getPC()});
+        eat();
         seenVal = TRUE;
         continue;
       }
       pushApplyBinary(&exprs, len, cap, '*');
+      eat();
       seenVal = FALSE;
       continue;
     case '+':
@@ -158,7 +160,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
       seenVal = FALSE;
       continue;
     case TOK_NUM:
-      if (!seenVal) {
+      if (seenVal) {
         fatal("Expected an operator\n");
       }
       exprCat(&exprs, len, cap,
@@ -179,6 +181,9 @@ Expr *exprEat(UInt *len, UInt *cap) {
       if (!seenVal) {
         fatal("Expected a value\n");
       }
+      if (parenDepth == 0) {
+        goto complete;
+      }
       --parenDepth;
       while (TRUE) {
         if (!opStackLen) {
@@ -194,7 +199,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
       seenVal = TRUE;
       continue;
     case TOK_ID:
-      if (!seenVal) {
+      if (seenVal) {
         fatal("Expected an operator\n");
       }
       exprCat(&exprs, len, cap,
@@ -211,6 +216,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
       char const *lbl = lexLabel(getLex());
       exprCat(&exprs, len, cap,
               (Expr){.kind = EXPR_CONST, .num = findSym(lbl) != NULL});
+      eat();
       seenVal = TRUE;
       continue;
     }
@@ -222,6 +228,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
       expect(TOK_STR);
       exprCat(&exprs, len, cap,
               (Expr){.kind = EXPR_CONST, .num = strlen(lexTxt(getLex()))});
+      eat();
       seenVal = TRUE;
       continue;
     default:

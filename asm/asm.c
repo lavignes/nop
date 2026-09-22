@@ -92,14 +92,15 @@ int main(int argc, char const *const *argv) {
 
   pass();
   rewindPass();
-  emit = TRUE;
-  pass();
 
   if (outFilePath) {
     outFile = openFile(outFilePath, "wb+");
   } else {
     outFilePath = "<stdout>";
   }
+
+  emit = TRUE;
+  pass();
 
   closeFile(outFile);
   return EXIT_SUCCESS;
@@ -120,14 +121,14 @@ NORETURN void panicV(char const *fmt, va_list args) {
 NORETURN void fatal(char const *fmt, ...) {
   va_list args;
   va_start(args, fmt);
-  lexFatal(ls, fmt, args);
+  lexFatalV(ls, fmt, args);
   va_end(args);
 }
 
 NORETURN void fatalLoc(Loc loc, char const *fmt, ...) {
   va_list args;
   va_start(args, fmt);
-  lexFatalLoc(ls, loc, fmt, args);
+  lexFatalLocV(ls, loc, fmt, args);
   va_end(args);
 }
 
@@ -212,8 +213,44 @@ static void eatMnemonic(Mnemonic const *mne) {
   Loc mneLoc = lexLoc(ls);
   eat();
   U8 bzpOp = mne->opcodes[ADDR_BZP];
+  if (bzpOp != ILLEGAL) {
+    UInt bitLen;
+    UInt bitCap;
+    Loc bitLoc;
+    Expr *bitExpr = exprEatLoc(&bitLen, &bitCap, &bitLoc);
+    I32 bit;
+    if (emit) {
+      if (!exprSolve(bitExpr, bitLen, &bit)) {
+        fatalLoc(bitLoc, "Bit number must be known\n");
+      }
+      if ((bit < 0) || (bit > 7)) {
+        fatalLoc(bitLoc, "Bit number must be between 0 and 7\n");
+      }
+    }
+    expect(',');
+    eat();
+    UInt addrLen;
+    UInt addrCap;
+    Loc addrLoc;
+    Expr *addrExpr = exprEatLoc(&addrLen, &addrCap, &addrLoc);
+    if (emit) {
+      I32 addr;
+      if (!exprSolve(addrExpr, addrLen, &addr)) {
+        fatalLoc(addrLoc, "Zero-page address must be known\n");
+      }
+      if (!exprCanReprU8(addr)) {
+        fatalLoc(addrLoc, "Zero-page address must be between $00 and $FF\n");
+      }
+      emitByte(bzpOp + (U8)(bit * 16));
+      emitByte((U8)addr);
+    }
+    free(bitExpr);
+    free(addrExpr);
+    pc += 2;
+    return;
+  }
   U8 bzrOp = mne->opcodes[ADDR_BZR];
-  if ((bzpOp != ILLEGAL) || (bzrOp != ILLEGAL)) {
+  if (bzrOp != ILLEGAL) {
     UInt bitLen;
     UInt bitCap;
     Loc bitLoc;
@@ -248,8 +285,8 @@ static void eatMnemonic(Mnemonic const *mne) {
     UInt relCap;
     Loc relLoc;
     Expr *relExpr = exprEatLoc(&relLen, &relCap, &relLoc);
-    I32 rel;
     if (emit) {
+      I32 rel;
       if (!exprSolve(relExpr, relLen, &rel)) {
         fatalLoc(relLoc, "Branch address must be known\n");
       }
@@ -257,9 +294,7 @@ static void eatMnemonic(Mnemonic const *mne) {
       if (!exprCanReprI8(relOffset)) {
         fatalLoc(relLoc, "Branch distance too far: %d bytes\n", relOffset);
       }
-      U8 baseOp = (bzpOp != ILLEGAL) ? bzpOp : bzrOp;
-      U8 opcode = baseOp + (bit * 16);
-      emitByte(opcode);
+      emitByte(bzrOp + (U8)(bit * 16));
       emitByte((U8)addr);
       emitByte((U8)relOffset);
     }
@@ -354,6 +389,23 @@ static void eatMnemonic(Mnemonic const *mne) {
       }
       free(addrExpr);
       pc += 2;
+      return;
+    }
+    if (peek() == ')') {
+      U8 opcode = mne->opcodes[ADDR_IND];
+      if (opcode == ILLEGAL) {
+        fatalLoc(mneLoc, "Instruction does not support IND addressing\n");
+      }
+      eat();
+      if (emit) {
+        if (!exprCanReprU16(addr)) {
+          fatalLoc(addrLoc, "Address must fit in word\n");
+        }
+        emitByte(opcode);
+        emitWord((U16)addr);
+      }
+      free(addrExpr);
+      pc += 3;
       return;
     }
     U8 opcode = mne->opcodes[ADDR_IAX];

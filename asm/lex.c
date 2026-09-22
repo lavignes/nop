@@ -10,6 +10,7 @@ static struct {
   char const *name;
 } const TOK_NAMES[] = {
     {TOK_EOF, "end of file"},
+    {'\n', "end of line"},
 
     {TOK_ID, "identifier"},
     {TOK_NUM, "number"},
@@ -105,8 +106,8 @@ void argsDequeue(Arg **args, UInt *len) {
   memmove(*args, *args + 1, *len * sizeof(Arg));
 }
 
-static NORETURN void lexFatalLocV(Lex const *lex, Loc loc, char const *fmt,
-                                  va_list args) {
+NORETURN void lexFatalLocV(Lex const *lex, Loc loc, char const *fmt,
+                           va_list args) {
   switch (lex->kind) {
   case LEX_FILE:
   case LEX_IF_ELSE:
@@ -133,7 +134,7 @@ NORETURN void lexFatalLoc(Lex const *lex, Loc loc, char const *fmt, ...) {
   va_end(args);
 }
 
-static NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args) {
+NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args) {
   switch (lex->kind) {
   case LEX_FILE:
     lexFatalLocV(lex, lex->loc, fmt, args);

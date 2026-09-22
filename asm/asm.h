@@ -256,8 +256,11 @@ void lexFmtInit(Lex *lex, Loc loc, U8 tok, char const *fmt);
 void lexIfElseInit(Lex *lex, Loc loc, LocTok *toks, UInt toksLen);
 
 FORMAT(2) NORETURN void lexFatal(Lex const *lex, char const *fmt, ...);
+NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args);
 FORMAT(3)
 NORETURN void lexFatalLoc(Lex const *lex, Loc loc, char const *fmt, ...);
+NORETURN void lexFatalLocV(Lex const *lex, Loc loc, char const *fmt,
+                           va_list args);
 
 U8 lexPeek(Lex *lex);
 void lexEat(Lex *lex);
