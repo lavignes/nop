@@ -94,6 +94,7 @@ enum : U8 {
   TOK_NUM,
   TOK_STR,
 
+  TOK_CPU,
   TOK_DB,
   TOK_DW,
   TOK_DS,

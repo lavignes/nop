@@ -33,6 +33,7 @@ static Bool emit = FALSE;
 static Bool defining = FALSE;
 static char const *scope = NULL;
 static U16 pc = 0;
+static U8 cpu = CPU_6502;
 
 static Sym *syms = NULL;
 static UInt symsLen = 0;
@@ -45,6 +46,8 @@ static UInt macrosCap = 0;
 static FILE *openFile(char const *path, char const *mode);
 static void closeFile(FILE *hnd);
 static void pushFile(FILE *hnd, char const *path);
+
+static U8 findCpu(char const *name);
 
 static void pass();
 static void rewindPass();
@@ -189,13 +192,57 @@ static void expectEOL() {
   }
 }
 
-static Mnemonic const *findMnemonic(char const *name) {
+static U8 findCpu(char const *name) {
+  for (UInt i = 0; i < (sizeof(CPUS) / sizeof(CPUS[0])); ++i) {
+    if (strcasecmp(CPUS[i].name, name) == 0) {
+      return CPUS[i].cpu;
+    }
+  }
+  return 0;
+}
+
+static char const *cpuName(U8 which) {
+  for (UInt i = 0; i < (sizeof(CPUS) / sizeof(CPUS[0])); ++i) {
+    if (CPUS[i].cpu == which) {
+      return CPUS[i].name;
+    }
+  }
+  UNREACHABLE();
+  return NULL;
+}
+
+static U8 mneCpus(Mnemonic const *mne) {
+  U8 cpus = 0;
+  for (UInt i = 0; i < (sizeof(mne->opcodes) / sizeof(mne->opcodes[0])); ++i) {
+    cpus |= mne->opcodes[i].cpus;
+  }
+  return cpus;
+}
+
+static Mnemonic const *findMnemonicAnyCpu(char const *name) {
   for (UInt i = 0; i < (sizeof(MNEMONICS) / sizeof(MNEMONICS[0])); ++i) {
     if (strcasecmp(MNEMONICS[i].name, name) == 0) {
       return &MNEMONICS[i];
     }
   }
   return NULL;
+}
+
+static Mnemonic const *findMnemonic(char const *name) {
+  Mnemonic const *mne = findMnemonicAnyCpu(name);
+  if (mne && !(mneCpus(mne) & cpu)) {
+    return NULL;
+  }
+  return mne;
+}
+
+static Bool opcodeFor(Mnemonic const *mne, U8 mode, U8 *op) {
+  Opcode opcode = mne->opcodes[mode];
+  if (!(opcode.cpus & cpu)) {
+    return FALSE;
+  }
+  *op = opcode.op;
+  return TRUE;
 }
 
 static void emitByte(U8 byte) {
@@ -212,8 +259,8 @@ static void emitWord(U16 word) {
 static void eatMnemonic(Mnemonic const *mne) {
   Loc mneLoc = lexLoc(ls);
   eat();
-  U8 bzpOp = mne->opcodes[ADDR_BZP];
-  if (bzpOp != ILLEGAL) {
+  U8 bzpOp;
+  if (opcodeFor(mne, ADDR_BZP, &bzpOp)) {
     UInt bitLen;
     UInt bitCap;
     Loc bitLoc;
@@ -249,8 +296,8 @@ static void eatMnemonic(Mnemonic const *mne) {
     pc += 2;
     return;
   }
-  U8 bzrOp = mne->opcodes[ADDR_BZR];
-  if (bzrOp != ILLEGAL) {
+  U8 bzrOp;
+  if (opcodeFor(mne, ADDR_BZR, &bzrOp)) {
     UInt bitLen;
     UInt bitCap;
     Loc bitLoc;
@@ -305,9 +352,11 @@ static void eatMnemonic(Mnemonic const *mne) {
     return;
   }
   if (peek() == '#') {
-    U8 opcode = mne->opcodes[ADDR_IMM];
-    if (opcode == ILLEGAL) {
-      fatalLoc(mneLoc, "Instruction does not support IMM addressing\n");
+    U8 opcode;
+    if (!opcodeFor(mne, ADDR_IMM, &opcode)) {
+      fatalLoc(mneLoc,
+               "Instruction does not support IMM addressing on CPU: \"%s\"\n",
+               cpuName(cpu));
     }
     eat();
     UInt valLen;
@@ -344,9 +393,12 @@ static void eatMnemonic(Mnemonic const *mne) {
     }
     if (isZp) {
       if (peek() == ',') {
-        U8 opcode = mne->opcodes[ADDR_IZX];
-        if (opcode == ILLEGAL) {
-          fatalLoc(mneLoc, "Instruction does not support IZX addressing\n");
+        U8 opcode;
+        if (!opcodeFor(mne, ADDR_IZX, &opcode)) {
+          fatalLoc(
+              mneLoc,
+              "Instruction does not support IZX addressing on CPU: \"%s\"\n",
+              cpuName(cpu));
         }
         eat();
         expect(TOK_X);
@@ -364,9 +416,12 @@ static void eatMnemonic(Mnemonic const *mne) {
       expect(')');
       eat();
       if (peek() == ',') {
-        U8 opcode = mne->opcodes[ADDR_IZY];
-        if (opcode == ILLEGAL) {
-          fatalLoc(mneLoc, "Instruction does not support IZY addressing\n");
+        U8 opcode;
+        if (!opcodeFor(mne, ADDR_IZY, &opcode)) {
+          fatalLoc(
+              mneLoc,
+              "Instruction does not support IZY addressing on CPU: \"%s\"\n",
+              cpuName(cpu));
         }
         eat();
         expect(TOK_Y);
@@ -379,9 +434,11 @@ static void eatMnemonic(Mnemonic const *mne) {
         pc += 2;
         return;
       }
-      U8 opcode = mne->opcodes[ADDR_IZP];
-      if (opcode == ILLEGAL) {
-        fatalLoc(mneLoc, "Instruction does not support IZP addressing\n");
+      U8 opcode;
+      if (!opcodeFor(mne, ADDR_IZP, &opcode)) {
+        fatalLoc(mneLoc,
+                 "Instruction does not support IZP addressing on CPU: \"%s\"\n",
+                 cpuName(cpu));
       }
       if (emit) {
         emitByte(opcode);
@@ -392,9 +449,11 @@ static void eatMnemonic(Mnemonic const *mne) {
       return;
     }
     if (peek() == ')') {
-      U8 opcode = mne->opcodes[ADDR_IND];
-      if (opcode == ILLEGAL) {
-        fatalLoc(mneLoc, "Instruction does not support IND addressing\n");
+      U8 opcode;
+      if (!opcodeFor(mne, ADDR_IND, &opcode)) {
+        fatalLoc(mneLoc,
+                 "Instruction does not support IND addressing on CPU: \"%s\"\n",
+                 cpuName(cpu));
       }
       eat();
       if (emit) {
@@ -408,9 +467,11 @@ static void eatMnemonic(Mnemonic const *mne) {
       pc += 3;
       return;
     }
-    U8 opcode = mne->opcodes[ADDR_IAX];
-    if (opcode == ILLEGAL) {
-      fatalLoc(mneLoc, "Instruction does not support IAX addressing\n");
+    U8 opcode;
+    if (!opcodeFor(mne, ADDR_IAX, &opcode)) {
+      fatalLoc(mneLoc,
+               "Instruction does not support IAX addressing on CPU: \"%s\"\n",
+               cpuName(cpu));
     }
     expect(',');
     eat();
@@ -429,8 +490,8 @@ static void eatMnemonic(Mnemonic const *mne) {
     pc += 3;
     return;
   }
-  U8 relOp = mne->opcodes[ADDR_REL];
-  if (relOp != ILLEGAL) {
+  U8 relOp;
+  if (opcodeFor(mne, ADDR_REL, &relOp)) {
     UInt relLen;
     UInt relCap;
     Loc relLoc;
@@ -452,9 +513,11 @@ static void eatMnemonic(Mnemonic const *mne) {
     return;
   }
   if ((peek() == TOK_EOF) || (peek() == '\n')) {
-    U8 opcode = mne->opcodes[ADDR_IMP];
-    if (opcode == ILLEGAL) {
-      fatalLoc(mneLoc, "Instruction does not support IMP addressing\n");
+    U8 opcode;
+    if (!opcodeFor(mne, ADDR_IMP, &opcode)) {
+      fatalLoc(mneLoc,
+               "Instruction does not support IMP addressing on CPU: \"%s\"\n",
+               cpuName(cpu));
     }
     if (emit) {
       emitByte(opcode);
@@ -477,9 +540,12 @@ static void eatMnemonic(Mnemonic const *mne) {
     if (peek() == ',') {
       eat();
       if (peek() == TOK_X) {
-        U8 opcode = mne->opcodes[ADDR_ZPX];
-        if (opcode == ILLEGAL) {
-          fatalLoc(mneLoc, "Instruction does not support ZPX addressing\n");
+        U8 opcode;
+        if (!opcodeFor(mne, ADDR_ZPX, &opcode)) {
+          fatalLoc(
+              mneLoc,
+              "Instruction does not support ZPX addressing on CPU: \"%s\"\n",
+              cpuName(cpu));
         }
         eat();
         if (emit) {
@@ -492,9 +558,11 @@ static void eatMnemonic(Mnemonic const *mne) {
       }
       expect(TOK_Y);
       eat();
-      U8 opcode = mne->opcodes[ADDR_ZPY];
-      if (opcode == ILLEGAL) {
-        fatalLoc(mneLoc, "Instruction does not support ZPY addressing\n");
+      U8 opcode;
+      if (!opcodeFor(mne, ADDR_ZPY, &opcode)) {
+        fatalLoc(mneLoc,
+                 "Instruction does not support ZPY addressing on CPU: \"%s\"\n",
+                 cpuName(cpu));
       }
       if (emit) {
         emitByte(opcode);
@@ -504,9 +572,11 @@ static void eatMnemonic(Mnemonic const *mne) {
       pc += 2;
       return;
     }
-    U8 opcode = mne->opcodes[ADDR_ZPG];
-    if (opcode == ILLEGAL) {
-      fatalLoc(mneLoc, "Instruction does not support ZPG addressing\n");
+    U8 opcode;
+    if (!opcodeFor(mne, ADDR_ZPG, &opcode)) {
+      fatalLoc(mneLoc,
+               "Instruction does not support ZPG addressing on CPU: \"%s\"\n",
+               cpuName(cpu));
     }
     if (emit) {
       emitByte(opcode);
@@ -519,9 +589,11 @@ static void eatMnemonic(Mnemonic const *mne) {
   if (peek() == ',') {
     eat();
     if (peek() == TOK_X) {
-      U8 opcode = mne->opcodes[ADDR_ABX];
-      if (opcode == ILLEGAL) {
-        fatalLoc(mneLoc, "Instruction does not support ABX addressing\n");
+      U8 opcode;
+      if (!opcodeFor(mne, ADDR_ABX, &opcode)) {
+        fatalLoc(mneLoc,
+                 "Instruction does not support ABX addressing on CPU: \"%s\"\n",
+                 cpuName(cpu));
       }
       eat();
       if (emit) {
@@ -537,9 +609,11 @@ static void eatMnemonic(Mnemonic const *mne) {
     }
     expect(TOK_Y);
     eat();
-    U8 opcode = mne->opcodes[ADDR_ABY];
-    if (opcode == ILLEGAL) {
-      fatalLoc(mneLoc, "Instruction does not support ABY addressing\n");
+    U8 opcode;
+    if (!opcodeFor(mne, ADDR_ABY, &opcode)) {
+      fatalLoc(mneLoc,
+               "Instruction does not support ABY addressing on CPU \"%s\"\n",
+               cpuName(cpu));
     }
     if (emit) {
       if (!exprCanReprU16(addr)) {
@@ -552,9 +626,11 @@ static void eatMnemonic(Mnemonic const *mne) {
     pc += 3;
     return;
   }
-  U8 opcode = mne->opcodes[ADDR_ABS];
-  if (opcode == ILLEGAL) {
-    fatalLoc(mneLoc, "Instruction does not support ABS addressing\n");
+  U8 opcode;
+  if (!opcodeFor(mne, ADDR_ABS, &opcode)) {
+    fatalLoc(mneLoc,
+             "Instruction does not support ABS addressing on CPU \"%s\"\n",
+             cpuName(cpu));
   }
   if (emit) {
     if (!exprCanReprU16(addr)) {
@@ -581,6 +657,19 @@ static Bool lblIsGlobal(char const *lbl) {
 static void eatDirective() {
   Loc dirLoc = lexLoc(ls);
   switch (peek()) {
+  case TOK_CPU: {
+    eat();
+    expect(TOK_STR);
+    char const *txt = lexTxt(ls);
+    cpu = findCpu(txt);
+    if (!cpu) {
+      fatalLoc(dirLoc, "Unknown CPU: \"%s\"\n", txt);
+    }
+    eat();
+    expectEOL();
+    eat();
+    return;
+  }
   case TOK_DB:
     eat();
     return;
@@ -654,6 +743,11 @@ static void pass() {
         if (!lblIsGlobal(lbl)) {
           fatal("Expected `:` or `=`\n");
         }
+        Mnemonic const *unsupportedMne = findMnemonicAnyCpu(lbl);
+        if (unsupportedMne) {
+          fatalLoc(loc, "Instruction %s is not available on CPU: \"%s\"\n",
+                   unsupportedMne->name, cpuName(cpu));
+        }
         fatalLoc(loc, "Unrecognized instruction or directive\n");
       }
       if (lblIsGlobal(lbl)) {
@@ -673,6 +767,7 @@ static void rewindPass() {
   lexRewind(ls);
   macros = NULL;
   pc = 0;
+  cpu = CPU_6502;
   defining = FALSE;
   scope = NULL;
 }

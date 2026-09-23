@@ -16,6 +16,7 @@ static struct {
     {TOK_NUM, "number"},
     {TOK_STR, "string"},
 
+    {TOK_CPU, "@CPU"},
     {TOK_DB, "@DB"},
     {TOK_DW, "@DW"},
     {TOK_DS, "@DS"},
@@ -65,10 +66,11 @@ static struct {
   char const *name;
   U8 tok;
 } const DIRECTIVES[] = {
-    {"DB", TOK_DB},           {"DW", TOK_DW},         {"DS", TOK_DS},
-    {"INCLUDE", TOK_INCLUDE}, {"INCBIN", TOK_INCBIN}, {"IF", TOK_IF},
-    {"ELSE", TOK_ELSE},       {"END", TOK_END},       {"MACRO", TOK_MACRO},
-    {"REPEAT", TOK_REPEAT},   {"STRFMT", TOK_STRFMT}, {"IDFMT", TOK_IDFMT},
+    {"CPU", TOK_CPU},         {"DB", TOK_DB},           {"DW", TOK_DW},
+    {"DS", TOK_DS},           {"INCLUDE", TOK_INCLUDE}, {"INCBIN", TOK_INCBIN},
+    {"IF", TOK_IF},           {"ELSE", TOK_ELSE},       {"END", TOK_END},
+    {"MACRO", TOK_MACRO},     {"REPEAT", TOK_REPEAT},   {"STRFMT", TOK_STRFMT},
+    {"IDFMT", TOK_IDFMT},
 
     {"DEFINED", TOK_DEFINED}, {"STRLEN", TOK_STRLEN},
 
@@ -203,9 +205,10 @@ static U8 peekChar(Lex *lex) {
 }
 
 static void eatChar(Lex *lex) {
+  U8 c = lex->file.charStash;
   lex->file.charStash = 0;
   ++lex->file.charCol;
-  if (lex->file.charStash == '\n') {
+  if (c == '\n') {
     ++lex->file.charLine;
     lex->file.charCol = 1;
   }
@@ -215,6 +218,7 @@ static U8 peekFile(Lex *lex) {
   if (lex->file.stash) {
     return lex->file.stash;
   }
+repeek:
   while (TRUE) {
     U8 c = peekChar(lex);
     if ((c == TOK_EOF) || !isspace(c) || (c == '\n')) {
@@ -239,9 +243,10 @@ static U8 peekFile(Lex *lex) {
     return TOK_EOF;
   }
   if (peekChar(lex) == '\\') {
+    eatChar(lex);
     if (peekChar(lex) == '\n') {
       eatChar(lex);
-      return peekChar(lex); // yuck
+      goto repeek;
     }
     lex->file.stash = '\\';
     return '\\';
