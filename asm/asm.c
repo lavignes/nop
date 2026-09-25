@@ -13,7 +13,7 @@ static void help(char const *name) {
       "Options:\n\n"
       "  -o, --output <path>          Write output to file (default: stdout)\n"
       "  -d, --debug <path>           Emit debug symbols to file\n"
-      "  -D, ----define <NAME=VALUE>  Predefine symbol\n"
+      "  -D, --define <NAME=VALUE>    Predefine symbol\n"
       "  -h, --help                   Show this help message\n",
       name);
 }
@@ -175,6 +175,8 @@ char const *getScope() { return scope; }
 
 U16 getPC() { return pc; }
 
+static void addPC(U16 len) { pc += len; }
+
 Sym *addSym(char const *lbl, Sym sym) {
   return symCat(&syms, &symsLen, &symsCap, sym);
 }
@@ -211,7 +213,7 @@ static char const *cpuName(U8 which) {
   return NULL;
 }
 
-static U8 mneCpus(Mnemonic const *mne) {
+static U8 supportedCpus(Mnemonic const *mne) {
   U8 cpus = 0;
   for (UInt i = 0; i < (sizeof(mne->opcodes) / sizeof(mne->opcodes[0])); ++i) {
     cpus |= mne->opcodes[i].cpus;
@@ -219,7 +221,7 @@ static U8 mneCpus(Mnemonic const *mne) {
   return cpus;
 }
 
-static Mnemonic const *findMnemonicAnyCpu(char const *name) {
+static Mnemonic const *findMnemonic(char const *name) {
   for (UInt i = 0; i < (sizeof(MNEMONICS) / sizeof(MNEMONICS[0])); ++i) {
     if (strcasecmp(MNEMONICS[i].name, name) == 0) {
       return &MNEMONICS[i];
@@ -228,9 +230,9 @@ static Mnemonic const *findMnemonicAnyCpu(char const *name) {
   return NULL;
 }
 
-static Mnemonic const *findMnemonic(char const *name) {
-  Mnemonic const *mne = findMnemonicAnyCpu(name);
-  if (mne && !(mneCpus(mne) & cpu)) {
+static Mnemonic const *findSupportedMnemonic(char const *name) {
+  Mnemonic const *mne = findMnemonic(name);
+  if (mne && !(supportedCpus(mne) & cpu)) {
     return NULL;
   }
   return mne;
@@ -245,11 +247,13 @@ static Bool opcodeFor(Mnemonic const *mne, U8 mode, U8 *op) {
   return TRUE;
 }
 
-static void emitByte(U8 byte) {
-  if (fputc(byte, outFile) == EOF) {
+static void emitBytes(U8 const *bytes, UInt len) {
+  if (fwrite(bytes, 1, len, outFile) != len) {
     panic("Failed to write to output file: %s\n", strerror(errno));
   }
 }
+
+static void emitByte(U8 byte) { emitBytes(&byte, 1); }
 
 static void emitWord(U16 word) {
   emitByte((U8)(word & 0xFF));
@@ -293,7 +297,7 @@ static void eatMnemonic(Mnemonic const *mne) {
     }
     free(bitExpr);
     free(addrExpr);
-    pc += 2;
+    addPC(2);
     return;
   }
   U8 bzrOp;
@@ -323,7 +327,7 @@ static void eatMnemonic(Mnemonic const *mne) {
         fatalLoc(addrLoc, "Zero-page address must be known\n");
       }
       if (!exprCanReprU8(addr)) {
-        fatalLoc(addrLoc, "Zero-page address must be between $00 and $FF\n");
+        fatalLoc(addrLoc, "Zero-page address must fit in byte: %08X\n", addr);
       }
     }
     expect(',');
@@ -348,7 +352,7 @@ static void eatMnemonic(Mnemonic const *mne) {
     free(bitExpr);
     free(addrExpr);
     free(relExpr);
-    pc += 3;
+    addPC(3);
     return;
   }
   if (peek() == '#') {
@@ -375,7 +379,7 @@ static void eatMnemonic(Mnemonic const *mne) {
       emitByte((U8)val);
     }
     free(valExpr);
-    pc += 2;
+    addPC(2);
     return;
   }
   if (peek() == '(') {
@@ -410,7 +414,7 @@ static void eatMnemonic(Mnemonic const *mne) {
           emitByte((U8)addr);
         }
         free(addrExpr);
-        pc += 2;
+        addPC(2);
         return;
       }
       expect(')');
@@ -431,7 +435,7 @@ static void eatMnemonic(Mnemonic const *mne) {
           emitByte((U8)addr);
         }
         free(addrExpr);
-        pc += 2;
+        addPC(2);
         return;
       }
       U8 opcode;
@@ -445,7 +449,7 @@ static void eatMnemonic(Mnemonic const *mne) {
         emitByte((U8)addr);
       }
       free(addrExpr);
-      pc += 2;
+      addPC(2);
       return;
     }
     if (peek() == ')') {
@@ -458,13 +462,13 @@ static void eatMnemonic(Mnemonic const *mne) {
       eat();
       if (emit) {
         if (!exprCanReprU16(addr)) {
-          fatalLoc(addrLoc, "Address must fit in word\n");
+          fatalLoc(addrLoc, "Address must fit in word: %08X\n", addr);
         }
         emitByte(opcode);
         emitWord((U16)addr);
       }
       free(addrExpr);
-      pc += 3;
+      addPC(3);
       return;
     }
     U8 opcode;
@@ -481,13 +485,13 @@ static void eatMnemonic(Mnemonic const *mne) {
     eat();
     if (emit) {
       if (!exprCanReprU16(addr)) {
-        fatalLoc(addrLoc, "Address must fit in word\n");
+        fatalLoc(addrLoc, "Address must fit in word: %08X\n", addr);
       }
       emitByte(opcode);
       emitWord((U16)addr);
     }
     free(addrExpr);
-    pc += 3;
+    addPC(3);
     return;
   }
   U8 relOp;
@@ -509,7 +513,7 @@ static void eatMnemonic(Mnemonic const *mne) {
       emitByte((U8)relOffset);
     }
     free(relExpr);
-    pc += 2;
+    addPC(2);
     return;
   }
   if ((peek() == TOK_EOF) || (peek() == '\n')) {
@@ -522,7 +526,7 @@ static void eatMnemonic(Mnemonic const *mne) {
     if (emit) {
       emitByte(opcode);
     }
-    pc += 1;
+    addPC(1);
     return;
   }
   Bool isZp = (peek() == '<');
@@ -553,7 +557,7 @@ static void eatMnemonic(Mnemonic const *mne) {
           emitByte((U8)addr);
         }
         free(addrExpr);
-        pc += 2;
+        addPC(2);
         return;
       }
       expect(TOK_Y);
@@ -569,7 +573,7 @@ static void eatMnemonic(Mnemonic const *mne) {
         emitByte((U8)addr);
       }
       free(addrExpr);
-      pc += 2;
+      addPC(2);
       return;
     }
     U8 opcode;
@@ -583,7 +587,7 @@ static void eatMnemonic(Mnemonic const *mne) {
       emitByte((U8)addr);
     }
     free(addrExpr);
-    pc += 2;
+    addPC(2);
     return;
   }
   if (peek() == ',') {
@@ -604,7 +608,7 @@ static void eatMnemonic(Mnemonic const *mne) {
         emitWord((U16)addr);
       }
       free(addrExpr);
-      pc += 3;
+      addPC(3);
       return;
     }
     expect(TOK_Y);
@@ -617,13 +621,13 @@ static void eatMnemonic(Mnemonic const *mne) {
     }
     if (emit) {
       if (!exprCanReprU16(addr)) {
-        fatalLoc(addrLoc, "Address must fit in word\n");
+        fatalLoc(addrLoc, "Address must fit in word: %08X\n", addr);
       }
       emitByte(opcode);
       emitWord((U16)addr);
     }
     free(addrExpr);
-    pc += 3;
+    addPC(3);
     return;
   }
   U8 opcode;
@@ -634,13 +638,13 @@ static void eatMnemonic(Mnemonic const *mne) {
   }
   if (emit) {
     if (!exprCanReprU16(addr)) {
-      fatalLoc(addrLoc, "Address must fit in word\n");
+      fatalLoc(addrLoc, "Address must fit in word: %08X\n", addr);
     }
     emitByte(opcode);
     emitWord((U16)addr);
   }
   free(addrExpr);
-  pc += 3;
+  addPC(3);
 }
 
 static Expr *constExpr(I32 num) {
@@ -672,8 +676,69 @@ static void eatDirective() {
   }
   case TOK_DB:
     eat();
+    while (TRUE) {
+      switch (peek()) {
+      case TOK_STR: {
+        char const *txt = lexTxt(ls);
+        UInt len = strlen(txt);
+        if (emit) {
+          emitBytes((U8 *)txt, len);
+        }
+        addPC(len);
+        break;
+      }
+      default: {
+        UInt len;
+        UInt cap;
+        Loc loc;
+        Expr *expr = exprEatLoc(&len, &cap, &loc);
+        if (emit) {
+          I32 num;
+          if (!exprSolve(expr, len, &num)) {
+            fatalLoc(loc, "Byte must be known\n");
+          }
+          if (!exprCanReprU8(num)) {
+            fatalLoc(loc, "Expression must fit in byte: %08X\n", num);
+          }
+          emitByte((U8)num);
+        }
+        addPC(1);
+        break;
+      }
+      }
+      if (peek() != ',') {
+        break;
+      }
+      eat();
+    }
+    expectEOL();
+    eat();
     return;
   case TOK_DW:
+    eat();
+    while (TRUE) {
+      UInt len;
+      UInt cap;
+      Loc loc;
+      Expr *expr = exprEatLoc(&len, &cap, &loc);
+      if (emit) {
+        I32 num;
+        if (!exprSolve(expr, len, &num)) {
+          fatalLoc(loc, "Word must be known\n");
+        }
+        if (!exprCanReprU16(num)) {
+          fatalLoc(loc, "Expression must fit in word: %08X\n", num);
+        }
+        emitWord((U16)num);
+      }
+      addPC(2);
+      if (peek() != ',') {
+        break;
+      }
+      eat();
+    }
+    expectEOL();
+    eat();
     return;
   }
 }
@@ -693,7 +758,7 @@ static void pass() {
       eat();
       continue;
     case TOK_ID: {
-      Mnemonic const *mne = findMnemonic(lexTxt(ls));
+      Mnemonic const *mne = findSupportedMnemonic(lexTxt(ls));
       if (mne) {
         eatMnemonic(mne);
         expectEOL();
@@ -743,7 +808,7 @@ static void pass() {
         if (!lblIsGlobal(lbl)) {
           fatal("Expected `:` or `=`\n");
         }
-        Mnemonic const *unsupportedMne = findMnemonicAnyCpu(lbl);
+        Mnemonic const *unsupportedMne = findMnemonic(lbl);
         if (unsupportedMne) {
           fatalLoc(loc, "Instruction %s is not available on CPU: \"%s\"\n",
                    unsupportedMne->name, cpuName(cpu));
