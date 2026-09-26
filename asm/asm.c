@@ -109,6 +109,15 @@ int main(int argc, char const *const *argv) {
   return EXIT_SUCCESS;
 }
 
+void warn(char const *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  warnV(fmt, args);
+  va_end(args);
+}
+
+void warnV(char const *fmt, va_list args) { vfprintf(stderr, fmt, args); }
+
 NORETURN void panic(char const *fmt, ...) {
   va_list args;
   va_start(args, fmt);
@@ -466,6 +475,9 @@ static void eatMnemonic(Mnemonic const *mne) {
         }
         emitByte(opcode);
         emitWord((U16)addr);
+        if (((addr & 0xFF) == 0xFF) && (mne == (MNEMONICS[MNE_JMP))) {
+          fprintf
+        }
       }
       free(addrExpr);
       addPC(3);
@@ -740,6 +752,20 @@ static void eatDirective() {
     expectEOL();
     eat();
     return;
+  case TOK_DS:
+    eat();
+    U16 len = exprEatSolvedU16();
+    if (emit) {
+      for (UInt i = 0; i < len; ++i) {
+        emitByte(0x00);
+      }
+    }
+    addPC(len);
+    expectEOL();
+    eat();
+    return;
+  default:
+    TODO("unimplemented: %s\n", tokName(peek()));
   }
 }
 

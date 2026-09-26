@@ -25,6 +25,9 @@
 FORMAT(1) NORETURN void panic(char const *fmt, ...);
 NORETURN void panicV(char const *fmt, va_list args);
 
+FORMAT(1) void warn(char const *fmt, ...);
+void warnV(char const *fmt, va_list args);
+
 #ifdef __builtin_unreachable
 #define UNREACHABLE() __builtin_unreachable()
 #else
@@ -32,8 +35,8 @@ NORETURN void panicV(char const *fmt, va_list args);
   (panic("%s:%d is not meant to be reachable\n", __FILE__, __LINE__))
 #endif
 
-#define TODO(msg)                                                              \
-  (panic("%s:%d: not implemented: %s\n", __FILE__, __LINE__, (msg)))
+#define TODO(fmt, ...)                                                         \
+  (panic("%s:%d: TODO: " fmt, __FILE__, __LINE__, ##__VA_ARGS__))
 
 void strCat(char **dst, UInt *cap, char const *src);
 
@@ -262,6 +265,12 @@ FORMAT(3)
 NORETURN void lexFatalLoc(Lex const *lex, Loc loc, char const *fmt, ...);
 NORETURN void lexFatalLocV(Lex const *lex, Loc loc, char const *fmt,
                            va_list args);
+
+FORMAT(2) void lexWarn(Lex const *lex, char const *fmt, ...);
+void lexWarnV(Lex const *lex, char const *fmt, va_list args);
+FORMAT(3)
+void lexWarnLoc(Lex const *lex, Loc loc, char const *fmt, ...);
+void lexWarnLocV(Lex const *lex, Loc loc, char const *fmt, va_list args);
 
 U8 lexPeek(Lex *lex);
 void lexEat(Lex *lex);

@@ -7,15 +7,16 @@ enum {
   CPU_6502 = 1 << 0,
   CPU_6502X = 1 << 1,
   CPU_65C02 = 1 << 2,
+  CPU_R65C02 = 1 << 3,
+  CPU_W65C02S = 1 << 4,
 };
 
 static struct {
   char const *name;
   U8 cpu;
 } const CPUS[] = {
-    {"6502", CPU_6502},
-    {"6502X", CPU_6502X},
-    {"65C02", CPU_65C02},
+    {"6502", CPU_6502},     {"6502X", CPU_6502X},     {"65C02", CPU_65C02},
+    {"R65C02", CPU_R65C02}, {"W65C02S", CPU_W65C02S},
 };
 
 enum {
@@ -140,8 +141,11 @@ typedef struct {
   Opcode opcodes[16];
 } Mnemonic;
 
-#define OPCODE_ANY(op) {(op), CPU_6502 | CPU_6502X | CPU_65C02}
-#define OPCODE_65C02(op) {(op), CPU_65C02}
+#define OPCODE_ANY(op)                                                         \
+  {(op), CPU_6502 | CPU_6502X | CPU_65C02 | CPU_R65C02 | CPU_W65C02S}
+#define OPCODE_65C02(op) {(op), CPU_65C02 | CPU_R65C02 | CPU_W65C02S}
+#define OPCODE_R65C02(op) {(op), CPU_R65C02 | CPU_W65C02S}
+#define OPCODE_W65C02S(op) {(op), CPU_W65C02S}
 #define OPCODE_6502X(op) {(op), CPU_6502X}
 
 static Mnemonic const MNEMONICS[] = {
@@ -175,8 +179,8 @@ static Mnemonic const MNEMONICS[] = {
                   [ADDR_ZPX] = OPCODE_ANY(0x16),
                   [ADDR_ABS] = OPCODE_ANY(0x0E),
                   [ADDR_ABX] = OPCODE_ANY(0x1E)}},
-    [MNE_BBR] = {"BBR", {[ADDR_BZR] = OPCODE_65C02(0x0F)}},
-    [MNE_BBS] = {"BBS", {[ADDR_BZR] = OPCODE_65C02(0x8F)}},
+    [MNE_BBR] = {"BBR", {[ADDR_BZR] = OPCODE_R65C02(0x0F)}},
+    [MNE_BBS] = {"BBS", {[ADDR_BZR] = OPCODE_R65C02(0x8F)}},
     [MNE_BCC] = {"BCC", {[ADDR_REL] = OPCODE_ANY(0x90)}},
     [MNE_BCS] = {"BCS", {[ADDR_REL] = OPCODE_ANY(0xB0)}},
     [MNE_BEQ] = {"BEQ", {[ADDR_REL] = OPCODE_ANY(0xF0)}},
@@ -333,7 +337,7 @@ static Mnemonic const MNEMONICS[] = {
                   [ADDR_ABY] = OPCODE_6502X(0x3B),
                   [ADDR_IZX] = OPCODE_6502X(0x23),
                   [ADDR_IZY] = OPCODE_6502X(0x33)}},
-    [MNE_RMB] = {"RMB", {[ADDR_BZP] = OPCODE_65C02(0x07)}},
+    [MNE_RMB] = {"RMB", {[ADDR_BZP] = OPCODE_R65C02(0x07)}},
     [MNE_ROL] = {"ROL",
                  {[ADDR_IMP] = OPCODE_ANY(0x2A),
                   [ADDR_ZPG] = OPCODE_ANY(0x26),
@@ -389,7 +393,7 @@ static Mnemonic const MNEMONICS[] = {
                   [ADDR_ABY] = OPCODE_6502X(0x1B),
                   [ADDR_IZX] = OPCODE_6502X(0x03),
                   [ADDR_IZY] = OPCODE_6502X(0x13)}},
-    [MNE_SMB] = {"SMB", {[ADDR_BZP] = OPCODE_65C02(0x87)}},
+    [MNE_SMB] = {"SMB", {[ADDR_BZP] = OPCODE_R65C02(0x87)}},
     [MNE_SRE] = {"SRE",
                  {[ADDR_ZPG] = OPCODE_6502X(0x47),
                   [ADDR_ZPX] = OPCODE_6502X(0x57),
@@ -407,7 +411,7 @@ static Mnemonic const MNEMONICS[] = {
                   [ADDR_IZX] = OPCODE_ANY(0x81),
                   [ADDR_IZY] = OPCODE_ANY(0x91),
                   [ADDR_IZP] = OPCODE_65C02(0x92)}},
-    [MNE_STP] = {"STP", {[ADDR_IMP] = OPCODE_65C02(0xDB)}},
+    [MNE_STP] = {"STP", {[ADDR_IMP] = OPCODE_W65C02S(0xDB)}},
     [MNE_STX] = {"STX",
                  {[ADDR_ZPG] = OPCODE_ANY(0x86),
                   [ADDR_ZPY] = OPCODE_ANY(0x96),
@@ -433,7 +437,7 @@ static Mnemonic const MNEMONICS[] = {
     [MNE_TXA] = {"TXA", {[ADDR_IMP] = OPCODE_ANY(0x8A)}},
     [MNE_TXS] = {"TXS", {[ADDR_IMP] = OPCODE_ANY(0x9A)}},
     [MNE_TYA] = {"TYA", {[ADDR_IMP] = OPCODE_ANY(0x98)}},
-    [MNE_WAI] = {"WAI", {[ADDR_IMP] = OPCODE_65C02(0xCB)}},
+    [MNE_WAI] = {"WAI", {[ADDR_IMP] = OPCODE_W65C02S(0xCB)}},
 };
 
 #endif // OPCODES_H

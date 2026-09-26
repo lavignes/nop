@@ -110,6 +110,27 @@ void argsDequeue(Arg **args, UInt *len) {
 
 NORETURN void lexFatalLocV(Lex const *lex, Loc loc, char const *fmt,
                            va_list args) {
+  lexWarnLocV(lex, loc, fmt, args);
+  exit(EXIT_FAILURE);
+}
+
+NORETURN void lexFatalLoc(Lex const *lex, Loc loc, char const *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  lexFatalLocV(lex, loc, fmt, args);
+  va_end(args);
+}
+
+NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args) {}
+
+NORETURN void lexFatal(Lex const *lex, char const *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  lexFatalV(lex, fmt, args);
+  va_end(args);
+}
+
+void lexWarnLocV(Lex const *lex, Loc loc, char const *fmt, va_list args) {
   switch (lex->kind) {
   case LEX_FILE:
   case LEX_IF_ELSE:
@@ -126,35 +147,29 @@ NORETURN void lexFatalLocV(Lex const *lex, Loc loc, char const *fmt,
   default:
     UNREACHABLE();
   }
-  panicV(fmt, args);
+  warnV(fmt, args);
 }
 
-NORETURN void lexFatalLoc(Lex const *lex, Loc loc, char const *fmt, ...) {
-  va_list args;
-  va_start(args, fmt);
-  lexFatalLocV(lex, loc, fmt, args);
-  va_end(args);
-}
+void lexWarnLoc(Lex const *lex, Loc loc, char const *fmt, ...);
 
-NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args) {
+void lexWarnV(Lex const *lex, char const *fmt, va_list args) {
   switch (lex->kind) {
   case LEX_FILE:
-    lexFatalLocV(lex, lex->loc, fmt, args);
+    lexWarnLocV(lex, lex->loc, fmt, args);
+    break;
   case LEX_MACRO:
-    lexFatalLocV(lex, lex->macro.toks[lex->macro.toksIdx].loc, fmt, args);
+    lexWarnLocV(lex, lex->macro.toks[lex->macro.toksIdx].loc, fmt, args);
+    break;
   case LEX_IF_ELSE:
-    lexFatalLocV(lex, lex->ifElse.toks[lex->ifElse.toksIdx].loc, fmt, args);
+    lexWarnLocV(lex, lex->ifElse.toks[lex->ifElse.toksIdx].loc, fmt, args);
+    break;
   default:
     UNREACHABLE();
   }
+  exit(EXIT_FAILURE);
 }
 
-NORETURN void lexFatal(Lex const *lex, char const *fmt, ...) {
-  va_list args;
-  va_start(args, fmt);
-  lexFatalV(lex, fmt, args);
-  va_end(args);
-}
+void lexWarn(Lex const *lex, char const *fmt, ...);
 
 static NORETURN void fatalChar(Lex *lex, char const *fmt, ...) {
   fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", lex->loc.name,
