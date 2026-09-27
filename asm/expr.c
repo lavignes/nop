@@ -203,7 +203,7 @@ Expr *exprEat(UInt *len, UInt *cap) {
         fatal("Expected an operator\n");
       }
       exprCat(&exprs, len, cap,
-              (Expr){.kind = EXPR_LABEL, .lbl = lexLabel(getLex())});
+              (Expr){.kind = EXPR_LABEL, .lbl = lexLbl(getLex())});
       eat();
       seenVal = TRUE;
       continue;
@@ -213,9 +213,9 @@ Expr *exprEat(UInt *len, UInt *cap) {
       }
       eat();
       expect(TOK_ID);
-      char const *lbl = lexLabel(getLex());
+      char const *lbl = lexLbl(getLex());
       exprCat(&exprs, len, cap,
-              (Expr){.kind = EXPR_CONST, .num = findSym(lbl) != NULL});
+              (Expr){.kind = EXPR_CONST, .num = (findSym(lbl) != NULL)});
       eat();
       seenVal = TRUE;
       continue;

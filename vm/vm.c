@@ -15,8 +15,10 @@
 
 static void help(char const *name) {
   fprintf(stderr,
-          "Usage: %s [options] <rom-file>\n\n"
-          "Options:\n\n"
+          "Usage: %s [options] <rom-file>\n"
+          "\n"
+          "Options:\n"
+          "\n"
           "  -d, --debug              Start in debug mode\n"
           "  -l, --label-list <path>  Load symbol label-list from file\n"
           "  -r, --random             Initialize memory with random data\n"

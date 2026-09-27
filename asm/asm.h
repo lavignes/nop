@@ -25,8 +25,8 @@
 FORMAT(1) NORETURN void panic(char const *fmt, ...);
 NORETURN void panicV(char const *fmt, va_list args);
 
-FORMAT(1) void warn(char const *fmt, ...);
-void warnV(char const *fmt, va_list args);
+FORMAT(1) void logs(char const *fmt, ...);
+void logsV(char const *fmt, va_list args);
 
 #ifdef __builtin_unreachable
 #define UNREACHABLE() __builtin_unreachable()
@@ -108,8 +108,6 @@ enum : U8 {
   TOK_END,
   TOK_MACRO,
   TOK_REPEAT,
-  TOK_STRFMT,
-  TOK_IDFMT,
 
   TOK_DEFINED,
   TOK_STRLEN,
@@ -138,10 +136,12 @@ typedef struct {
   U8 tok;
   Loc loc;
   union {
-    char *txt;
+    char const *txt;
     I32 num;
   };
 } LocTok;
+
+void locTokCat(LocTok **toks, UInt *len, UInt *cap, LocTok tok);
 
 enum {
   REPEAT_TOK,
@@ -156,10 +156,12 @@ typedef struct {
   Loc loc;
   union {
     U8 tok;
-    char *txt;
+    char const *txt;
     I32 num;
   };
 } RepeatTok;
+
+void repeatTokCat(RepeatTok **toks, UInt *len, UInt *cap, RepeatTok tok);
 
 enum {
   MACRO_TOK,
@@ -176,20 +178,22 @@ typedef struct {
   Loc loc;
   union {
     U8 tok;
-    char *txt;
+    char const *txt;
     I32 num;
   };
 } MacroTok;
 
+void macroTokCat(MacroTok **toks, UInt *len, UInt *cap, MacroTok tok);
+
 typedef struct {
-  char *name;
+  char const *name;
   Loc loc;
-  MacroTok *toks;
+  MacroTok const *toks;
   UInt toksLen;
 } Macro;
 
 typedef struct {
-  MacroTok *buf;
+  MacroTok const *buf;
   UInt bufLen;
   UInt bufCap;
 } Arg;
@@ -221,8 +225,8 @@ typedef struct {
     } file;
 
     struct {
-      char *name;
-      MacroTok *toks;
+      char const *name;
+      MacroTok const *toks;
       UInt toksLen;
       UInt toksIdx;
       Arg *args;
@@ -246,18 +250,18 @@ typedef struct {
     struct {
       LocTok *toks;
       UInt toksLen;
-      UInt toksCap;
       UInt toksIdx;
     } ifElse;
   };
 } Lex;
 
 void lexFileInit(Lex *lex, char const *name, FILE *hnd);
-void lexMacroInit(Lex *lex, Loc loc, char const *name, MacroTok *toks,
+void lexMacroInit(Lex *lex, Loc loc, char const *name, MacroTok const *toks,
                   UInt toksLen, Arg *args, UInt argsLen);
 void lexRepeatInit(Lex *lex, Loc loc, RepeatTok *toks, UInt toksLen, UInt cnt);
-void lexFmtInit(Lex *lex, Loc loc, U8 tok, char const *fmt);
 void lexIfElseInit(Lex *lex, Loc loc, LocTok *toks, UInt toksLen);
+
+void lexFini(Lex *lex);
 
 FORMAT(2) NORETURN void lexFatal(Lex const *lex, char const *fmt, ...);
 NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args);
@@ -279,15 +283,19 @@ void lexRewind(Lex *lex);
 char const *lexTxt(Lex const *lex);
 I32 lexNum(Lex const *lex);
 Loc lexLoc(Lex const *lex);
-char const *lexLabel(Lex const *lex);
+char const *lexLbl(Lex const *lex);
 
 FORMAT(1) NORETURN void fatal(char const *fmt, ...);
 FORMAT(2) NORETURN void fatalLoc(Loc loc, char const *fmt, ...);
+
+FORMAT(1) void warn(char const *fmt, ...);
+FORMAT(2) void warnLoc(Loc loc, char const *fmt, ...);
 
 U8 peek();
 void eat();
 void expect(U8 tok);
 
+char const *internN(char const *str, UInt len);
 char const *intern(char const *str);
 
 Lex *getLex();

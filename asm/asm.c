@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -9,8 +10,10 @@
 static void help(char const *name) {
   fprintf(
       stderr,
-      "Usage: %s [options] <asm-file>\n\n"
-      "Options:\n\n"
+      "Usage: %s [options] <asm-file>\n"
+      "\n"
+      "Options:\n"
+      "\n"
       "  -o, --output <path>          Write output to file (default: stdout)\n"
       "  -d, --debug <path>           Emit debug symbols to file\n"
       "  -D, --define <NAME=VALUE>    Predefine symbol\n"
@@ -52,6 +55,8 @@ static U8 findCpu(char const *name);
 static void pass();
 static void rewindPass();
 
+static Expr *constExpr(I32 num);
+
 int main(int argc, char const *const *argv) {
   if (argc < 2) {
     help(argv[0]);
@@ -84,6 +89,35 @@ int main(int argc, char const *const *argv) {
       symFilePath = argv[argi];
       continue;
     }
+    if ((strcmp(argv[argi], "-D") == 0) ||
+        (strcmp(argv[argi], "--define") == 0)) {
+      ++argi;
+      if (argi == argc) {
+        fprintf(stderr, "No symbol definition specified\n");
+        return EXIT_FAILURE;
+      }
+      char const *name = argv[argi];
+      char const *eq = strchr(name, '=');
+      if (!eq) {
+        fprintf(stderr, "Invalid symbol definition: %s\n", name);
+        return EXIT_FAILURE;
+      }
+      char const *val = eq + 1;
+      long num = strtol(val, NULL, 10);
+      if ((num == LONG_MIN) || (num == LONG_MAX)) {
+        fprintf(stderr, "Invalid symbol value: %s\n", val);
+        return EXIT_FAILURE;
+      }
+      Sym sym = {0};
+      sym.lbl = internN(name, eq - name);
+      sym.exprs = constExpr((I32)num);
+      sym.exprsLen = 1;
+      sym.loc.name = "<command line>";
+      sym.loc.line = 1;
+      sym.loc.col = 1;
+      addSym(sym.lbl, sym);
+      continue;
+    }
     FILE *hnd = openFile(argv[argi], "rb");
     pushFile(hnd, argv[argi]);
     ++argi;
@@ -106,17 +140,18 @@ int main(int argc, char const *const *argv) {
   pass();
 
   closeFile(outFile);
+
+  if (symFilePath) {
+    FILE *symFile = openFile(symFilePath, "wb+");
+    for (UInt i = 0; i < symsLen; ++i) {
+      Sym *sym = syms + i;
+      fprintf(symFile, "al C:%04x .%s\n", sym->exprs[0].num, sym->lbl);
+    }
+    closeFile(symFile);
+  }
+
   return EXIT_SUCCESS;
 }
-
-void warn(char const *fmt, ...) {
-  va_list args;
-  va_start(args, fmt);
-  warnV(fmt, args);
-  va_end(args);
-}
-
-void warnV(char const *fmt, va_list args) { vfprintf(stderr, fmt, args); }
 
 NORETURN void panic(char const *fmt, ...) {
   va_list args;
@@ -129,6 +164,15 @@ NORETURN void panicV(char const *fmt, va_list args) {
   vfprintf(stderr, fmt, args);
   exit(EXIT_FAILURE);
 }
+
+void logs(char const *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  logsV(fmt, args);
+  va_end(args);
+}
+
+void logsV(char const *fmt, va_list args) { vfprintf(stderr, fmt, args); }
 
 NORETURN void fatal(char const *fmt, ...) {
   va_list args;
@@ -144,7 +188,204 @@ NORETURN void fatalLoc(Loc loc, char const *fmt, ...) {
   va_end(args);
 }
 
-U8 peek() { return lexPeek(ls); }
+void warn(char const *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  lexWarnV(ls, fmt, args);
+  va_end(args);
+}
+
+void warnLoc(Loc loc, char const *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  lexWarnLocV(ls, loc, fmt, args);
+  va_end(args);
+}
+
+static void invokeMacro(Macro *macro) {
+  Loc loc = lexLoc(ls);
+  eat();
+  Arg *args = NULL;
+  UInt argsLen = 0;
+  UInt argsCap = 0;
+  MacroTok *toks = NULL;
+  UInt toksLen = 0;
+  UInt toksCap = 0;
+  UInt depth = 0;
+  if (peek() == '[') {
+    eat();
+    ++depth;
+  }
+  while (TRUE) {
+    switch (peek()) {
+    case '\n':
+    case TOK_EOF:
+      if (depth == 0) {
+        goto flush;
+      }
+      break;
+    case TOK_ID:
+      macroTokCat(&toks, &toksLen, &toksCap,
+                  (MacroTok){.kind = MACRO_ID,
+                             .loc = lexLoc(ls),
+                             .txt = intern(lexLbl(ls))});
+      break;
+    case TOK_NUM:
+      macroTokCat(
+          &toks, &toksLen, &toksCap,
+          (MacroTok){.kind = MACRO_NUM, .loc = lexLoc(ls), .num = lexNum(ls)});
+      break;
+    case TOK_STR:
+      macroTokCat(&toks, &toksLen, &toksCap,
+                  (MacroTok){.kind = MACRO_STR,
+                             .loc = lexLoc(ls),
+                             .txt = intern(lexTxt(ls))});
+      break;
+    default:
+      if (depth > 0) {
+        if (peek() == '[') {
+          ++depth;
+        } else if (peek() == ']') {
+          --depth;
+          if (depth == 0) {
+            eat();
+            goto flush;
+          }
+        }
+      }
+      macroTokCat(
+          &toks, &toksLen, &toksCap,
+          (MacroTok){.kind = MACRO_TOK, .loc = lexLoc(ls), .tok = peek()});
+      break;
+    }
+    eat();
+    if (peek() == ',') {
+      eat();
+      argsEnqueue(&args, &argsLen, &argsCap,
+                  (Arg){.buf = toks, .bufLen = toksLen, .bufCap = toksCap});
+      toks = NULL;
+      toksLen = 0;
+      toksCap = 0;
+    }
+  }
+flush:
+  if (toksLen > 0) {
+    argsEnqueue(&args, &argsLen, &argsCap,
+                (Arg){.buf = toks, .bufLen = toksLen, .bufCap = toksCap});
+  }
+  ++ls;
+  if (ls >= (STACK + STACK_SIZE)) {
+    fatal("Macro expansion stack overflow\n");
+  }
+  lexMacroInit(ls, loc, macro->name, macro->toks, macro->toksLen, args,
+               argsLen);
+}
+
+static void invokeIf() {
+  eat();
+  Loc loc;
+  defining = TRUE;
+  Bool ignore = (exprEatSolvedLoc(&loc) == 0);
+  UInt depth = 0;
+  LocTok *toks = NULL;
+  UInt toksLen = 0;
+  UInt toksCap = 0;
+  while (TRUE) {
+    switch (peek()) {
+    case TOK_IF:
+    case TOK_MACRO:
+    case TOK_REPEAT:
+      ++depth;
+      break;
+    case TOK_END:
+      if (depth == 0) {
+        eat();
+        goto flush;
+      }
+      --depth;
+      break;
+    case TOK_ELSE:
+      if (depth == 0) {
+        eat();
+        ignore = !ignore;
+      }
+      break;
+    case TOK_EOF:
+      fatal("Unexpected end of file\n");
+    case TOK_ID:
+    case TOK_STR:
+      if (!ignore) {
+        locTokCat(&toks, &toksLen, &toksCap,
+                  (LocTok){.tok = peek(),
+                           .loc = lexLoc(ls),
+                           .txt = intern(lexLbl(ls))});
+      }
+      break;
+    case TOK_NUM:
+    case TOK_ARG:
+      if (!ignore) {
+        locTokCat(
+            &toks, &toksLen, &toksCap,
+            (LocTok){.tok = peek(), .loc = lexLoc(ls), .num = lexNum(ls)});
+      }
+      break;
+    default:
+      if (!ignore) {
+        locTokCat(&toks, &toksLen, &toksCap,
+                  (LocTok){.tok = peek(), .loc = lexLoc(ls)});
+      }
+      break;
+    }
+    eat();
+  }
+flush:
+  defining = FALSE;
+  ++ls;
+  if (ls >= (STACK + STACK_SIZE)) {
+    fatal("Too many nested if/else blocks\n");
+  }
+  lexIfElseInit(ls, loc, toks, toksLen);
+}
+
+static Macro *findMacro(char const *lbl) {
+  for (UInt i = 0; i < macrosLen; ++i) {
+    if (!strcmp(macros[i].name, lbl)) {
+      return &macros[i];
+    }
+  }
+  return NULL;
+}
+
+static void popLex() {
+  lexFini(ls);
+  --ls;
+}
+
+U8 peek() {
+  U8 tok = lexPeek(ls);
+  if ((tok == TOK_EOF) && (ls > STACK)) {
+    popLex();
+    return peek();
+  }
+  if (defining) {
+    return tok;
+  }
+  switch (tok) {
+  case TOK_ID: {
+    Macro *macro = findMacro(lexLbl(ls));
+    if (macro) {
+      invokeMacro(macro);
+      return peek();
+    }
+    return tok;
+  }
+  case TOK_IF:
+    invokeIf();
+    return peek();
+  default:
+    return tok;
+  }
+}
 
 void eat() { lexEat(ls); }
 
@@ -155,7 +396,7 @@ void expect(U8 tok) {
   }
 }
 
-char const *intern(char const *str) {
+char const *internN(char const *str, UInt len) {
   if (!interned) {
     internedCap = 16;
     interned = malloc(sizeof(char *) * internedCap);
@@ -163,7 +404,7 @@ char const *intern(char const *str) {
   }
   char const **iter = interned;
   while (*iter) {
-    if (strcmp(*iter, str) == 0) {
+    if (strncmp(*iter, str, len) == 0 && (*iter)[len] == '\0') {
       return *iter;
     }
     ++iter;
@@ -173,9 +414,17 @@ char const *intern(char const *str) {
     internedCap *= 2;
     interned = realloc(interned, sizeof(char *) * internedCap);
   }
-  interned[idx] = strdup(str);
+  char *newStr = malloc(len + 1);
+  strncpy(newStr, str, len);
+  newStr[len] = '\0';
+  interned[idx] = newStr;
   interned[idx + 1] = NULL;
   return interned[idx];
+}
+
+char const *intern(char const *str) {
+  UInt len = strlen(str);
+  return internN(str, len);
 }
 
 Lex *getLex() { return ls; }
@@ -336,7 +585,7 @@ static void eatMnemonic(Mnemonic const *mne) {
         fatalLoc(addrLoc, "Zero-page address must be known\n");
       }
       if (!exprCanReprU8(addr)) {
-        fatalLoc(addrLoc, "Zero-page address must fit in byte: %08X\n", addr);
+        fatalLoc(addrLoc, "Zero-page address must fit in byte: $%08X\n", addr);
       }
     }
     expect(',');
@@ -471,13 +720,17 @@ static void eatMnemonic(Mnemonic const *mne) {
       eat();
       if (emit) {
         if (!exprCanReprU16(addr)) {
-          fatalLoc(addrLoc, "Address must fit in word: %08X\n", addr);
+          fatalLoc(addrLoc, "Address must fit in word: $%08X\n", addr);
+        }
+        // Warn on 6502 page boundary bug for JMP indirect
+        if ((cpu == CPU_6502) || (cpu == CPU_6502X)) {
+          if (((addr & 0xFF) == 0xFF) && (mne == (MNEMONICS + MNE_JMP))) {
+            warnLoc(addrLoc, "JMP IND address crosses page boundary: $%04X\n",
+                    addr);
+          }
         }
         emitByte(opcode);
         emitWord((U16)addr);
-        if (((addr & 0xFF) == 0xFF) && (mne == (MNEMONICS[MNE_JMP))) {
-          fprintf
-        }
       }
       free(addrExpr);
       addPC(3);
@@ -633,7 +886,7 @@ static void eatMnemonic(Mnemonic const *mne) {
     }
     if (emit) {
       if (!exprCanReprU16(addr)) {
-        fatalLoc(addrLoc, "Address must fit in word: %08X\n", addr);
+        fatalLoc(addrLoc, "Address must fit in word: $%08X\n", addr);
       }
       emitByte(opcode);
       emitWord((U16)addr);
@@ -650,7 +903,7 @@ static void eatMnemonic(Mnemonic const *mne) {
   }
   if (emit) {
     if (!exprCanReprU16(addr)) {
-      fatalLoc(addrLoc, "Address must fit in word: %08X\n", addr);
+      fatalLoc(addrLoc, "Address must fit in word: $%08X\n", addr);
     }
     emitByte(opcode);
     emitWord((U16)addr);
@@ -665,9 +918,29 @@ static Expr *constExpr(I32 num) {
   return exprs;
 }
 
-static Bool lblIsGlobal(char const *lbl) {
-  UInt len = strlen(lbl);
-  return memchr(lbl, '.', len) == NULL;
+static Bool lblIsGlobal(char const *lbl) { return strchr(lbl, '.') == NULL; }
+
+static char const *eatPath() {
+  expect(TOK_STR);
+  char const *path = lexTxt(ls);
+  FILE *hnd = openFile(path, "rb");
+  closeFile(hnd);
+  eat();
+  return path;
+}
+
+static void addMacro(char const *lbl, Macro macro) {
+  if (!macros) {
+    macrosLen = 0;
+    macrosCap = 16;
+    macros = malloc(sizeof(Macro) * macrosCap);
+  }
+  if (macrosLen == macrosCap) {
+    macrosCap *= 2;
+    macros = realloc(macros, sizeof(Macro) * macrosCap);
+  }
+  macros[macrosLen] = macro;
+  ++macrosLen;
 }
 
 static void eatDirective() {
@@ -679,7 +952,7 @@ static void eatDirective() {
     char const *txt = lexTxt(ls);
     cpu = findCpu(txt);
     if (!cpu) {
-      fatalLoc(dirLoc, "Unknown CPU: \"%s\"\n", txt);
+      fatal("Unknown CPU: \"%s\"\n", txt);
     }
     eat();
     expectEOL();
@@ -697,6 +970,7 @@ static void eatDirective() {
           emitBytes((U8 *)txt, len);
         }
         addPC(len);
+        eat();
         break;
       }
       default: {
@@ -710,7 +984,7 @@ static void eatDirective() {
             fatalLoc(loc, "Byte must be known\n");
           }
           if (!exprCanReprU8(num)) {
-            fatalLoc(loc, "Expression must fit in byte: %08X\n", num);
+            fatalLoc(loc, "Expression must fit in byte: $%08X\n", num);
           }
           emitByte((U8)num);
         }
@@ -739,7 +1013,7 @@ static void eatDirective() {
           fatalLoc(loc, "Word must be known\n");
         }
         if (!exprCanReprU16(num)) {
-          fatalLoc(loc, "Expression must fit in word: %08X\n", num);
+          fatalLoc(loc, "Expression must fit in word: $%08X\n", num);
         }
         emitWord((U16)num);
       }
@@ -764,8 +1038,204 @@ static void eatDirective() {
     expectEOL();
     eat();
     return;
+  case TOK_INCLUDE: {
+    eat();
+    char const *path = eatPath();
+    expectEOL();
+    eat();
+    pushFile(openFile(path, "rb"), path);
+    return;
+  }
+  case TOK_INCBIN: {
+    eat();
+    char const *path = eatPath();
+    expectEOL();
+    eat();
+    FILE *hnd = openFile(path, "rb");
+    if (fseek(hnd, 0, SEEK_END) != 0) {
+      fatalLoc(dirLoc, "Failed to seek to end of file: %s\n", strerror(errno));
+    }
+    long size = ftell(hnd);
+    if (size < 0) {
+      fatalLoc(dirLoc, "Failed to get file size: %s\n", strerror(errno));
+    }
+    if (fseek(hnd, 0, SEEK_SET) != 0) {
+      fatalLoc(dirLoc, "Failed to seek to start of file: %s\n",
+               strerror(errno));
+    }
+    if (emit) {
+      U8 *buf = malloc(size);
+      if (fread(buf, 1, size, hnd) != (size_t)size) {
+        fatalLoc(dirLoc, "Failed to read file: %s\n", strerror(errno));
+      }
+      emitBytes(buf, size);
+      free(buf);
+    }
+    addPC((U16)size);
+    closeFile(hnd);
+    return;
+  }
+  case TOK_MACRO: {
+    Loc loc = lexLoc(ls);
+    eat();
+    expect(TOK_ID);
+    char const *lbl = lexLbl(ls);
+    if (!lblIsGlobal(lbl)) {
+      fatalLoc(loc, "Macro name must be global\n");
+    }
+    Macro *macro = findMacro(lbl);
+    if (macro) {
+      fatalLoc(loc,
+               "Macro %s is already defined\n\t%s:%" UINT_FMT ":%" UINT_FMT
+               ": First defined here\n",
+               lbl, macro->loc.name, macro->loc.line, macro->loc.col);
+    }
+    eat();
+    MacroTok *toks = NULL;
+    UInt toksLen = 0;
+    UInt toksCap = 0;
+    UInt depth = 0;
+    defining = TRUE;
+    while (TRUE) {
+      switch (peek()) {
+      case TOK_IF:
+      case TOK_MACRO:
+      case TOK_REPEAT:
+        ++depth;
+        break;
+      case TOK_END:
+        if (depth == 0) {
+          eat();
+          goto macroDone;
+        }
+        --depth;
+        break;
+      case TOK_EOF:
+        fatal("Unexpected end of file\n");
+      case TOK_ID:
+        macroTokCat(&toks, &toksLen, &toksCap,
+                    (MacroTok){.kind = MACRO_ID,
+                               .loc = lexLoc(ls),
+                               .txt = intern(lexTxt(ls))});
+        break;
+      case TOK_NUM:
+        macroTokCat(&toks, &toksLen, &toksCap,
+                    (MacroTok){.kind = MACRO_NUM,
+                               .loc = lexLoc(ls),
+                               .num = lexNum(ls)});
+        break;
+      case TOK_STR:
+        macroTokCat(&toks, &toksLen, &toksCap,
+                    (MacroTok){.kind = MACRO_STR,
+                               .loc = lexLoc(ls),
+                               .txt = intern(lexTxt(ls))});
+        break;
+      case TOK_ARG:
+        macroTokCat(&toks, &toksLen, &toksCap,
+                    (MacroTok){.kind = MACRO_ARG,
+                               .loc = lexLoc(ls),
+                               .num = lexNum(ls)});
+        break;
+      case TOK_ARGC:
+        macroTokCat(&toks, &toksLen, &toksCap,
+                    (MacroTok){.kind = MACRO_ARGC, .loc = lexLoc(ls)});
+        break;
+      case TOK_SHIFT:
+        macroTokCat(&toks, &toksLen, &toksCap,
+                    (MacroTok){.kind = MACRO_SHIFT, .loc = lexLoc(ls)});
+        break;
+      default:
+        macroTokCat(
+            &toks, &toksLen, &toksCap,
+            (MacroTok){.kind = MACRO_TOK, .loc = lexLoc(ls), .tok = peek()});
+        break;
+      }
+      eat();
+    }
+  macroDone:
+    defining = FALSE;
+    addMacro(
+        lbl,
+        (Macro){.name = lbl, .toks = toks, .toksLen = toksLen, .loc = loc});
+    return;
+  }
+  case TOK_REPEAT: {
+    Loc loc = lexLoc(ls);
+    eat();
+    UInt count = exprEatSolvedU16();
+    char const *idx = NULL;
+    if (peek() == ',') {
+      eat();
+      expect(TOK_ID);
+      idx = lexLbl(ls);
+      if (!lblIsGlobal(idx)) {
+        fatalLoc(loc, "Repeat label must be global\n");
+      }
+      eat();
+    }
+    RepeatTok *toks = NULL;
+    UInt toksLen = 0;
+    UInt toksCap = 0;
+    UInt depth = 0;
+    defining = TRUE;
+    while (TRUE) {
+      switch (peek()) {
+      case TOK_IF:
+      case TOK_MACRO:
+      case TOK_REPEAT:
+        ++depth;
+        break;
+      case TOK_END:
+        if (depth == 0) {
+          eat();
+          goto repeatDone;
+        }
+        --depth;
+        break;
+      case TOK_EOF:
+        fatal("Unexpected end of file\n");
+      case TOK_ID:
+        if (idx && (strcmp(lexLbl(ls), idx) == 0)) {
+          repeatTokCat(&toks, &toksLen, &toksCap,
+                       (RepeatTok){.kind = REPEAT_IDX, .loc = lexLoc(ls)});
+        } else {
+          repeatTokCat(&toks, &toksLen, &toksCap,
+                       (RepeatTok){.kind = REPEAT_ID,
+                                   .loc = lexLoc(ls),
+                                   .txt = intern(lexTxt(ls))});
+        }
+        break;
+      case TOK_NUM:
+        repeatTokCat(&toks, &toksLen, &toksCap,
+                     (RepeatTok){.kind = REPEAT_NUM,
+                                 .loc = lexLoc(ls),
+                                 .num = lexNum(ls)});
+        break;
+      case TOK_STR:
+        repeatTokCat(&toks, &toksLen, &toksCap,
+                     (RepeatTok){.kind = REPEAT_STR,
+                                 .loc = lexLoc(ls),
+                                 .txt = intern(lexTxt(ls))});
+        break;
+      default:
+        repeatTokCat(
+            &toks, &toksLen, &toksCap,
+            (RepeatTok){.kind = REPEAT_TOK, .loc = lexLoc(ls), .tok = peek()});
+        break;
+      }
+      eat();
+    }
+  repeatDone:
+    defining = FALSE;
+    ++ls;
+    if (ls == (STACK + STACK_SIZE)) {
+      fatal("Too many nested blocks\n");
+    }
+    lexRepeatInit(ls, loc, toks, toksLen, count);
+    return;
+  }
   default:
-    TODO("unimplemented: %s\n", tokName(peek()));
+    fatal("Unrecognized token: %s\n", tokName(peek()));
   }
 }
 
@@ -792,7 +1262,7 @@ static void pass() {
         continue;
       }
       Loc loc = lexLoc(ls);
-      char const *lbl = lexLabel(ls);
+      char const *lbl = lexLbl(ls);
       eat();
       Sym *sym = findSym(lbl);
       if (!sym) {
@@ -856,7 +1326,7 @@ static void pass() {
 
 static void rewindPass() {
   lexRewind(ls);
-  macros = NULL;
+  macrosLen = 0;
   pc = 0;
   cpu = CPU_6502;
   defining = FALSE;

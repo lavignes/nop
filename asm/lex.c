@@ -27,8 +27,6 @@ static struct {
     {TOK_END, "@END"},
     {TOK_MACRO, "@MACRO"},
     {TOK_REPEAT, "@REPEAT"},
-    {TOK_STRFMT, "@STRFMT"},
-    {TOK_IDFMT, "@IDFMT"},
 
     {TOK_DEFINED, "@DEFINED"},
     {TOK_STRLEN, "@STRLEN"},
@@ -62,6 +60,48 @@ char const *tokName(U8 tok) {
   return intern(buf);
 }
 
+void locTokCat(LocTok **toks, UInt *len, UInt *cap, LocTok tok) {
+  if (!*toks) {
+    *len = 0;
+    *cap = 8;
+    *toks = malloc(sizeof(LocTok) * *cap);
+  }
+  if (*len == *cap) {
+    *cap *= 2;
+    *toks = realloc(*toks, sizeof(LocTok) * *cap);
+  }
+  (*toks)[*len] = tok;
+  ++*len;
+}
+
+void repeatTokCat(RepeatTok **toks, UInt *len, UInt *cap, RepeatTok tok) {
+  if (!*toks) {
+    *len = 0;
+    *cap = 8;
+    *toks = malloc(sizeof(RepeatTok) * *cap);
+  }
+  if (*len == *cap) {
+    *cap *= 2;
+    *toks = realloc(*toks, sizeof(RepeatTok) * *cap);
+  }
+  (*toks)[*len] = tok;
+  ++*len;
+}
+
+void macroTokCat(MacroTok **toks, UInt *len, UInt *cap, MacroTok tok) {
+  if (!*toks) {
+    *len = 0;
+    *cap = 8;
+    *toks = malloc(sizeof(MacroTok) * *cap);
+  }
+  if (*len == *cap) {
+    *cap *= 2;
+    *toks = realloc(*toks, sizeof(MacroTok) * *cap);
+  }
+  (*toks)[*len] = tok;
+  ++*len;
+}
+
 static struct {
   char const *name;
   U8 tok;
@@ -69,8 +109,7 @@ static struct {
     {"CPU", TOK_CPU},         {"DB", TOK_DB},           {"DW", TOK_DW},
     {"DS", TOK_DS},           {"INCLUDE", TOK_INCLUDE}, {"INCBIN", TOK_INCBIN},
     {"IF", TOK_IF},           {"ELSE", TOK_ELSE},       {"END", TOK_END},
-    {"MACRO", TOK_MACRO},     {"REPEAT", TOK_REPEAT},   {"STRFMT", TOK_STRFMT},
-    {"IDFMT", TOK_IDFMT},
+    {"MACRO", TOK_MACRO},     {"REPEAT", TOK_REPEAT},
 
     {"DEFINED", TOK_DEFINED}, {"STRLEN", TOK_STRLEN},
 
@@ -121,7 +160,10 @@ NORETURN void lexFatalLoc(Lex const *lex, Loc loc, char const *fmt, ...) {
   va_end(args);
 }
 
-NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args) {}
+NORETURN void lexFatalV(Lex const *lex, char const *fmt, va_list args) {
+  lexWarnV(lex, fmt, args);
+  exit(EXIT_FAILURE);
+}
 
 NORETURN void lexFatal(Lex const *lex, char const *fmt, ...) {
   va_list args;
@@ -139,18 +181,32 @@ void lexWarnLocV(Lex const *lex, Loc loc, char const *fmt, va_list args) {
     break;
   case LEX_MACRO:
     fprintf(stderr,
-            "%s:%" UINT_FMT ":%" UINT_FMT ": in macro %s\n\t%" UINT_FMT
+            "%s:%" UINT_FMT ":%" UINT_FMT ": in macro %s\n\t%s:%" UINT_FMT
             ":%" UINT_FMT ": ",
-            lex->macro.name, lex->loc.line, lex->loc.col, loc.name, loc.line,
-            loc.col);
+            lex->loc.name, lex->loc.line, lex->loc.col, lex->macro.name,
+            loc.name, loc.line, loc.col);
+    break;
+  case LEX_REPEAT:
+    fprintf(stderr,
+            "%s:%" UINT_FMT ":%" UINT_FMT ": at repeat index %" UINT_FMT
+            "\n\t%s:%" UINT_FMT ":%" UINT_FMT ": ",
+            lex->repeat.toks[lex->repeat.toksIdx].loc.name,
+            lex->repeat.toks[lex->repeat.toksIdx].loc.line,
+            lex->repeat.toks[lex->repeat.toksIdx].loc.col, lex->repeat.idx,
+            loc.name, loc.line, loc.col);
     break;
   default:
     UNREACHABLE();
   }
-  warnV(fmt, args);
+  logsV(fmt, args);
 }
 
-void lexWarnLoc(Lex const *lex, Loc loc, char const *fmt, ...);
+void lexWarnLoc(Lex const *lex, Loc loc, char const *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  lexWarnLocV(lex, loc, fmt, args);
+  va_end(args);
+}
 
 void lexWarnV(Lex const *lex, char const *fmt, va_list args) {
   switch (lex->kind) {
@@ -160,16 +216,23 @@ void lexWarnV(Lex const *lex, char const *fmt, va_list args) {
   case LEX_MACRO:
     lexWarnLocV(lex, lex->macro.toks[lex->macro.toksIdx].loc, fmt, args);
     break;
+  case LEX_REPEAT:
+    lexWarnLocV(lex, lex->repeat.toks[lex->repeat.toksIdx].loc, fmt, args);
+    break;
   case LEX_IF_ELSE:
     lexWarnLocV(lex, lex->ifElse.toks[lex->ifElse.toksIdx].loc, fmt, args);
     break;
   default:
     UNREACHABLE();
   }
-  exit(EXIT_FAILURE);
 }
 
-void lexWarn(Lex const *lex, char const *fmt, ...);
+void lexWarn(Lex const *lex, char const *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  lexWarnV(lex, fmt, args);
+  va_end(args);
+}
 
 static NORETURN void fatalChar(Lex *lex, char const *fmt, ...) {
   fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", lex->loc.name,
@@ -475,16 +538,21 @@ static U8 peekMacro(Lex *lex) {
   if (lex->macro.toksIdx >= lex->macro.toksLen) {
     return TOK_EOF;
   }
-  MacroTok *tok = lex->macro.toks + lex->macro.toksIdx;
+  MacroTok const *tok = lex->macro.toks + lex->macro.toksIdx;
+  U8 result;
   switch (tok->kind) {
   case MACRO_TOK:
-    return tok->tok;
+    result = tok->tok;
+    break;
   case MACRO_ID:
-    return TOK_ID;
+    result = TOK_ID;
+    break;
   case MACRO_NUM:
-    return TOK_NUM;
+    result = TOK_NUM;
+    break;
   case MACRO_STR:
-    return TOK_STR;
+    result = TOK_STR;
+    break;
   case MACRO_ARG: {
     if (lex->macro.argsIdx >= lex->macro.args[tok->num].bufLen) {
       lexFatalLoc(lex, tok->loc, "Argument %d is undefined\n", tok->num);
@@ -506,13 +574,38 @@ static U8 peekMacro(Lex *lex) {
     }
   }
   case MACRO_ARGC:
-    return TOK_NUM;
+    result = TOK_NUM;
+    break;
   case MACRO_SHIFT:
     if (lex->macro.argsLen == 0) {
       lexFatalLoc(lex, tok->loc, "No arguments to shift\n");
       return TOK_EOF;
     }
-    return '\n';
+    result = '\n';
+    break;
+  default:
+    UNREACHABLE();
+    return TOK_EOF;
+  }
+  return result;
+}
+
+static U8 peekRepeat(Lex *lex) {
+  if (lex->repeat.toksIdx >= lex->repeat.toksLen) {
+    return TOK_EOF;
+  }
+  RepeatTok const *tok = lex->repeat.toks + lex->repeat.toksIdx;
+  switch (tok->kind) {
+  case REPEAT_TOK:
+    return tok->tok;
+  case REPEAT_ID:
+    return TOK_ID;
+  case REPEAT_NUM:
+    return TOK_NUM;
+  case REPEAT_STR:
+    return TOK_STR;
+  case REPEAT_IDX:
+    return TOK_NUM;
   default:
     UNREACHABLE();
     return TOK_EOF;
@@ -542,11 +635,59 @@ void lexFileInit(Lex *lex, char const *name, FILE *hnd) {
   strCat(&lex->file.txt, &lex->file.txtCap, "");
 }
 
-void lexMacroInit(Lex *lex, Loc loc, char const *name, MacroTok *toks,
-                  UInt toksLen, Arg *args, UInt argsLen);
-void lexRepeatInit(Lex *lex, Loc loc, RepeatTok *toks, UInt toksLen, UInt cnt);
-void lexFmtInit(Lex *lex, Loc loc, U8 tok, char const *fmt);
-void lexIfElseInit(Lex *lex, Loc loc, LocTok *toks, UInt toksLen);
+void lexMacroInit(Lex *lex, Loc loc, char const *name, MacroTok const *toks,
+                  UInt toksLen, Arg *args, UInt argsLen) {
+  lex->kind = LEX_MACRO;
+  lex->loc = loc;
+  lex->macro.name = name;
+  lex->macro.toks = toks;
+  lex->macro.toksLen = toksLen;
+  lex->macro.toksIdx = 0;
+  lex->macro.args = args;
+  lex->macro.argsLen = argsLen;
+  lex->macro.argsIdx = 0;
+}
+
+void lexRepeatInit(Lex *lex, Loc loc, RepeatTok *toks, UInt toksLen, UInt cnt) {
+  lex->kind = LEX_REPEAT;
+  lex->loc = loc;
+  lex->repeat.toks = toks;
+  lex->repeat.toksLen = toksLen;
+  lex->repeat.toksIdx = 0;
+  lex->repeat.idx = 0;
+  lex->repeat.cnt = cnt;
+}
+
+void lexIfElseInit(Lex *lex, Loc loc, LocTok *toks, UInt toksLen) {
+  lex->kind = LEX_IF_ELSE;
+  lex->loc = loc;
+  lex->ifElse.toks = toks;
+  lex->ifElse.toksLen = toksLen;
+  lex->ifElse.toksIdx = 0;
+}
+
+void lexFini(Lex *lex) {
+  switch (lex->kind) {
+  case LEX_FILE:
+    if (fclose(lex->file.hnd) == EOF) {
+      int err = errno;
+      fprintf(stderr, "%s:%" UINT_FMT ":%" UINT_FMT ": ", lex->loc.name,
+              lex->file.charLine, lex->file.charCol);
+      panic("Failed to close file: %s\n", strerror(err));
+    }
+    free(lex->file.txt);
+    return;
+  case LEX_MACRO:
+    free(lex->macro.args);
+    return;
+  case LEX_REPEAT:
+    free(lex->repeat.toks);
+    return;
+  case LEX_IF_ELSE:
+    free(lex->ifElse.toks);
+    return;
+  }
+}
 
 U8 lexPeek(Lex *lex) {
   switch (lex->kind) {
@@ -554,6 +695,8 @@ U8 lexPeek(Lex *lex) {
     return peekFile(lex);
   case LEX_MACRO:
     return peekMacro(lex);
+  case LEX_REPEAT:
+    return peekRepeat(lex);
   case LEX_IF_ELSE:
     return peekIfElse(lex);
   default:
@@ -569,7 +712,7 @@ void lexEat(Lex *lex) {
     lex->file.txt[0] = 0;
     return;
   case LEX_MACRO: {
-    MacroTok *tok = lex->macro.toks + lex->macro.toksIdx;
+    MacroTok const *tok = lex->macro.toks + lex->macro.toksIdx;
     switch (tok->kind) {
     case MACRO_SHIFT:
       argsDequeue(&lex->macro.args, &lex->macro.argsLen);
@@ -587,7 +730,15 @@ void lexEat(Lex *lex) {
       break;
     }
     ++lex->macro.toksIdx;
+    break;
   }
+  case LEX_REPEAT:
+    ++lex->repeat.toksIdx;
+    if (lex->repeat.toksIdx >= lex->repeat.toksLen) {
+      lex->repeat.toksIdx = 0;
+      ++lex->repeat.idx;
+    }
+    break;
   case LEX_IF_ELSE:
     ++lex->ifElse.toksIdx;
     break;
@@ -696,7 +847,7 @@ Loc lexLoc(Lex const *lex) {
   }
 }
 
-char const *lexLabel(Lex const *lex) {
+char const *lexLbl(Lex const *lex) {
   char const *txt = lexTxt(lex);
   UInt len = strlen(txt);
   char const *offset = memchr(txt, '.', len);
