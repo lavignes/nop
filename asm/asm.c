@@ -37,6 +37,7 @@ static Bool defining = FALSE;
 static char const *scope = NULL;
 static U16 pc = 0;
 static U8 cpu = CPU_6502;
+static U8 encoding = ENCODING_ASCII;
 
 static Sym *syms = NULL;
 static UInt symsLen = 0;
@@ -212,7 +213,7 @@ static void invokeMacro(Macro *macro) {
   UInt toksLen = 0;
   UInt toksCap = 0;
   UInt depth = 0;
-  if (peek() == '[') {
+  if (peek() == '(') {
     eat();
     ++depth;
   }
@@ -243,9 +244,9 @@ static void invokeMacro(Macro *macro) {
       break;
     default:
       if (depth > 0) {
-        if (peek() == '[') {
+        if (peek() == '(') {
           ++depth;
-        } else if (peek() == ']') {
+        } else if (peek() == ')') {
           --depth;
           if (depth == 0) {
             eat();
@@ -426,6 +427,8 @@ char const *intern(char const *str) {
   UInt len = strlen(str);
   return internN(str, len);
 }
+
+U8 getEncoding() { return encoding; }
 
 Lex *getLex() { return ls; }
 
@@ -959,6 +962,22 @@ static void eatDirective() {
     eat();
     return;
   }
+  case TOK_ENCODING: {
+    eat();
+    expect(TOK_STR);
+    char const *txt = lexTxt(ls);
+    if (strcasecmp(txt, "ascii") == 0) {
+      encoding = ENCODING_ASCII;
+    } else if (strcasecmp(txt, "petscii") == 0) {
+      encoding = ENCODING_PETSCII;
+    } else {
+      fatal("Unknown encoding: \"%s\"\n", txt);
+    }
+    eat();
+    expectEOL();
+    eat();
+    return;
+  }
   case TOK_DB:
     eat();
     while (TRUE) {
@@ -1329,6 +1348,7 @@ static void rewindPass() {
   macrosLen = 0;
   pc = 0;
   cpu = CPU_6502;
+  encoding = ENCODING_ASCII;
   defining = FALSE;
   scope = NULL;
 }

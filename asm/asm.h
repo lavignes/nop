@@ -98,6 +98,7 @@ enum : U8 {
   TOK_STR,
 
   TOK_CPU,
+  TOK_ENCODING,
   TOK_DB,
   TOK_DW,
   TOK_DS,
@@ -297,6 +298,13 @@ void expect(U8 tok);
 
 char const *internN(char const *str, UInt len);
 char const *intern(char const *str);
+
+enum {
+  ENCODING_ASCII,
+  ENCODING_PETSCII,
+};
+
+U8 getEncoding();
 
 Lex *getLex();
 char const *getScope();
