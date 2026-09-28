@@ -297,14 +297,14 @@ static void invokeIf() {
     case TOK_MACRO:
     case TOK_REPEAT:
       ++depth;
-      break;
+      goto ifConsume;
     case TOK_END:
       if (depth == 0) {
         eat();
         goto flush;
       }
       --depth;
-      break;
+      goto ifConsume;
     case TOK_ELSE:
       if (depth == 0) {
         eat();
@@ -331,6 +331,7 @@ static void invokeIf() {
       }
       break;
     default:
+    ifConsume:
       if (!ignore) {
         locTokCat(&toks, &toksLen, &toksCap,
                   (LocTok){.tok = peek(), .loc = lexLoc(ls)});
@@ -1121,14 +1122,14 @@ static void eatDirective() {
       case TOK_MACRO:
       case TOK_REPEAT:
         ++depth;
-        break;
+        goto macroConsume;
       case TOK_END:
         if (depth == 0) {
           eat();
           goto macroDone;
         }
         --depth;
-        break;
+        goto macroConsume;
       case TOK_EOF:
         fatal("Unexpected end of file\n");
       case TOK_ID:
@@ -1164,6 +1165,7 @@ static void eatDirective() {
                     (MacroTok){.kind = MACRO_SHIFT, .loc = lexLoc(ls)});
         break;
       default:
+      macroConsume:
         macroTokCat(
             &toks, &toksLen, &toksCap,
             (MacroTok){.kind = MACRO_TOK, .loc = lexLoc(ls), .tok = peek()});
@@ -1203,14 +1205,14 @@ static void eatDirective() {
       case TOK_MACRO:
       case TOK_REPEAT:
         ++depth;
-        break;
+        goto repeatConsume;
       case TOK_END:
         if (depth == 0) {
           eat();
           goto repeatDone;
         }
         --depth;
-        break;
+        goto repeatConsume;
       case TOK_EOF:
         fatal("Unexpected end of file\n");
       case TOK_ID:
@@ -1237,6 +1239,7 @@ static void eatDirective() {
                                  .txt = intern(lexTxt(ls))});
         break;
       default:
+      repeatConsume:
         repeatTokCat(
             &toks, &toksLen, &toksCap,
             (RepeatTok){.kind = REPEAT_TOK, .loc = lexLoc(ls), .tok = peek()});
@@ -1295,6 +1298,7 @@ static void pass() {
       }
       switch (peek()) {
       case ':':
+      case '\n':
         eat();
         break;
       case '=':
@@ -1321,7 +1325,7 @@ static void pass() {
         continue;
       default:
         if (!lblIsGlobal(lbl)) {
-          fatal("Expected `:` or `=`\n");
+          fatal("Expected `:`, `=`, or end of line\n");
         }
         Mnemonic const *unsupportedMne = findMnemonic(lbl);
         if (unsupportedMne) {
