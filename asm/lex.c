@@ -82,7 +82,11 @@ char const *tokName(U8 tok) {
     }
   }
   char buf[16];
-  snprintf(buf, sizeof(buf), "`%c`", isprint(tok) ? tok : '?');
+  if (isprint(tok)) {
+    snprintf(buf, sizeof(buf), "`%c`", tok);
+  } else {
+    snprintf(buf, sizeof(buf), "byte: $%02X", tok);
+  }
   return intern(buf);
 }
 
