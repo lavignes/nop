@@ -6,6 +6,22 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define FORMAT(n)
+#ifdef __has_attribute
+#if __has_attribute(format)
+#undef FORMAT
+#define FORMAT(n) __attribute__((format(printf, (n), (n + 1))))
+#endif
+#endif
+
+#define NORETURN
+#ifdef __has_attribute
+#if __has_attribute(noreturn)
+#undef NORETURN
+#define NORETURN __attribute__((noreturn))
+#endif
+#endif
+
 typedef bool Bool;
 #define TRUE true
 #define FALSE false

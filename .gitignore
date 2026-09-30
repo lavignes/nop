@@ -4,6 +4,7 @@
 
 /asm/asm
 /vm/vm
+/bbs/bbs
 
 /*.bin
 /*.lbl

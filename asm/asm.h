@@ -6,22 +6,6 @@
 
 #include "abi.h"
 
-#define FORMAT(n)
-#ifdef __has_attribute
-#if __has_attribute(format)
-#undef FORMAT
-#define FORMAT(n) __attribute__((format(printf, (n), (n + 1))))
-#endif
-#endif
-
-#define NORETURN
-#ifdef __has_attribute
-#if __has_attribute(noreturn)
-#undef NORETURN
-#define NORETURN __attribute__((noreturn))
-#endif
-#endif
-
 FORMAT(1) NORETURN void panic(char const *fmt, ...);
 NORETURN void panicV(char const *fmt, va_list args);
 
