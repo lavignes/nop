@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,9 +41,13 @@ int main(int argc, char const *const *argv) {
         fprintf(stderr, "No port number specified\n");
         return EXIT_FAILURE;
       }
-      int p = atoi(argv[argi]);
-      if ((p <= 0) || (p > U16_MAX)) {
-        fprintf(stderr, "Invalid port number: %s\n", argv[argi]);
+      long p = strtol(argv[argi], NULL, 10);
+      if ((p == LONG_MIN) || (p == LONG_MAX)) {
+        perror("Invalid port number");
+        return EXIT_FAILURE;
+      }
+      if ((p < 1) || (p > 65535)) {
+        fprintf(stderr, "Port number must be between 1 and 65535\n");
         return EXIT_FAILURE;
       }
       port = (U16)p;
@@ -73,7 +78,7 @@ int main(int argc, char const *const *argv) {
     return EXIT_FAILURE;
   }
 
-  if (listen(serverFd, SESSIONS_MAX) < 0) {
+  if (listen(serverFd, SESSION_MAX) < 0) {
     perror("Failed to listen on server socket");
     close(serverFd);
     return EXIT_FAILURE;
@@ -108,7 +113,8 @@ int main(int argc, char const *const *argv) {
     }
 
     for (int i = 0; i < n; ++i) {
-      if (events[i].data.fd == serverFd) {
+      struct epoll_event *event = events + i;
+      if (event->data.fd == serverFd) {
         struct sockaddr_in clientAddr;
         socklen_t clientLen = sizeof(clientAddr);
         int clientFd =
@@ -125,7 +131,7 @@ int main(int argc, char const *const *argv) {
           continue;
         }
 
-        int opt = SESSION_TX_CAP;
+        int opt = RING_BUF_CAP;
         if (setsockopt(clientFd, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt)) <
             0) {
           perror("Failed to set send buffer size");
@@ -133,7 +139,7 @@ int main(int argc, char const *const *argv) {
           close(clientFd);
           continue;
         }
-        opt = SESSION_RX_CAP;
+        opt = RING_BUF_CAP;
         if (setsockopt(clientFd, SOL_SOCKET, SO_RCVBUF, &opt, sizeof(opt)) <
             0) {
           perror("Failed to set receive buffer size");
@@ -152,8 +158,14 @@ int main(int argc, char const *const *argv) {
           close(clientFd);
           continue;
         }
+        continue;
+      }
 
-      } else {
+      Session *session = sessionFindByFd(event->data.fd);
+      if (!session) {
+        fprintf(stderr, "Session not found for fd %d\n", event->data.fd);
+        close(event->data.fd);
+        continue;
       }
     }
   }

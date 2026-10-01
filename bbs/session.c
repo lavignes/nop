@@ -27,12 +27,12 @@ typedef struct {
   Session *session;
 } SessionGuid;
 
-SessionGuid sessionGuids[SESSIONS_MAX];
-Session sessions[SESSIONS_MAX];
+SessionGuid sessionGuids[SESSION_MAX];
+Session sessions[SESSION_MAX];
 UInt sessionsLen;
 
 void sessionInit() {
-  for (UInt i = 0; i < SESSIONS_MAX; ++i) {
+  for (UInt i = 0; i < SESSION_MAX; ++i) {
     sessions[i].fd = -1;
     sessionGuids[i].session = NULL;
   }
@@ -40,20 +40,20 @@ void sessionInit() {
 }
 
 Session *sessionAlloc(int fd, struct sockaddr_in const *addr) {
-  if (sessionsLen >= SESSIONS_MAX) {
+  if (sessionsLen >= SESSION_MAX) {
     return NULL;
   }
 
   Session *session = NULL;
-  UInt hash = ((UInt)fd) % SESSIONS_MAX;
-  for (UInt i = 0; i < SESSIONS_MAX; ++i) {
-    UInt idx = (hash + i) % SESSIONS_MAX;
+  UInt hash = ((UInt)fd) % SESSION_MAX;
+  for (UInt i = 0; i < SESSION_MAX; ++i) {
+    UInt idx = (hash + i) % SESSION_MAX;
     session = sessions + idx;
     if (session->fd < 0) {
       session->fd = fd;
       memcpy(&session->addr, addr, sizeof(struct sockaddr_in));
-      session->txLen = 0;
-      session->rxLen = 0;
+      ringBufInit(&session->tx);
+      ringBufInit(&session->rx);
     }
   }
 
@@ -61,9 +61,9 @@ Session *sessionAlloc(int fd, struct sockaddr_in const *addr) {
   if (guidGen(&guid) < 0) {
     return NULL;
   }
-  hash = guidHash(&guid) % SESSIONS_MAX;
-  for (UInt i = 0; i < SESSIONS_MAX; ++i) {
-    UInt idx = (hash + i) % SESSIONS_MAX;
+  hash = guidHash(&guid) % SESSION_MAX;
+  for (UInt i = 0; i < SESSION_MAX; ++i) {
+    UInt idx = (hash + i) % SESSION_MAX;
     SessionGuid *sg = sessionGuids + idx;
     if (sg->session == NULL) {
       sg->session = session;
@@ -78,9 +78,9 @@ Session *sessionAlloc(int fd, struct sockaddr_in const *addr) {
 }
 
 void sessionFree(Session *session) {
-  UInt hash = guidHash(session->guid) % SESSIONS_MAX;
-  for (UInt i = 0; i < SESSIONS_MAX; ++i) {
-    UInt idx = (hash + i) % SESSIONS_MAX;
+  UInt hash = guidHash(session->guid) % SESSION_MAX;
+  for (UInt i = 0; i < SESSION_MAX; ++i) {
+    UInt idx = (hash + i) % SESSION_MAX;
     SessionGuid *sg = sessionGuids + idx;
     if (sg->session == session) {
       sg->session = NULL;
@@ -92,10 +92,10 @@ void sessionFree(Session *session) {
   --sessionsLen;
 }
 
-Session *sessionFindById(int fd) {
-  UInt hash = ((UInt)fd) % SESSIONS_MAX;
-  for (UInt i = 0; i < SESSIONS_MAX; ++i) {
-    UInt idx = (hash + i) % SESSIONS_MAX;
+Session *sessionFindByFd(int fd) {
+  UInt hash = ((UInt)fd) % SESSION_MAX;
+  for (UInt i = 0; i < SESSION_MAX; ++i) {
+    UInt idx = (hash + i) % SESSION_MAX;
     Session *session = sessions + idx;
     if (sessions->fd == fd) {
       return session;
@@ -105,9 +105,9 @@ Session *sessionFindById(int fd) {
 }
 
 Session *sessionFindByGuid(Guid const *guid) {
-  UInt hash = guidHash(guid) % SESSIONS_MAX;
-  for (UInt i = 0; i < SESSIONS_MAX; ++i) {
-    UInt idx = (hash + i) % SESSIONS_MAX;
+  UInt hash = guidHash(guid) % SESSION_MAX;
+  for (UInt i = 0; i < SESSION_MAX; ++i) {
+    UInt idx = (hash + i) % SESSION_MAX;
     SessionGuid *sg = sessionGuids + idx;
     if (memcmp(&sg->guid, guid, sizeof(Guid)) == 0) {
       return sg->session;

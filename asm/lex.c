@@ -1,5 +1,6 @@
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -370,7 +371,11 @@ repeek:
         pushChar(lex, toupper(c));
         eatChar(lex);
       }
-      lex->file.num = atoi(lex->file.txt);
+      long num = strtol(lex->file.txt, NULL, 10);
+      if ((num < 0) || (num > 255)) {
+        lexFatal(lex, "Macro argument index out of range: %ld\n", num);
+      }
+      lex->file.num = num;
       lex->file.stash = TOK_ARG;
       return TOK_ARG;
     }
@@ -522,7 +527,11 @@ repeek:
       eatChar(lex);
       c = peekChar(lex);
     }
-    lex->file.num = strtol(lex->file.txt, NULL, radix);
+    long num = strtol(lex->file.txt, NULL, radix);
+    if ((num == LONG_MIN) || (num == LONG_MAX)) {
+      lexFatal(lex, "Number out of range: %s\n", lex->file.txt);
+    }
+    lex->file.num = num;
     lex->file.stash = TOK_NUM;
     return TOK_NUM;
   }
